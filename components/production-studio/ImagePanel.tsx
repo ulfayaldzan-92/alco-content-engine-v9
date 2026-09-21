@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
-import { injectCharacterToPrompt } from '@/lib/character-prompt';
+import { ImageTranslatedPromptBundle } from '@/lib/prompt-translation';
 
 export default function ImagePanel(props: any) {
   const {
@@ -33,6 +33,9 @@ export default function ImagePanel(props: any) {
     handleSelectCharacter,
     handleCreateCharacterClick,
     characterDNA,
+    imageTranslatedPromptBundle,
+    imageTranslatedPromptBundles,
+    imageTranslationError,
   } = props;
 
   if (!imageAnglesPackage || imageAnglesPackage.angles.length === 0) {
@@ -64,7 +67,10 @@ export default function ImagePanel(props: any) {
   const imageKey = `${sourceItem?.no || 1}_${activeAngle.id}`;
   const generatedImg = generatedImages[imageKey];
   const isGenerating = imageGeneratingKey === imageKey;
-  const effectivePrompt = injectCharacterToPrompt(activeAngle.finalPrompt, characterDNA, 'image');
+  
+  // Phase 4B-B: Authority prompt bundle resolution
+  const activeBundle = imageTranslatedPromptBundles?.[activeAngle.id] ?? (imageTranslatedPromptBundle?.candidate_id === activeAngle.id ? imageTranslatedPromptBundle : null);
+  const effectivePrompt = activeBundle?.execution_prompt ?? null;
 
   return (
     <div className="space-y-4">
@@ -115,11 +121,11 @@ export default function ImagePanel(props: any) {
         </div>
       </div>
 
-      {/* ERROR ALERT IF GENERATION FAILED */}
-      {imageGenerateError && (
+      {/* ERROR ALERT IF GENERATION OR TRANSLATION FAILED */}
+      {(imageGenerateError || imageTranslationError) && (
         <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-start gap-2.5 text-rose-800 text-xs shadow-xs">
           <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-600" />
-          <p className="font-medium leading-relaxed">{imageGenerateError}</p>
+          <p className="font-medium leading-relaxed">{imageGenerateError || `Gagal menerjemahkan prompt: ${imageTranslationError}`}</p>
         </div>
       )}
 

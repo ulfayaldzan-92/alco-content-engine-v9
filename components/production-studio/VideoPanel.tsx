@@ -41,9 +41,9 @@ import {
   resolveSelectedVideoProductionCandidate,
   getSceneTypeLabel,
   getRequiredAssetLabel,
-  buildCanonicalSceneProductionInstructions,
 } from '@/lib/video-canonical-scene-resolver';
 import { CharacterDNA } from '@/lib/content-contract';
+import { VideoTranslatedPromptBundle } from '@/lib/prompt-translation';
 import {
   VideoSceneCompletionState,
   getCompletedVideoSceneCount,
@@ -81,6 +81,8 @@ interface VideoPanelProps {
   videoProductionPackagePreparing?: boolean;
   videoProductionPackageError?: string | null;
   videoProductionPackagePrepared?: boolean;
+  videoTranslatedPromptBundle?: VideoTranslatedPromptBundle | null;
+  videoTranslationError?: string | null;
 }
 
 export default function VideoPanel(props: VideoPanelProps) {
@@ -114,6 +116,8 @@ export default function VideoPanel(props: VideoPanelProps) {
     videoProductionPackagePreparing,
     videoProductionPackageError,
     videoProductionPackagePrepared,
+    videoTranslatedPromptBundle,
+    videoTranslationError,
   } = props;
 
   // Single active scene state for focused progressive workspace
@@ -513,6 +517,8 @@ export default function VideoPanel(props: VideoPanelProps) {
           videoProductionPackagePreparing={videoProductionPackagePreparing}
           videoProductionPackageError={videoProductionPackageError}
           videoProductionPackagePrepared={videoProductionPackagePrepared}
+          videoTranslatedPromptBundle={videoTranslatedPromptBundle}
+          videoTranslationError={videoTranslationError}
         />
       )}
 
@@ -686,6 +692,8 @@ function WorkspaceCanonicalSceneView({
   videoProductionPackagePreparing,
   videoProductionPackageError,
   videoProductionPackagePrepared,
+  videoTranslatedPromptBundle,
+  videoTranslationError,
 }: {
   activeCandidate: VideoProductionCandidate;
   activeSceneNumber: number;
@@ -705,17 +713,16 @@ function WorkspaceCanonicalSceneView({
   videoProductionPackagePreparing?: boolean;
   videoProductionPackageError?: string | null;
   videoProductionPackagePrepared?: boolean;
+  videoTranslatedPromptBundle?: VideoTranslatedPromptBundle | null;
+  videoTranslationError?: string | null;
 }) {
   const canonicalScenes = activeCandidate.production_details.scenes;
   const activeScene: VideoSceneProductionPlan =
     canonicalScenes.find((s: VideoSceneProductionPlan) => s.scene_number === activeSceneNumber) || canonicalScenes[0];
 
-  const instructionResult = buildCanonicalSceneProductionInstructions({
-    scene: activeScene,
-    productionMode: selectedVideoProductionMode,
-    characterDNA,
-    productAssetContext,
-  });
+  const activeScenePrompt = videoTranslatedPromptBundle?.scenes?.find(
+    (s) => s.scene_number === activeScene.scene_number
+  );
 
   const completedScenesCount = getCompletedVideoSceneCount(videoSceneCompletionState);
   const allScenesCreated = areAllVideoScenesCreated(videoSceneCompletionState);
@@ -724,7 +731,7 @@ function WorkspaceCanonicalSceneView({
   );
   const isCurrentSceneCompleted = Boolean(currentSceneEntry?.clip_created);
 
-  if (!instructionResult.isValid || !instructionResult.instructions) {
+  if (!activeScenePrompt) {
     return (
       <div className="bg-[#fffdf8] border border-amber-200 rounded-2xl p-6 text-center space-y-2 shadow-xs">
         <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
@@ -733,16 +740,19 @@ function WorkspaceCanonicalSceneView({
         <h4 className="text-xs font-bold text-stone-900">
           Instruksi produksi scene tidak tersedia.
         </h4>
-        {instructionResult.error && (
-          <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
-            {instructionResult.error}
-          </p>
-        )}
+        <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
+          {videoTranslationError || 'Prompt translasi scene belum siap atau gagal diterjemahkan.'}
+        </p>
       </div>
     );
   }
 
-  const instructions = instructionResult.instructions;
+  const instructions = {
+    imagePrompt: activeScenePrompt.start_frame_prompt,
+    motionPrompt: activeScenePrompt.motion_prompt,
+    voiceover: activeScenePrompt.voiceover,
+    onScreenText: activeScenePrompt.on_screen_text,
+  };
 
   const imgCopyKey = `canonical_img_${activeScene.scene_number}_${activeStyleKey}`;
   const promptCopyKey = `canonical_prompt_${activeScene.scene_number}_${activeStyleKey}`;

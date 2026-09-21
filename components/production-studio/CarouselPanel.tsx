@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
-import { injectCharacterToPrompt } from '@/lib/character-prompt';
+import { CarouselTranslatedPromptBundle } from '@/lib/prompt-translation';
 import {
   CarouselSlideCompletionState,
   getCompletedCarouselSlideCount,
@@ -44,6 +44,8 @@ export default function CarouselPanel(props: any) {
     carouselProductionPackagePreparing,
     carouselProductionPackageError,
     carouselProductionPackagePrepared,
+    carouselTranslatedPromptBundle,
+    carouselTranslationError,
   } = props;
 
   const plan = carouselPlan || null;
@@ -119,7 +121,8 @@ export default function CarouselPanel(props: any) {
       negative_prompt: ''
     };
 
-    const effectiveImagePrompt = injectCharacterToPrompt(s.slide_image_prompt, characterDNA, vf);
+    const slideBundle = carouselTranslatedPromptBundle?.slides?.find((ts: any) => ts.slide_number === s.slide);
+    const effectiveImagePrompt = slideBundle?.execution_prompt || (carouselTranslationError ? `[TRANSLATION ERROR: ${carouselTranslationError}]` : s.slide_image_prompt || '-');
 
     return `--- SLIDE ${s.slide} (${(s.role || 'Content').toUpperCase()}) [Format: ${vf.toUpperCase()}] ---
 Headline: ${s.headline}
@@ -158,11 +161,10 @@ ${effectiveImagePrompt || '-'}
 ${s.production_prompt || '-'}`;
   };
 
-  const effectiveSlideImagePrompt = injectCharacterToPrompt(
-    activeSlide.slide_image_prompt,
-    characterDNA,
-    visualFormat
+  const activeSlidePrompt = carouselTranslatedPromptBundle?.slides?.find(
+    (ts: any) => ts.slide_number === activeSlideNum
   );
+  const effectiveSlideImagePrompt = activeSlidePrompt?.execution_prompt || null;
 
   const completedSlidesCount = getCompletedCarouselSlideCount(carouselSlideCompletionState);
   const allSlidesCreated = areAllCarouselSlidesCreated(carouselSlideCompletionState);
@@ -225,6 +227,17 @@ ${s.production_prompt || '-'}`;
           </button>
         </div>
       </div>
+
+      {/* TRANSLATION ERROR ALERT */}
+      {carouselTranslationError && (
+        <div className="bg-rose-50 border border-rose-200 p-3.5 rounded-xl flex items-start gap-2.5 text-rose-800 text-xs shadow-xs">
+          <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-600" />
+          <div className="space-y-0.5">
+            <span className="font-bold">Gagal Menerjemahkan Prompt Carousel</span>
+            <p className="text-rose-700 leading-relaxed">{carouselTranslationError}</p>
+          </div>
+        </div>
+      )}
 
       {/* 2. SLIDE NAVIGATION (Compact, focused buttons: [1] [2] [3]... ) */}
       <div className="bg-[#fffdf8] border border-[#e7e0d4] p-3 rounded-2xl shadow-xs">

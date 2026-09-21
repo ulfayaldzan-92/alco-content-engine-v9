@@ -75,6 +75,9 @@ import {
   translateImageProductionPrompt,
   translateCarouselProductionPrompts,
   translateVideoProductionPrompts,
+  ImageTranslatedPromptBundle,
+  CarouselTranslatedPromptBundle,
+  VideoTranslatedPromptBundle,
 } from '@/lib/prompt-translation';
 import { saveProductionPackage } from '@/lib/production-package-storage';
 import { ProductionPackageMetadata } from '@/lib/production-engine';
@@ -3400,7 +3403,7 @@ export default function ProductionStudioPage() {
         method: 'POST',
         headers: buildGeminiRequestHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          prompt: promptText,
+          prompt: translationResult.bundle.execution_prompt,
           aspectRatio: '4:5',
         }),
       });
@@ -4578,6 +4581,77 @@ ${formatDirection}${revisionDirective}`;
     });
   }, [selectedVideoProductionMode, productionEngineContext?.character_dna, productAssetContext]);
 
+  // Phase 4B-B: Top-level Execution Prompt Authority Translations
+
+  // 1. Image Translated Prompt Bundles
+  const imageTranslatedPromptBundles = useMemo<Record<string, ImageTranslatedPromptBundle | null>>(() => {
+    if (!imageAnglesPackage?.angles) return {};
+    const map: Record<string, ImageTranslatedPromptBundle | null> = {};
+    for (const angle of imageAnglesPackage.angles) {
+      if (angle.productionCandidate) {
+        const res = translateImageProductionPrompt({
+          candidate: angle.productionCandidate,
+          characterDNA: characterDNA || null,
+        });
+        map[angle.id] = res.ok ? res.bundle : null;
+      }
+    }
+    return map;
+  }, [imageAnglesPackage?.angles, characterDNA]);
+
+  const selectedImageCandidate = useMemo<ImageProductionCandidate | null>(() => {
+    if (!imageAnglesPackage?.angles) return null;
+    const found = imageAnglesPackage.angles.find((a) => a.id === selectedAngleId);
+    return found?.productionCandidate || null;
+  }, [imageAnglesPackage?.angles, selectedAngleId]);
+
+  const imageTranslationResult = useMemo(() => {
+    if (!selectedImageCandidate) return null;
+    return translateImageProductionPrompt({
+      candidate: selectedImageCandidate,
+      characterDNA: characterDNA || null,
+    });
+  }, [selectedImageCandidate, characterDNA]);
+
+  const imageTranslatedPromptBundle = imageTranslationResult?.ok ? imageTranslationResult.bundle : null;
+  const imageTranslationError = imageTranslationResult && !imageTranslationResult.ok ? imageTranslationResult.error : null;
+
+  // 2. Carousel Translated Prompt Bundle
+  const carouselTranslationResult = useMemo(() => {
+    if (!baseCarouselCandidate || !carouselPlan?.slides) return null;
+    const carouselSlideMetadata = carouselPlan.slides.map((s) => ({
+      slide_number: s.slide,
+      visual_format: s.visual_format,
+    }));
+    return translateCarouselProductionPrompts({
+      candidate: baseCarouselCandidate,
+      slides: carouselSlideMetadata,
+      characterDNA: productionEngineContext?.character_dna ?? characterDNA ?? null,
+    });
+  }, [baseCarouselCandidate, carouselPlan?.slides, productionEngineContext?.character_dna, characterDNA]);
+
+  const carouselTranslatedPromptBundle = carouselTranslationResult?.ok ? carouselTranslationResult.bundle : null;
+  const carouselTranslationError = carouselTranslationResult && !carouselTranslationResult.ok ? carouselTranslationResult.error : null;
+
+  // 3. Video Translated Prompt Bundle
+  const videoTranslationResult = useMemo(() => {
+    if (!activeVideoCandidate || !selectedVideoProductionMode) return null;
+    return translateVideoProductionPrompts({
+      candidate: activeVideoCandidate,
+      characterDNA:
+        selectedVideoProductionMode === 'human_led'
+          ? productionEngineContext?.character_dna ?? characterDNA ?? null
+          : null,
+      productAssetContext:
+        selectedVideoProductionMode === 'product_demo'
+          ? productAssetContext
+          : null,
+    });
+  }, [activeVideoCandidate, selectedVideoProductionMode, productionEngineContext?.character_dna, characterDNA, productAssetContext]);
+
+  const videoTranslatedPromptBundle = videoTranslationResult?.ok ? videoTranslationResult.bundle : null;
+  const videoTranslationError = videoTranslationResult && !videoTranslationResult.ok ? videoTranslationResult.error : null;
+
   // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature)
   const [videoSceneCompletionState, setVideoSceneCompletionState] =
     useState<VideoSceneCompletionState | null>(null);
@@ -5174,6 +5248,13 @@ ${formatDirection}${revisionDirective}`;
       carouselProductionPackagePreparing,
       carouselProductionPackageError,
       carouselProductionPackagePrepared,
+      imageTranslatedPromptBundle,
+      imageTranslatedPromptBundles,
+      imageTranslationError,
+      carouselTranslatedPromptBundle,
+      carouselTranslationError,
+      videoTranslatedPromptBundle,
+      videoTranslationError,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;

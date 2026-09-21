@@ -6,6 +6,9 @@ import {
   CarouselFinalPrompts,
   VideoProductionDetails,
   VideoExecutionPrompts,
+  ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+  isValidExecutionSignatureFormat,
   buildProductionStrategySnapshot,
   buildProductionContentSnapshot,
   buildProductionBrandVisualSnapshot,
@@ -22,23 +25,28 @@ import {
  * Strict boundary: does NOT accept project_id, content_item_id, funnel_stage,
  * strategy snapshots, content snapshots, brand snapshots, or production status.
  * All authoritative context and metadata must be derived from ProductionEngineContext.
+ *
+ * Phase 4C-A: execution_authority is required for all new ProductionAssetInput objects.
  */
 export type ProductionAssetInput =
   | {
       asset_type: 'image';
       image: ImageProductionDetails;
       final_prompt: string;
+      execution_authority: ExecutionPromptAuthority;
     }
   | {
       asset_type: 'carousel';
       carousel: CarouselProductionDetails;
       final_prompts: CarouselFinalPrompts;
+      execution_authority: ExecutionPromptAuthority;
     }
   | {
       asset_type: 'video';
       video: VideoProductionDetails;
       final_prompt: string;
       execution_prompts: VideoExecutionPrompts;
+      execution_authority: ExecutionPromptAuthority;
     };
 
 /**
@@ -143,6 +151,61 @@ function validateNewVideoExecutionPrompts(
         error: `Video execution_prompts scene ${expectedNum} on_screen_text must be a string.`,
       };
     }
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Pure validation helper for execution_authority in new package builds (Phase 4C-A).
+ * Fails closed if execution authority is missing, mismatching, or malformed.
+ */
+function validateNewExecutionAuthority(
+  authority: unknown,
+  expectedAssetType: ProductionAssetType
+): { isValid: boolean; error?: string } {
+  if (!authority || typeof authority !== 'object') {
+    return {
+      isValid: false,
+      error: 'Production asset input requires execution_authority (FAIL CLOSED).',
+    };
+  }
+
+  const auth = authority as ExecutionPromptAuthority;
+  const validAssetTypes: ProductionAssetType[] = ['image', 'carousel', 'video'];
+  if (!validAssetTypes.includes(auth.asset_type)) {
+    return {
+      isValid: false,
+      error: `Invalid execution_authority.asset_type: "${auth.asset_type}".`,
+    };
+  }
+
+  if (auth.asset_type !== expectedAssetType) {
+    return {
+      isValid: false,
+      error: `execution_authority.asset_type ("${auth.asset_type}") does not match assetInput.asset_type ("${expectedAssetType}").`,
+    };
+  }
+
+  if (typeof auth.candidate_id !== 'string' || !auth.candidate_id.trim()) {
+    return {
+      isValid: false,
+      error: 'execution_authority.candidate_id must be a non-empty string.',
+    };
+  }
+
+  if (auth.contract_version !== EXECUTION_PROMPT_CONTRACT_VERSION) {
+    return {
+      isValid: false,
+      error: `Invalid execution_authority.contract_version: "${auth.contract_version}". Expected "${EXECUTION_PROMPT_CONTRACT_VERSION}".`,
+    };
+  }
+
+  if (!isValidExecutionSignatureFormat(expectedAssetType, auth.execution_signature)) {
+    return {
+      isValid: false,
+      error: `Invalid execution_authority.execution_signature format for ${expectedAssetType}: "${auth.execution_signature}".`,
+    };
   }
 
   return { isValid: true };
@@ -270,6 +333,18 @@ export function buildProductionPackage(
     };
   }
 
+  // 6.5. Validate execution_authority presence & structure on assetInput (Phase 4C-A)
+  const authValidation = validateNewExecutionAuthority(
+    (assetInput as any).execution_authority,
+    assetInput.asset_type
+  );
+  if (!authValidation.isValid) {
+    return {
+      isValid: false,
+      error: authValidation.error || 'Invalid execution_authority on production asset input.',
+    };
+  }
+
   // 7. Build authoritative snapshots from authoritative context (fail-closed on error)
   let strategySnapshot;
   let contentSnapshot;
@@ -304,6 +379,7 @@ export function buildProductionPackage(
     strategy_snapshot: strategySnapshot,
     content_snapshot: contentSnapshot,
     ...(brandVisualSnapshot ? { brand_visual_snapshot: brandVisualSnapshot } : {}),
+    execution_authority: assetInput.execution_authority,
   };
 
   // 9. Build typed candidate based on asset_type

@@ -1,6 +1,17 @@
 import { FunnelStage, parseStrictFunnelStage } from './funnel-rules';
 import { SharedContentContext, ContentItem } from './content-contract';
 import { FunnelStrategy } from './funnel-strategy';
+import {
+  type ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+  isValidExecutionSignatureFormat,
+} from './execution-prompt-authority';
+
+export {
+  type ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+  isValidExecutionSignatureFormat,
+};
 
 export type ProductionAssetType = 'image' | 'carousel' | 'video';
 
@@ -70,6 +81,7 @@ export interface ProductionPackageBase {
   strategy_snapshot: ProductionStrategySnapshot;
   content_snapshot: ProductionContentSnapshot;
   brand_visual_snapshot?: ProductionBrandVisualSnapshot;
+  execution_authority?: ExecutionPromptAuthority;
 }
 
 /**
@@ -398,6 +410,49 @@ export function validateProductionPackage(pkg: any): { isValid: boolean; error?:
           error: 'brand_visual_snapshot.image_style_rules must be an array of strings if provided.',
         };
       }
+    }
+  }
+
+  // 8.5. Execution Prompt Authority (Phase 4C-A)
+  // Optional for legacy persisted packages, but strictly validated if present
+  if (pkg.execution_authority !== undefined) {
+    const auth = pkg.execution_authority;
+    if (!auth || typeof auth !== 'object') {
+      return {
+        isValid: false,
+        error: 'execution_authority must be a non-null object if present.',
+      };
+    }
+    const validAssetTypes: ProductionAssetType[] = ['image', 'carousel', 'video'];
+    if (!validAssetTypes.includes(auth.asset_type)) {
+      return {
+        isValid: false,
+        error: `Invalid execution_authority.asset_type "${auth.asset_type}".`,
+      };
+    }
+    if (auth.asset_type !== pkg.asset_type) {
+      return {
+        isValid: false,
+        error: `execution_authority.asset_type ("${auth.asset_type}") does not match package asset_type ("${pkg.asset_type}").`,
+      };
+    }
+    if (typeof auth.candidate_id !== 'string' || !auth.candidate_id.trim()) {
+      return {
+        isValid: false,
+        error: 'execution_authority.candidate_id must be a non-empty string.',
+      };
+    }
+    if (auth.contract_version !== EXECUTION_PROMPT_CONTRACT_VERSION) {
+      return {
+        isValid: false,
+        error: `Invalid execution_authority.contract_version "${auth.contract_version}". Expected "${EXECUTION_PROMPT_CONTRACT_VERSION}".`,
+      };
+    }
+    if (!isValidExecutionSignatureFormat(pkg.asset_type, auth.execution_signature)) {
+      return {
+        isValid: false,
+        error: `Invalid execution_authority.execution_signature format for ${pkg.asset_type}: "${auth.execution_signature}".`,
+      };
     }
   }
 

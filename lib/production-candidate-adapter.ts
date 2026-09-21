@@ -37,23 +37,17 @@ export function adaptProductionCandidateToAssetInput(
 
   if (candidate.candidate_type === 'image') {
     return {
-      ok: true,
-      assetInput: {
-        asset_type: 'image',
-        image: candidate.production_details,
-        final_prompt: candidate.final_prompt,
-      },
+      ok: false,
+      error:
+        'Image ProductionAssetInput requires translated execution prompt authority. Use TranslatedProductionPromptBundle binding workflow.',
     };
   }
 
   if (candidate.candidate_type === 'carousel') {
     return {
-      ok: true,
-      assetInput: {
-        asset_type: 'carousel',
-        carousel: candidate.production_details,
-        final_prompts: candidate.final_prompts,
-      },
+      ok: false,
+      error:
+        'Carousel ProductionAssetInput requires translated execution prompt authority. Use TranslatedProductionPromptBundle binding workflow.',
     };
   }
 

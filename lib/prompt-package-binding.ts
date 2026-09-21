@@ -7,6 +7,7 @@ import type {
   VideoTranslatedPromptBundle,
 } from './prompt-translation';
 import { validateProductionCandidate } from './production-candidate';
+import { buildExecutionPromptAuthority } from './execution-prompt-authority';
 
 export type BindTranslatedBundleResult =
   | {
@@ -19,8 +20,9 @@ export type BindTranslatedBundleResult =
     };
 
 /**
- * Pure binding boundary for Phase 4B-A.
+ * Pure binding boundary for Phase 4B-A & Phase 4C-A.
  * Validates strict alignment between canonical ProductionCandidate and TranslatedProductionPromptBundle,
+ * builds deterministic ExecutionPromptAuthority,
  * then constructs authoritative ProductionAssetInput with translated execution authority.
  *
  * IMMUTABLE & FAIL-CLOSED:
@@ -65,7 +67,16 @@ export function bindTranslatedPromptBundleToAssetInput(
     };
   }
 
-  // 4. Asset-specific binding
+  // 4. Build ExecutionPromptAuthority (Phase 4C-A)
+  const authorityResult = buildExecutionPromptAuthority(bundle);
+  if (!authorityResult.ok) {
+    return {
+      ok: false,
+      error: `Failed to construct execution authority: ${authorityResult.error}`,
+    };
+  }
+
+  // 5. Asset-specific binding
   if (candidate.candidate_type === 'image' && bundle.asset_type === 'image') {
     const imgBundle = bundle as ImageTranslatedPromptBundle;
     if (typeof imgBundle.execution_prompt !== 'string' || !imgBundle.execution_prompt.trim()) {
@@ -79,6 +90,7 @@ export function bindTranslatedPromptBundleToAssetInput(
       asset_type: 'image',
       image: candidate.production_details,
       final_prompt: imgBundle.execution_prompt,
+      execution_authority: authorityResult.authority,
     };
 
     return { ok: true, assetInput };
@@ -151,6 +163,7 @@ export function bindTranslatedPromptBundleToAssetInput(
         master_prompt: carBundle.master_prompt,
         slides,
       },
+      execution_authority: authorityResult.authority,
     };
 
     return { ok: true, assetInput };
@@ -255,6 +268,7 @@ export function bindTranslatedPromptBundleToAssetInput(
           },
         ],
       },
+      execution_authority: authorityResult.authority,
     };
 
     return { ok: true, assetInput };

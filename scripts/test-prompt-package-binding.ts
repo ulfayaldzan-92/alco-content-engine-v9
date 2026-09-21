@@ -34,6 +34,7 @@ import {
   VideoProductionPackage,
 } from '../lib/production-contract';
 import { buildFunnelStrategyFromContext } from '../lib/funnel-strategy';
+import { adaptProductionCandidateToAssetInput } from '../lib/production-candidate-adapter';
 
 console.log('--- RUNNING PHASE 4B-A TEST SUITE: PROMPT-PACKAGE BINDING ---');
 
@@ -658,6 +659,65 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
   console.log('✅ Test 18: Backward compatibility: VideoProductionPackage without execution_prompts remains valid');
 }
 
+// --------------------------------------------------
+// Test 19: Raw Production Candidate Adapter Fail-Closed for Video
+// --------------------------------------------------
+{
+  const imgCand = makeImageCandidate();
+  const imgAdaptRes = adaptProductionCandidateToAssetInput(imgCand);
+  assert.strictEqual(imgAdaptRes.ok, true, 'Test 19a: Image candidate adapts normally');
+  if (imgAdaptRes.ok) {
+    assert.strictEqual(imgAdaptRes.assetInput.asset_type, 'image');
+  }
+
+  const carCand = makeCarouselCandidate();
+  const carAdaptRes = adaptProductionCandidateToAssetInput(carCand);
+  assert.strictEqual(carAdaptRes.ok, true, 'Test 19b: Carousel candidate adapts normally');
+  if (carAdaptRes.ok) {
+    assert.strictEqual(carAdaptRes.assetInput.asset_type, 'carousel');
+  }
+
+  const vidCand = makeVideoCandidate('human_led');
+  const vidAdaptRes = adaptProductionCandidateToAssetInput(vidCand);
+  assert.strictEqual(vidAdaptRes.ok, false, 'Test 19c: Raw Video candidate must fail closed in adaptProductionCandidateToAssetInput');
+  if (!vidAdaptRes.ok) {
+    assert.ok(
+      vidAdaptRes.error.includes('Video ProductionAssetInput requires translated execution prompt authority'),
+      'Test 19d: Error clearly indicates translated execution prompt authority is required'
+    );
+  }
+
+  // Verify that full canonical path via TranslatedProductionPromptBundle still succeeds
+  const projId = 'proj_bind_123';
+  const mockCtx = makeMockContext(projId);
+  const mockItem = makeMockContentItem(projId, 'item_bind_001');
+  const funnelStrat = buildFunnelStrategyFromContext(mockCtx);
+  const engineCtxRes = buildProductionEngineContext(projId, mockCtx, funnelStrat, mockItem);
+  assert.strictEqual(engineCtxRes.isValid, true);
+  const dna = makeMockCharacterDNA();
+  const transRes = translateVideoProductionPrompts({
+    candidate: vidCand,
+    characterDNA: dna,
+  });
+  assert.strictEqual(transRes.ok, true);
+  if (transRes.ok && engineCtxRes.isValid && engineCtxRes.context) {
+    const bindRes = bindTranslatedPromptBundleToAssetInput(vidCand, transRes.bundle);
+    assert.strictEqual(bindRes.ok, true);
+    if (bindRes.ok) {
+      const meta: ProductionPackageMetadata = {
+        package_id: 'pkg_adapter_canonical_v1',
+        created_at: new Date().toISOString(),
+      };
+      const buildRes = buildProductionPackage(engineCtxRes.context, bindRes.assetInput, meta);
+      assert.strictEqual(buildRes.isValid, true, 'Test 19e: Video package creation through translation + binding succeeds');
+      assert.strictEqual(buildRes.package?.asset_type, 'video');
+      assert.ok(buildRes.package?.execution_prompts, 'Test 19f: Resulting Video package has valid execution_prompts');
+    }
+  }
+
+  console.log('✅ Test 19: Raw Video Candidate Adapter boundary fails closed, requiring translated execution authority');
+}
+
 // ==================================================
 // STATIC ARCHITECTURE GUARDS
 // ==================================================
@@ -681,4 +741,22 @@ console.log('\n--- STATIC ARCHITECTURE GUARDS ---');
   console.log('✅ Guard 2: lib/prompt-package-binding.ts does not import React or Gemini');
 }
 
-console.log('\n🎉 ALL 18 PROMPT-PACKAGE BINDING TESTS AND STATIC GUARDS PASSED (100% OK)');
+// Guard 3: production-candidate-adapter.ts does not import prompt-translation
+{
+  const adapterSource = fs.readFileSync(path.join(process.cwd(), 'lib', 'production-candidate-adapter.ts'), 'utf-8');
+  assert(!adapterSource.includes('prompt-translation'), 'Guard 3: lib/production-candidate-adapter.ts must NOT import prompt-translation');
+  console.log('✅ Guard 3: lib/production-candidate-adapter.ts does not import prompt-translation');
+}
+
+// Guard 4: production-candidate-adapter.ts does not fabricate Video execution_prompts
+{
+  const adapterSource = fs.readFileSync(path.join(process.cwd(), 'lib', 'production-candidate-adapter.ts'), 'utf-8');
+  assert(!adapterSource.includes('start_frame_prompt: s.visual_direction'), 'Guard 4a: Adapter must not derive start_frame_prompt from visual_direction');
+  assert(!adapterSource.includes('s.visual_direction'), 'Guard 4b: Adapter must not reference s.visual_direction for execution prompts');
+  assert(!adapterSource.includes('motion_prompt: s.action'), 'Guard 4c: Adapter must not derive motion_prompt from action');
+  assert(!adapterSource.includes('s.action'), 'Guard 4d: Adapter must not reference s.action for execution prompts');
+  assert(!adapterSource.includes('VideoExecutionPrompts'), 'Guard 4e: Adapter must not construct VideoExecutionPrompts');
+  console.log('✅ Guard 4: lib/production-candidate-adapter.ts does not fabricate execution prompts');
+}
+
+console.log('\n🎉 ALL 19 PROMPT-PACKAGE BINDING TESTS AND STATIC GUARDS PASSED (100% OK)');

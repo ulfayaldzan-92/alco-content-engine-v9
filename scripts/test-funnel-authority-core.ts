@@ -3037,7 +3037,7 @@ assert(
   'Test P3C-B-02b: selectProductionCandidate explicitly selects carousel_plan'
 );
 
-// P3C-B-03: Video candidate adapter happy path (human_led, product_demo, motion_explainer -> all asset_type 'video')
+// P3C-B-03: Raw Video candidate adapter fails closed (requires translated execution prompt authority via bundle binding)
 const p3cbVideoModes: Array<'human_led' | 'product_demo' | 'motion_explainer'> = ['human_led', 'product_demo', 'motion_explainer'];
 for (const mode of p3cbVideoModes) {
   const videoCand = buildVideoProductionCandidate({
@@ -3059,11 +3059,9 @@ for (const mode of p3cbVideoModes) {
   });
   const videoAdapterRes = adaptProductionCandidateToAssetInput(videoCand);
   assert(
-    videoAdapterRes.ok === true &&
-    videoAdapterRes.assetInput.asset_type === 'video' &&
-    videoAdapterRes.assetInput.video === videoCand.production_details &&
-    videoAdapterRes.assetInput.final_prompt === 'Final Prompt Video',
-    `Test P3C-B-03 (${mode}): Video candidate converts to asset_type 'video'`
+    videoAdapterRes.ok === false &&
+    videoAdapterRes.error.includes('Video ProductionAssetInput requires translated execution prompt authority'),
+    `Test P3C-B-03 (${mode}): Raw Video candidate adaptation fails closed requiring translated execution authority`
   );
 }
 

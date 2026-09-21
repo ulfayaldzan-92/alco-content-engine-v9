@@ -950,12 +950,12 @@ function WorkspaceCanonicalSceneView({
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[10px] px-2 py-0.5 rounded bg-stone-200 text-stone-700 font-mono font-medium">
-                {countWords(activeScene.voiceover)} kata &bull; ~{activeScene.duration_seconds} detik
+                {countWords(instructions.voiceover)} kata &bull; ~{activeScene.duration_seconds} detik
               </span>
-              {activeScene.voiceover && (
+              {instructions.voiceover && (
                 <button
                   type="button"
-                  onClick={() => handleCopyText(dialogueCopyKey, activeScene.voiceover, 'none')}
+                  onClick={() => handleCopyText(dialogueCopyKey, instructions.voiceover, 'none')}
                   className="text-[11px] font-bold text-primary hover:underline cursor-pointer flex items-center gap-1"
                 >
                   {isDialogueCopied ? <Check size={12} /> : <Copy size={12} />}
@@ -965,12 +965,12 @@ function WorkspaceCanonicalSceneView({
             </div>
           </div>
           <p className="text-xs text-stone-900 font-medium leading-relaxed italic bg-[#fffdf8] p-2.5 rounded-lg border border-[#e7e0d4]">
-            {activeScene.voiceover ? `“${activeScene.voiceover}”` : '—'}
+            {instructions.voiceover ? `“${instructions.voiceover}”` : '—'}
           </p>
         </div>
 
         {/* ON-SCREEN TEXT BLOCK */}
-        {activeScene.on_screen_text && (
+        {instructions.onScreenText && (
           <div className="bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl p-3.5 space-y-1.5">
             <div className="flex items-center justify-between flex-wrap gap-2 text-[11px]">
               <span className="font-semibold text-stone-600 flex items-center gap-1.5">
@@ -980,7 +980,7 @@ function WorkspaceCanonicalSceneView({
               <button
                 type="button"
                 onClick={() =>
-                  handleCopyText(overlayCopyKey, activeScene.on_screen_text, 'none')
+                  handleCopyText(overlayCopyKey, instructions.onScreenText, 'none')
                 }
                 className="text-[11px] font-bold text-primary hover:underline cursor-pointer flex items-center gap-1"
               >
@@ -989,7 +989,7 @@ function WorkspaceCanonicalSceneView({
               </button>
             </div>
             <p className="text-xs text-stone-900 font-semibold bg-[#fffdf8] p-2.5 rounded-lg border border-[#e7e0d4]">
-              {activeScene.on_screen_text}
+              {instructions.onScreenText}
             </p>
           </div>
         )}

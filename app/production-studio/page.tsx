@@ -3270,13 +3270,13 @@ export default function ProductionStudioPage() {
   const [imageGeneratingKey, setImageGeneratingKey] = useState<string | null>(null);
   const [imageGenerateError, setImageGenerateError] = useState<string | null>(null);
 
-  const handleGenerateImage = async (promptText: string, angleId: string) => {
+  const handleGenerateImage = async (angleId: string) => {
     if (!hasCustomKey) {
       showToast('Hubungkan Gemini API Key dulu untuk menggunakan fitur generate visual.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    if (!promptText || !promptText.trim() || !!imageGeneratingKey || !canonicalProjectId) return;
+    if (!angleId || !!imageGeneratingKey || !canonicalProjectId) return;
 
     // Strict authority check (NO fallback item)
     if (!sourceItem) {
@@ -3327,6 +3327,15 @@ export default function ProductionStudioPage() {
       return;
     }
 
+    // Phase 4B-B: Resolve the current translated bundle for angleId from page-level authority (Fail-Closed)
+    const translatedBundle = imageTranslatedPromptBundles?.[angleId] ?? null;
+    if (!translatedBundle) {
+      const transErr = imageTranslationError || `Translated prompt bundle untuk angle [${angleId}] tidak tersedia. Production package diblokir.`;
+      setImageGenerateError(transErr);
+      showToast(`Gagal: ${transErr}`);
+      return;
+    }
+
     // Package metadata generation in caller
     if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
       setImageGenerateError('API crypto.randomUUID tidak tersedia untuk pembuatan metadata production package.');
@@ -3339,29 +3348,16 @@ export default function ProductionStudioPage() {
       created_at: new Date().toISOString(),
     };
 
-    // Phase 4B: Translate candidate prompt to canonical execution prompt bundle
-    const translationResult = translateImageProductionPrompt({
-      candidate: selectedCandidate,
-      characterDNA: characterDNA || null,
-    });
-
-    if (!translationResult.ok) {
-      const transErr = translationResult.error || 'Gagal menerjemahkan prompt image ke format eksekusi.';
-      setImageGenerateError(transErr);
-      showToast(`Gagal: ${transErr}`);
-      return;
-    }
-
-    // Prepare Production Package
+    // Prepare Production Package using exact translated bundle
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
       sharedContext: sharedContextSnapshot,
       funnelStrategy: funnelStrategySnapshot,
       contentItem: sourceItem,
-      characterDNA: characterDNA || undefined,
+      characterDNA: productionEngineContext?.character_dna || undefined,
       candidates,
       selectedCandidateId: angleId,
-      translatedPromptBundle: translationResult.bundle,
+      translatedPromptBundle: translatedBundle,
       metadata: packageMetadata,
     });
 
@@ -3403,7 +3399,7 @@ export default function ProductionStudioPage() {
         method: 'POST',
         headers: buildGeminiRequestHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          prompt: translationResult.bundle.execution_prompt,
+          prompt: translatedBundle.execution_prompt,
           aspectRatio: '4:5',
         }),
       });
@@ -4581,44 +4577,38 @@ ${formatDirection}${revisionDirective}`;
     });
   }, [selectedVideoProductionMode, productionEngineContext?.character_dna, productAssetContext]);
 
-  // Phase 4B-B: Top-level Execution Prompt Authority Translations
+  // Phase 4B-B: Top-level Execution Prompt Authority Translations (Requires Authoritative ProductionEngineContext)
 
-  // 1. Image Translated Prompt Bundles
-  const imageTranslatedPromptBundles = useMemo<Record<string, ImageTranslatedPromptBundle | null>>(() => {
-    if (!imageAnglesPackage?.angles) return {};
-    const map: Record<string, ImageTranslatedPromptBundle | null> = {};
+  // 1. Image Translated Prompt Bundles (Single translation authority per candidate)
+  const imageTranslationResults = useMemo<Record<string, ReturnType<typeof translateImageProductionPrompt>>>(() => {
+    if (!productionEngineContext || !imageAnglesPackage?.angles) return {};
+    const map: Record<string, ReturnType<typeof translateImageProductionPrompt>> = {};
     for (const angle of imageAnglesPackage.angles) {
       if (angle.productionCandidate) {
-        const res = translateImageProductionPrompt({
+        map[angle.id] = translateImageProductionPrompt({
           candidate: angle.productionCandidate,
-          characterDNA: characterDNA || null,
+          characterDNA: productionEngineContext.character_dna ?? null,
         });
-        map[angle.id] = res.ok ? res.bundle : null;
       }
     }
     return map;
-  }, [imageAnglesPackage?.angles, characterDNA]);
+  }, [productionEngineContext, imageAnglesPackage?.angles]);
 
-  const selectedImageCandidate = useMemo<ImageProductionCandidate | null>(() => {
-    if (!imageAnglesPackage?.angles) return null;
-    const found = imageAnglesPackage.angles.find((a) => a.id === selectedAngleId);
-    return found?.productionCandidate || null;
-  }, [imageAnglesPackage?.angles, selectedAngleId]);
+  const imageTranslatedPromptBundles = useMemo<Record<string, ImageTranslatedPromptBundle | null>>(() => {
+    const map: Record<string, ImageTranslatedPromptBundle | null> = {};
+    for (const [id, res] of Object.entries(imageTranslationResults)) {
+      map[id] = res.ok ? (res.bundle as ImageTranslatedPromptBundle) : null;
+    }
+    return map;
+  }, [imageTranslationResults]);
 
-  const imageTranslationResult = useMemo(() => {
-    if (!selectedImageCandidate) return null;
-    return translateImageProductionPrompt({
-      candidate: selectedImageCandidate,
-      characterDNA: characterDNA || null,
-    });
-  }, [selectedImageCandidate, characterDNA]);
+  const selectedImageTranslationResult = selectedAngleId ? (imageTranslationResults[selectedAngleId] ?? null) : null;
+  const imageTranslatedPromptBundle = selectedImageTranslationResult?.ok ? (selectedImageTranslationResult.bundle as ImageTranslatedPromptBundle) : null;
+  const imageTranslationError = selectedImageTranslationResult && !selectedImageTranslationResult.ok ? selectedImageTranslationResult.error : null;
 
-  const imageTranslatedPromptBundle = imageTranslationResult?.ok ? imageTranslationResult.bundle : null;
-  const imageTranslationError = imageTranslationResult && !imageTranslationResult.ok ? imageTranslationResult.error : null;
-
-  // 2. Carousel Translated Prompt Bundle
+  // 2. Carousel Translated Prompt Bundle (Requires Authoritative ProductionEngineContext)
   const carouselTranslationResult = useMemo(() => {
-    if (!baseCarouselCandidate || !carouselPlan?.slides) return null;
+    if (!productionEngineContext || !baseCarouselCandidate || !carouselPlan?.slides) return null;
     const carouselSlideMetadata = carouselPlan.slides.map((s) => ({
       slide_number: s.slide,
       visual_format: s.visual_format,
@@ -4626,30 +4616,30 @@ ${formatDirection}${revisionDirective}`;
     return translateCarouselProductionPrompts({
       candidate: baseCarouselCandidate,
       slides: carouselSlideMetadata,
-      characterDNA: productionEngineContext?.character_dna ?? characterDNA ?? null,
+      characterDNA: productionEngineContext.character_dna ?? null,
     });
-  }, [baseCarouselCandidate, carouselPlan?.slides, productionEngineContext?.character_dna, characterDNA]);
+  }, [productionEngineContext, baseCarouselCandidate, carouselPlan?.slides]);
 
-  const carouselTranslatedPromptBundle = carouselTranslationResult?.ok ? carouselTranslationResult.bundle : null;
+  const carouselTranslatedPromptBundle = carouselTranslationResult?.ok ? (carouselTranslationResult.bundle as CarouselTranslatedPromptBundle) : null;
   const carouselTranslationError = carouselTranslationResult && !carouselTranslationResult.ok ? carouselTranslationResult.error : null;
 
-  // 3. Video Translated Prompt Bundle
+  // 3. Video Translated Prompt Bundle (Requires Authoritative ProductionEngineContext)
   const videoTranslationResult = useMemo(() => {
-    if (!activeVideoCandidate || !selectedVideoProductionMode) return null;
+    if (!productionEngineContext || !activeVideoCandidate || !selectedVideoProductionMode) return null;
     return translateVideoProductionPrompts({
       candidate: activeVideoCandidate,
       characterDNA:
         selectedVideoProductionMode === 'human_led'
-          ? productionEngineContext?.character_dna ?? characterDNA ?? null
+          ? productionEngineContext.character_dna ?? null
           : null,
       productAssetContext:
         selectedVideoProductionMode === 'product_demo'
           ? productAssetContext
           : null,
     });
-  }, [activeVideoCandidate, selectedVideoProductionMode, productionEngineContext?.character_dna, characterDNA, productAssetContext]);
+  }, [productionEngineContext, activeVideoCandidate, selectedVideoProductionMode, productAssetContext]);
 
-  const videoTranslatedPromptBundle = videoTranslationResult?.ok ? videoTranslationResult.bundle : null;
+  const videoTranslatedPromptBundle = videoTranslationResult?.ok ? (videoTranslationResult.bundle as VideoTranslatedPromptBundle) : null;
   const videoTranslationError = videoTranslationResult && !videoTranslationResult.ok ? videoTranslationResult.error : null;
 
   // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature)
@@ -4846,6 +4836,16 @@ ${formatDirection}${revisionDirective}`;
       return;
     }
 
+    // Require page-level videoTranslatedPromptBundle (Fail-Closed)
+    if (!videoTranslatedPromptBundle) {
+      const bundleErr =
+        videoTranslationError ||
+        'Translated prompt bundle video tidak tersedia. Production package diblokir.';
+      setVideoProductionPackageError(bundleErr);
+      showToast(`Gagal: ${bundleErr}`);
+      return;
+    }
+
     const packageMetadata: ProductionPackageMetadata = {
       package_id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
@@ -4854,30 +4854,7 @@ ${formatDirection}${revisionDirective}`;
     setVideoProductionPackagePreparing(true);
     setVideoProductionPackageError(null);
 
-    // Phase 4B: Translate video candidate to canonical execution prompt bundle
-    const translationResult = translateVideoProductionPrompts({
-      candidate: activeVideoCandidate,
-      characterDNA:
-        selectedVideoProductionMode === 'human_led'
-          ? productionEngineContext?.character_dna ?? characterDNA ?? null
-          : null,
-      productAssetContext:
-        selectedVideoProductionMode === 'product_demo'
-          ? productAssetContext
-          : null,
-    });
-
-    if (!translationResult.ok) {
-      const transErr =
-        translationResult.error ||
-        'Gagal menerjemahkan prompt video ke format eksekusi.';
-      setVideoProductionPackageError(transErr);
-      setVideoProductionPackagePreparing(false);
-      showToast(`Gagal: ${transErr}`);
-      return;
-    }
-
-    // 6. Prepare production package using exact activeVideoCandidate.candidate_id
+    // 6. Prepare production package using exact activeVideoCandidate.candidate_id and page-level bundle
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
       sharedContext: sharedContextSnapshot,
@@ -4886,7 +4863,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA: productionEngineContext?.character_dna || undefined,
       candidates: canonicalVideoCandidates,
       selectedCandidateId: activeVideoCandidate.candidate_id,
-      translatedPromptBundle: translationResult.bundle,
+      translatedPromptBundle: videoTranslatedPromptBundle,
       metadata: packageMetadata,
     });
 
@@ -5130,6 +5107,16 @@ ${formatDirection}${revisionDirective}`;
       return;
     }
 
+    // Require page-level carouselTranslatedPromptBundle (Fail-Closed)
+    if (!carouselTranslatedPromptBundle) {
+      const bundleErr =
+        carouselTranslationError ||
+        'Translated prompt bundle carousel tidak tersedia. Production package diblokir.';
+      setCarouselProductionPackageError(bundleErr);
+      showToast(`Gagal: ${bundleErr}`);
+      return;
+    }
+
     const packageMetadata: ProductionPackageMetadata = {
       package_id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
@@ -5138,29 +5125,7 @@ ${formatDirection}${revisionDirective}`;
     setCarouselProductionPackagePreparing(true);
     setCarouselProductionPackageError(null);
 
-    // Phase 4B: Translate base canonical carousel candidate to canonical execution prompt bundle
-    const carouselSlideMetadata = carouselPlan.slides.map((s) => ({
-      slide_number: s.slide,
-      visual_format: s.visual_format,
-    }));
-
-    const translationResult = translateCarouselProductionPrompts({
-      candidate: baseCarouselCandidate,
-      slides: carouselSlideMetadata,
-      characterDNA: productionEngineContext?.character_dna ?? characterDNA ?? null,
-    });
-
-    if (!translationResult.ok) {
-      const transErr =
-        translationResult.error ||
-        'Gagal menerjemahkan prompt carousel ke format eksekusi.';
-      setCarouselProductionPackageError(transErr);
-      setCarouselProductionPackagePreparing(false);
-      showToast(`Gagal: ${transErr}`);
-      return;
-    }
-
-    // 6. Prepare production package using canonical base candidate
+    // 6. Prepare production package using canonical base candidate and page-level bundle
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
       sharedContext: sharedContextSnapshot,
@@ -5169,7 +5134,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA: productionEngineContext?.character_dna || undefined,
       candidates: [baseCarouselCandidate],
       selectedCandidateId: baseCarouselCandidate.candidate_id,
-      translatedPromptBundle: translationResult.bundle,
+      translatedPromptBundle: carouselTranslatedPromptBundle,
       metadata: packageMetadata,
     });
 

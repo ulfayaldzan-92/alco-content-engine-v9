@@ -74,7 +74,6 @@ function makeMockContext(projectId: string = 'proj_auth_123'): SharedContentCont
       is_complete_for_planning: true,
       missing_required_fields: [],
     },
-    character_dna: null,
   };
 }
 
@@ -86,11 +85,9 @@ function makeMockContentItem(projectId: string = 'proj_auth_123', itemId: string
     projectId: projectId,
     tanggal: '2026-09-21',
     jenis: 'TOFU (Awareness)',
-    funnel_stage: 'TOFU',
-    pillar: 'Engineering Excellence',
     format: 'Single Image Feed',
-    target_audience: 'Founders',
-    angle: 'Speed up',
+    hookType: 'Question',
+    referensi: 'Ref 1',
     headline: 'Consistent Visuals Across Surfaces',
     body: 'How single-source translation eliminates prompt drift.',
     caption: 'Learn the new unified architecture.',
@@ -104,25 +101,22 @@ function makeMockContentItem(projectId: string = 'proj_auth_123', itemId: string
 const mockCharacterDNA: CharacterDNA = {
   character_id: 'char_authority_001',
   project_id: 'proj_auth_123',
+  reference_images: ['https://example.com/ref.png'],
   identity: {
     display_name: 'Maya Pratama',
-    role_profession: 'Content Architect & Founder',
-    gender: 'female',
+    gender_presentation: 'female',
     estimated_age_range: '28-32',
-    ethnicity_archetype: 'Indonesian Southeast Asian',
+    ethnicity_or_region_hint: 'Indonesian Southeast Asian',
   },
-  visual_fingerprint: {
-    hair_style: 'Black sleek shoulder-length bob',
-    facial_features: 'Sharp expressive eyes, natural warm smile',
-    skin_complexion: 'Medium warm golden skin tone',
-    build_body_type: 'Athletic lean build',
-    clothing_style: 'Modern minimalist sage blazer with off-white inner tee',
-    signature_accessories: 'Minimalist titanium rim glasses',
+  style: {
+    wardrobe_style: 'Modern minimalist sage blazer',
   },
-  voice_personality: {
-    energy_level: 'High Clarity & Focused',
-    speech_style: 'Analytical yet warm and encouraging',
-    catchphrase: 'Sistem yang rapi menciptakan hasil yang pasti.',
+  behavior: {
+    speaking_tone: 'Analytical yet warm and encouraging',
+  },
+  consistency_rules: {
+    locked_traits: ['Black sleek bob', 'Sage blazer'],
+    avoid_traits: ['Heavy makeup'],
   },
   prompt_assets: {
     dna_summary_prompt: 'Maya Pratama, 28-32yo Southeast Asian female content architect with sleek black bob.',
@@ -138,40 +132,40 @@ const mockCharacterDNA: CharacterDNA = {
 
 const mockProductAssetContext: ProductAssetContext = {
   product_name: 'FlowSync AI',
-  product_category: 'Productivity Tool',
-  product_description: 'Automated workflow orchestration engine for creative teams',
+  product_type: 'Productivity Tool',
   screenshots: [
     {
       id: 'ss_auth_1',
       kind: 'screenshot',
       name: 'Main Orchestration Dashboard',
-      description: 'Clean high contrast overview of all content pipelines',
-      extracted_visual_description: 'Modern dark mode dashboard with teal accent metrics',
     },
     {
       id: 'ss_auth_2',
       kind: 'screenshot',
       name: 'Realtime Pipeline Monitor',
-      description: 'Live execution nodes and prompt authority status',
-      extracted_visual_description: 'Node-based execution tree with green status badges',
     },
   ],
-  logo_asset: null,
+  feature_focus: ['Automated workflow orchestration engine for creative teams'],
+  demo_steps: ['Open dashboard', 'Configure pipeline'],
+  logo_reference: null,
 };
 
 // ============================================================================
-// TEST 1: STATIC CODE AUDIT — NO UNAUTHORIZED TRANSLATION IN PANELS
+// TEST 1: STATIC CODE AUDIT — NO UNAUTHORIZED TRANSLATION IN PANELS & HANDLERS
 // ============================================================================
-console.log('\n[TEST 1] Static Code Audit: Panel independence from ad-hoc prompt translators');
+console.log('\n[TEST 1] Static Code Audit: Panel independence & Page handler authority');
 
+const pageStudioPath = path.join(process.cwd(), 'app/production-studio/page.tsx');
 const imagePanelPath = path.join(process.cwd(), 'components/production-studio/ImagePanel.tsx');
 const carouselPanelPath = path.join(process.cwd(), 'components/production-studio/CarouselPanel.tsx');
 const videoPanelPath = path.join(process.cwd(), 'components/production-studio/VideoPanel.tsx');
 
+const pageStudioSrc = fs.readFileSync(pageStudioPath, 'utf8');
 const imagePanelSrc = fs.readFileSync(imagePanelPath, 'utf8');
 const carouselPanelSrc = fs.readFileSync(carouselPanelPath, 'utf8');
 const videoPanelSrc = fs.readFileSync(videoPanelPath, 'utf8');
 
+// 1.1 Panels must not contain ad-hoc prompt translators
 assert.strictEqual(
   imagePanelSrc.includes("import { injectCharacterToPrompt }"),
   false,
@@ -188,7 +182,39 @@ assert.strictEqual(
   'VideoPanel must not import or use buildCanonicalSceneProductionInstructions'
 );
 
-console.log('✓ Panel source files have zero ad-hoc prompt translations (injectCharacterToPrompt & buildCanonicalSceneProductionInstructions removed from panels)');
+// 1.2 Page handlers must not re-translate prompts locally
+// Extract handler bodies to verify no translation calls inside handlers
+const handleGenerateImageMatch = pageStudioSrc.match(/const handleGenerateImage = (?:async )?\([\s\S]*?\n  \};/);
+assert.ok(handleGenerateImageMatch, 'handleGenerateImage must exist');
+assert.strictEqual(
+  handleGenerateImageMatch[0].includes('translateImageProductionPrompt'),
+  false,
+  'handleGenerateImage must NOT call translateImageProductionPrompt'
+);
+
+const handlePrepareCarouselMatch = pageStudioSrc.match(/const handlePrepareCarouselProductionPackage = (?:async )?\(\) => \{[\s\S]*?\n  \};/);
+assert.ok(handlePrepareCarouselMatch, 'handlePrepareCarouselProductionPackage must exist');
+assert.strictEqual(
+  handlePrepareCarouselMatch[0].includes('translateCarouselProductionPrompts'),
+  false,
+  'handlePrepareCarouselProductionPackage must NOT call translateCarouselProductionPrompts'
+);
+
+const handlePrepareVideoMatch = pageStudioSrc.match(/const handlePrepareVideoProductionPackage = (?:async )?\(\) => \{[\s\S]*?\n  \};/);
+assert.ok(handlePrepareVideoMatch, 'handlePrepareVideoProductionPackage must exist');
+assert.strictEqual(
+  handlePrepareVideoMatch[0].includes('translateVideoProductionPrompts'),
+  false,
+  'handlePrepareVideoProductionPackage must NOT call translateVideoProductionPrompts'
+);
+
+// 1.3 CarouselPanel must use "Salin Blueprint Slide"
+assert.ok(
+  carouselPanelSrc.includes('Salin Blueprint Slide'),
+  'CarouselPanel must feature "Salin Blueprint Slide" action label'
+);
+
+console.log('✓ Static code audit passed: zero ad-hoc translations in panels and zero handler-level retranslations');
 
 // ============================================================================
 // TEST 2: IMAGE PROMPT AUTHORITY INVARIANT
@@ -473,7 +499,7 @@ assert.strictEqual(videoPackage.execution_prompts.scenes.length, 3, 'Video execu
 for (let i = 0; i < videoBundle.scenes.length; i++) {
   const sceneBundle = videoBundle.scenes[i];
   const sceneNum = sceneBundle.scene_number;
-  const pkgScene = videoPackage.execution_prompts.scenes.find((s) => s.scene_number === sceneNum);
+  const pkgScene: any = videoPackage.execution_prompts.scenes.find((s) => s.scene_number === sceneNum);
 
   assert.ok(pkgScene, `Scene ${sceneNum} must exist in VideoProductionPackage.execution_prompts.scenes`);
 
@@ -584,11 +610,11 @@ const productDemoCandidate: VideoProductionCandidate = {
 const invalidProductDemoTrans = translateVideoProductionPrompts({
   candidate: productDemoCandidate,
   productAssetContext: {
-    productName: 'FlowSync',
-    productCategory: 'SaaS',
-    productDescription: 'Testing',
+    product_name: 'FlowSync',
+    product_type: 'SaaS',
     screenshots: [], // EMPTY screenshots -> must fail
-    logoAsset: null,
+    feature_focus: [],
+    demo_steps: [],
   },
 });
 assert.strictEqual(invalidProductDemoTrans.ok, false, 'Product demo translation must fail when screenshots are missing');

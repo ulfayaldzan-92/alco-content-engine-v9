@@ -107,7 +107,7 @@ export default function CarouselPanel(props: any) {
       visual_concept: s.visual_type || '',
       text_overlay: s.headline || ''
     };
-    const vf = s.visual_format || (s.slide === 1 ? 'photography' : 'infographic');
+    const vf = s.visual_format || 'photography';
     const vp = s.visual_production || {
       subject: s.visual_intent || '',
       action: s.visual_intent || '',
@@ -122,7 +122,7 @@ export default function CarouselPanel(props: any) {
     };
 
     const slideBundle = carouselTranslatedPromptBundle?.slides?.find((ts: any) => ts.slide_number === s.slide);
-    const effectiveImagePrompt = slideBundle?.execution_prompt || (carouselTranslationError ? `[TRANSLATION ERROR: ${carouselTranslationError}]` : s.slide_image_prompt || '-');
+    const effectiveImagePrompt = slideBundle?.execution_prompt ?? '[EXECUTION PROMPT UNAVAILABLE]';
 
     return `--- SLIDE ${s.slide} (${(s.role || 'Content').toUpperCase()}) [Format: ${vf.toUpperCase()}] ---
 Headline: ${s.headline}
@@ -348,12 +348,12 @@ ${s.production_prompt || '-'}`;
               {copiedStates[`slide_main_copy_${activeSlideNum}`] ? (
                 <>
                   <Check size={13} />
-                  <span>Prompt Slide {activeSlideNum} Tersalin!</span>
+                  <span>Blueprint Slide {activeSlideNum} Tersalin!</span>
                 </>
               ) : (
                 <>
                   <Copy size={13} />
-                  <span>Salin Prompt Slide {activeSlideNum}</span>
+                  <span>Salin Blueprint Slide {activeSlideNum}</span>
                 </>
               )}
             </button>
@@ -446,41 +446,40 @@ ${s.production_prompt || '-'}`;
               
               <div className="p-4 pt-2 border-t border-[#e7e0d4] space-y-3 text-xs bg-[#fffdf8]">
                 {/* Detail Teknis 1: Prompt Image Saja */}
-                {activeSlide.slide_image_prompt && (
-                  <div className="bg-stone-900 text-stone-100 p-3.5 rounded-xl space-y-2 border border-stone-800">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-teal-400 text-[11px] font-bold">
-                        <Sparkles size={12} />
-                        <span>Prompt Image Saja &bull; Slide {activeSlide.slide} (4:5 Format)</span>
-                      </div>
-                      <button
-                        onClick={() => handleCopyText(`slide_img_prompt_only_${activeSlide.slide}`, effectiveSlideImagePrompt, 'promptCopied')}
-                        className="px-2.5 py-1 bg-primary hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
-                      >
-                        {copiedStates[`slide_img_prompt_only_${activeSlide.slide}`] ? (
-                          <>
-                            <Check size={11} />
-                            <span>Prompt Image Tersalin!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={11} />
-                            <span>Salin Prompt Image Saja</span>
-                          </>
-                        )}
-                      </button>
+                <div className="bg-stone-900 text-stone-100 p-3.5 rounded-xl space-y-2 border border-stone-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-teal-400 text-[11px] font-bold">
+                      <Sparkles size={12} />
+                      <span>Prompt Image Saja &bull; Slide {activeSlide.slide} (4:5 Format)</span>
                     </div>
-                    <div className="font-mono text-[10px] leading-relaxed text-stone-300 bg-stone-950/80 p-3 rounded-lg border border-stone-800 whitespace-pre-wrap select-all">
-                      {effectiveSlideImagePrompt}
-                    </div>
-                    {characterDNA?.identity?.display_name && (
-                      <div className="text-[10px] text-teal-300 font-medium flex items-center gap-1">
-                        <CheckCircle2 size={11} />
-                        <span>Karakter &quot;{characterDNA.identity.display_name}&quot; aktif diinjeksikan ke prompt slide ini.</span>
-                      </div>
-                    )}
+                    <button
+                      onClick={() => effectiveSlideImagePrompt && handleCopyText(`slide_img_prompt_only_${activeSlide.slide}`, effectiveSlideImagePrompt, 'promptCopied')}
+                      disabled={!effectiveSlideImagePrompt}
+                      className="px-2.5 py-1 bg-primary hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
+                    >
+                      {copiedStates[`slide_img_prompt_only_${activeSlide.slide}`] ? (
+                        <>
+                          <Check size={11} />
+                          <span>Prompt Image Tersalin!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={11} />
+                          <span>Salin Prompt Image Saja</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                )}
+                  <div className="font-mono text-[10px] leading-relaxed text-stone-300 bg-stone-950/80 p-3 rounded-lg border border-stone-800 whitespace-pre-wrap select-all">
+                    {effectiveSlideImagePrompt || '[EXECUTION PROMPT UNAVAILABLE]'}
+                  </div>
+                  {characterDNA?.identity?.display_name && effectiveSlideImagePrompt && (
+                    <div className="text-[10px] text-teal-300 font-medium flex items-center gap-1">
+                      <CheckCircle2 size={11} />
+                      <span>Karakter &quot;{characterDNA.identity.display_name}&quot; aktif diinjeksikan ke prompt slide ini.</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Detail Teknis 2: Prompt Layout Saja */}
                 {activeSlide.production_prompt && (

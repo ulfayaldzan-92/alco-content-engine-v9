@@ -72,7 +72,6 @@ function makeMockContext(projectId: string = 'proj_bind_123'): SharedContentCont
       is_complete_for_planning: true,
       missing_required_fields: [],
     },
-    character_dna: null,
   };
 }
 
@@ -84,11 +83,9 @@ function makeMockContentItem(projectId: string = 'proj_bind_123', itemId: string
     projectId: projectId,
     tanggal: '2026-09-20',
     jenis: 'TOFU (Awareness)',
-    funnel_stage: 'TOFU',
-    pillar: 'Marketing Tech',
     format: 'Single Image Feed',
-    target_audience: 'Founders',
-    angle: 'Speed up',
+    hookType: 'Question',
+    referensi: 'Ref 1',
     headline: 'Headline 1',
     body: 'Body text',
     caption: 'Caption text',
@@ -243,7 +240,7 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
   const cand = makeImageCandidate();
   const transRes = translateImageProductionPrompt({ candidate: cand });
   assert.strictEqual(transRes.ok, true);
-  if (transRes.ok) {
+  if (transRes.ok && transRes.bundle.asset_type === 'image') {
     const bindRes = bindTranslatedPromptBundleToAssetInput(cand, transRes.bundle);
     assert.strictEqual(bindRes.ok, true, 'Test 1: Image binding should succeed');
     if (bindRes.ok && bindRes.assetInput.asset_type === 'image') {
@@ -260,7 +257,7 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
   const dna = makeMockCharacterDNA();
   const transRes = translateImageProductionPrompt({ candidate: cand, characterDNA: dna });
   assert.strictEqual(transRes.ok, true);
-  if (transRes.ok) {
+  if (transRes.ok && transRes.bundle.asset_type === 'image') {
     const bindRes = bindTranslatedPromptBundleToAssetInput(cand, transRes.bundle);
     assert.strictEqual(bindRes.ok, true);
     if (bindRes.ok && bindRes.assetInput.asset_type === 'image') {
@@ -460,7 +457,7 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
       },
     });
     assert.strictEqual(prepRes.ok, true, 'Test 14: Image prepareProductionPackage should succeed');
-    if (prepRes.ok) {
+    if (prepRes.ok && transRes.bundle.asset_type === 'image') {
       assert.strictEqual(prepRes.package.asset_type, 'image');
       assert.strictEqual(prepRes.package.final_prompt, transRes.bundle.execution_prompt);
       assert.strictEqual(prepRes.package.production_status, 'ready_for_production');

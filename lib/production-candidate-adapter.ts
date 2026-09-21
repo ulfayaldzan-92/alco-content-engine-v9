@@ -64,6 +64,39 @@ export function adaptProductionCandidateToAssetInput(
         asset_type: 'video',
         video: candidate.production_details,
         final_prompt: candidate.final_prompt,
+        execution_prompts: {
+          candidate_id: candidate.candidate_id,
+          production_mode: candidate.production_details.production_mode,
+          scenes: candidate.production_details.scenes.map((s) => ({
+            scene_number: s.scene_number as 1 | 2 | 3,
+            start_frame_prompt: s.visual_direction,
+            motion_prompt: s.action,
+            voiceover: s.voiceover,
+            on_screen_text: s.on_screen_text,
+          })) as [
+            {
+              scene_number: 1 | 2 | 3;
+              start_frame_prompt: string;
+              motion_prompt: string;
+              voiceover: string;
+              on_screen_text: string;
+            },
+            {
+              scene_number: 1 | 2 | 3;
+              start_frame_prompt: string;
+              motion_prompt: string;
+              voiceover: string;
+              on_screen_text: string;
+            },
+            {
+              scene_number: 1 | 2 | 3;
+              start_frame_prompt: string;
+              motion_prompt: string;
+              voiceover: string;
+              on_screen_text: string;
+            }
+          ],
+        },
       },
     };
   }

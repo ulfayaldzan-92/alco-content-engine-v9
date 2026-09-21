@@ -44,6 +44,7 @@ import {
   CarouselProductionPackage,
   VideoProductionPackage,
   VideoProductionMode,
+  VideoExecutionPrompts,
   ProductionPackage,
   validateProductionPackage,
   validateProductionPackageIdentity,
@@ -2114,26 +2115,26 @@ const p3bVideoDetails = {
   negative_constraints: 'No blurry video, no robotic monotone audio',
 };
 
-const p3bVideoExecutionPrompts = {
+const p3bVideoExecutionPrompts: VideoExecutionPrompts = {
   candidate_id: 'cand_vid_p3b',
-  production_mode: 'human_led' as const,
+  production_mode: 'human_led',
   scenes: [
     {
-      scene_number: 1 as const,
+      scene_number: 1,
       start_frame_prompt: 'Start frame scene 1 prompt',
       motion_prompt: 'Motion prompt scene 1',
       voiceover: 'Stop guessing your funnel strategy. Use an authoritative engine.',
       on_screen_text: 'Stop Guessing Strategy',
     },
     {
-      scene_number: 2 as const,
+      scene_number: 2,
       start_frame_prompt: 'Start frame scene 2 prompt',
       motion_prompt: 'Motion prompt scene 2',
       voiceover: 'Our system takes three concrete steps to generate video outlines.',
       on_screen_text: 'Three Simple Steps',
     },
     {
-      scene_number: 3 as const,
+      scene_number: 3,
       start_frame_prompt: 'Start frame scene 3 prompt',
       motion_prompt: 'Motion prompt scene 3',
       voiceover: 'Go to Alco Content Engine now.',
@@ -2259,13 +2260,13 @@ assert(
 );
 
 // P3B-11 — INVALID VIDEO REJECTED
-const invalidVideoInput: ProductionAssetInput = {
+const invalidVideoInput = {
   ...p3bVideoInput,
   video: {
     ...p3bVideoDetails,
     duration_seconds: 0, // Invalid duration
-  } as any,
-};
+  },
+} as unknown as ProductionAssetInput;
 const p3b11Res = buildProductionPackage(p3bEngineCtx, invalidVideoInput, p3bMetadata);
 assert(
   !p3b11Res.isValid && p3b11Res.package === undefined && p3b11Res.error?.includes('duration_seconds'),
@@ -3903,13 +3904,13 @@ assert(
   'Test P3D-B-19: Production package authority strictly uses sourceItem without activeItem fallback'
 );
 
-// P3D-B-20: ImagePanel maintains effective prompt flow with CharacterDNA integration
+// P3D-B-20: ImagePanel maintains effective prompt flow with prompt authority integration
 const imagePanelPath = path.join(projectRoot, 'components', 'production-studio', 'ImagePanel.tsx');
 const imagePanelSource = fs.readFileSync(imagePanelPath, 'utf8');
 assert(
-  imagePanelSource.includes('injectCharacterToPrompt(') &&
-  imagePanelSource.includes('handleGenerateImage(effectivePrompt, activeAngle.id)'),
-  'Test P3D-B-20: ImagePanel retains effectivePrompt and CharacterDNA integration'
+  imagePanelSource.includes('effectivePrompt') &&
+  imagePanelSource.includes('handleGenerateImage(activeAngle.id)'),
+  'Test P3D-B-20: ImagePanel retains effectivePrompt and unified prompt authority'
 );
 
 // P3D-B-21: Async stale-response guard exists in handleGenerateImage
@@ -6853,7 +6854,7 @@ assert(
 
 // Static check on WorkspaceCanonicalSceneView ensuring invalid results do not yield prompt buttons
 assert(
-  videoPanelSrc.includes('if (!instructionResult.isValid || !instructionResult.instructions)') &&
+  videoPanelSrc.includes('if (!activeScenePrompt)') &&
   videoPanelSrc.includes('Instruksi produksi scene tidak tersedia.'),
   'C1C-C SCENE UI GUARD: WorkspaceCanonicalSceneView fails closed with error UI on invalid instruction result'
 );

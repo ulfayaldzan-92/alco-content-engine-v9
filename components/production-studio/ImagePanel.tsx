@@ -164,8 +164,9 @@ export default function ImagePanel(props: any) {
 
               {/* Secondary Action 1: Copy Prompt */}
               <button
-                onClick={() => handleCopyText(`prompt_${selectedAngleId}`, effectivePrompt, 'promptCopied')}
-                className="px-4 py-2.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-[#1f2933] border border-[#e7e0d4] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                onClick={() => effectivePrompt && handleCopyText(`prompt_${selectedAngleId}`, effectivePrompt, 'promptCopied')}
+                disabled={!effectivePrompt}
+                className="px-4 py-2.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-[#1f2933] border border-[#e7e0d4] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 {copiedStates[`prompt_${selectedAngleId}`] ? (
                   <>
@@ -182,8 +183,8 @@ export default function ImagePanel(props: any) {
 
               {/* Secondary Action 2: Regenerate */}
               <button
-                onClick={() => handleGenerateImage(effectivePrompt, activeAngle.id)}
-                disabled={isGenerating}
+                onClick={() => handleGenerateImage(activeAngle.id)}
+                disabled={isGenerating || !effectivePrompt}
                 className="px-4 py-2.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-stone-700 border border-[#e7e0d4] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 {isGenerating ? (
@@ -223,8 +224,8 @@ export default function ImagePanel(props: any) {
             {/* DOMINANT ACTION BUTTON */}
             <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
               <button
-                onClick={() => handleGenerateImage(effectivePrompt, activeAngle.id)}
-                disabled={isGenerating}
+                onClick={() => handleGenerateImage(activeAngle.id)}
+                disabled={isGenerating || !effectivePrompt}
                 className="px-6 py-2.5 bg-primary hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {isGenerating ? (
@@ -241,8 +242,9 @@ export default function ImagePanel(props: any) {
               </button>
 
               <button
-                onClick={() => handleCopyText(`prompt_${selectedAngleId}`, effectivePrompt, 'promptCopied')}
-                className="px-4 py-2.5 bg-[#fffdf8] hover:bg-[#f6f3ee] text-stone-700 border border-[#e7e0d4] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                onClick={() => effectivePrompt && handleCopyText(`prompt_${selectedAngleId}`, effectivePrompt, 'promptCopied')}
+                disabled={!effectivePrompt}
+                className="px-4 py-2.5 bg-[#fffdf8] hover:bg-[#f6f3ee] text-stone-700 border border-[#e7e0d4] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {copiedStates[`prompt_${selectedAngleId}`] ? (
                   <>

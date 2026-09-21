@@ -151,7 +151,7 @@ export function translateCarouselProductionPrompts(
   if (
     typeof expectedSlideCount !== 'number' ||
     !Number.isInteger(expectedSlideCount) ||
-    expectedSlideCount < 2
+    expectedSlideCount <= 0
   ) {
     return { ok: false, error: 'Invalid candidate slide_count (FAIL CLOSED).' };
   }
@@ -272,8 +272,10 @@ export function translateSingleVideoScenePrompt(
     };
   }
 
-  const voiceover = scene.voiceover || '—';
-  const onScreenText = scene.on_screen_text || '—';
+  const voiceover = scene.voiceover;
+  const onScreenText = scene.on_screen_text;
+  const voiceoverCue = voiceover || '—';
+  const onScreenTextCue = onScreenText || '—';
 
   let imagePrompt = '';
   let motionPrompt = '';
@@ -295,14 +297,14 @@ Subject: ${characterSubject.trim()}
 Visual Direction: ${scene.visual_direction || '—'}
 Action: ${scene.action || '—'}
 Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
+On-Screen Text: ${onScreenTextCue}
 Negative Constraints: no blurry text, no distorted anatomy, no visual artifacts`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
 Camera: ${scene.camera || '—'}
 Action: ${scene.action || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
+Voiceover Cue: "${voiceoverCue}"
+On-Screen Text Cue: "${onScreenTextCue}"
 Duration: ${scene.duration_seconds}s
 Format: 9:16 vertical video
 Negative Constraints: no abrupt cuts, no jittery camera, no distorted motion artifacts`;
@@ -351,14 +353,14 @@ Screenshots: ${screenshotListText}
 Visual Direction: ${scene.visual_direction || '—'}
 Action: ${scene.action || '—'}
 Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
+On-Screen Text: ${onScreenTextCue}
 Negative Constraints: no blurry text, no distorted UI, no broken layout geometry`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
 Camera: ${scene.camera || '—'}
 Action: ${scene.action || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
+Voiceover Cue: "${voiceoverCue}"
+On-Screen Text Cue: "${onScreenTextCue}"
 Duration: ${scene.duration_seconds}s
 Format: 9:16 vertical video
 Negative Constraints: no glitchy transitions, no blurry screen elements, no erratic motion`;
@@ -366,15 +368,15 @@ Negative Constraints: no glitchy transitions, no blurry screen elements, no erra
     imagePrompt = `Start Frame Image Prompt (Format 9:16 Vertical):
 Visual Direction: ${scene.visual_direction || '—'}
 Camera: ${scene.camera || '—'}
-On-Screen Text: ${scene.on_screen_text || '—'}
+On-Screen Text: ${onScreenTextCue}
 Negative Constraints: no photorealistic person, no messy sketch, no blurry text`;
 
     motionPrompt = `Video Motion Prompt (Google FX Studio / Veo):
 Camera: ${scene.camera || '—'}
 Action: ${scene.action || '—'}
 Visual Direction: ${scene.visual_direction || '—'}
-Voiceover Cue: "${voiceover}"
-On-Screen Text Cue: "${onScreenText}"
+Voiceover Cue: "${voiceoverCue}"
+On-Screen Text Cue: "${onScreenTextCue}"
 Duration: ${scene.duration_seconds}s
 Format: 9:16 vertical video
 Negative Constraints: no abrupt cuts, no jittery animation, no unreadable typography`;
@@ -390,8 +392,8 @@ Negative Constraints: no abrupt cuts, no jittery animation, no unreadable typogr
     instructions: {
       imagePrompt,
       motionPrompt,
-      voiceover,
-      onScreenText,
+      voiceover: scene.voiceover,
+      onScreenText: scene.on_screen_text,
     },
   };
 }

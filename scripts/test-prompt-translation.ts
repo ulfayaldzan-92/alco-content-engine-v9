@@ -251,7 +251,10 @@ console.log('\n--- IMAGE TESTS ---');
 
 // Test 5: Invalid image candidate fails closed
 {
-  const invalidCand = { candidate_id: 'bad', candidate_type: 'image' } as any;
+  const invalidCand = {
+    candidate_id: 'bad',
+    candidate_type: 'image',
+  } as unknown as ImageProductionCandidate;
   const res = translateImageProductionPrompt({ candidate: invalidCand });
   assert.strictEqual(res.ok, false, 'Test 5: Invalid image candidate must fail closed');
   console.log('✅ Test 5: Invalid image candidate fails closed');
@@ -502,12 +505,12 @@ console.log('\n--- CAROUSEL TESTS ---');
 // Test 20: Invalid visual_format fails closed
 {
   const cand = makeValidCarouselCandidate(3);
-  const slidesMeta = [
+  const invalidSlides = [
     { slide_number: 1, visual_format: 'photography' },
-    { slide_number: 2, visual_format: 'invalid_format' as any },
+    { slide_number: 2, visual_format: 'invalid_format' },
     { slide_number: 3, visual_format: 'hybrid' },
-  ];
-  const res = translateCarouselProductionPrompts({ candidate: cand, slides: slidesMeta });
+  ] as unknown as CarouselPromptSlideMetadata[];
+  const res = translateCarouselProductionPrompts({ candidate: cand, slides: invalidSlides });
   assert.strictEqual(res.ok, false, 'Test 20: Invalid visual_format must fail closed');
   console.log('✅ Test 20: Invalid visual_format fails closed');
 }
@@ -528,7 +531,8 @@ console.log('\n--- CAROUSEL TESTS ---');
 // Test 22: Missing slide metadata fails closed
 {
   const cand = makeValidCarouselCandidate(3);
-  const res = translateCarouselProductionPrompts({ candidate: cand, slides: null as any });
+  const invalidSlides = null as unknown as CarouselPromptSlideMetadata[];
+  const res = translateCarouselProductionPrompts({ candidate: cand, slides: invalidSlides });
   assert.strictEqual(res.ok, false, 'Test 22: Missing slide metadata must fail closed');
   console.log('✅ Test 22: Missing slide metadata fails closed');
 }
@@ -759,9 +763,15 @@ console.log('\n--- VIDEO TESTS ---');
 
 // Test 39: Invalid runtime production_mode fails closed
 {
-  const badCand = makeValidVideoCandidate('motion_explainer');
-  (badCand.production_details as any).production_mode = 'unknown_mode';
-  const res = translateVideoProductionPrompts({ candidate: badCand });
+  const validCandidate = makeValidVideoCandidate('motion_explainer');
+  const invalidCandidate = {
+    ...validCandidate,
+    production_details: {
+      ...validCandidate.production_details,
+      production_mode: 'unknown_mode',
+    },
+  } as unknown as VideoProductionCandidate;
+  const res = translateVideoProductionPrompts({ candidate: invalidCandidate });
   assert.strictEqual(res.ok, false, 'Test 39: Unknown production_mode must fail closed');
   console.log('✅ Test 39: Invalid runtime production_mode fails closed');
 }
@@ -830,13 +840,13 @@ console.log('\n--- NO AUTHORITY INVENTION TESTS ---');
   const imgRes = translateImageProductionPrompt({ candidate: makeValidImageCandidate() });
   assert.strictEqual(imgRes.ok, true);
   if (imgRes.ok) {
-    const b: any = imgRes.bundle;
-    assert.strictEqual(b.project_id, undefined, 'Test 44: Must not add project_id');
-    assert.strictEqual(b.content_item_id, undefined, 'Test 45: Must not add content_item_id');
-    assert.strictEqual(b.package_id, undefined, 'Test 46: Must not add package_id');
-    assert.strictEqual(b.production_status, undefined, 'Test 47: Must not add production_status');
-    assert.strictEqual(b.created_at, undefined, 'Test 48: Must not create created_at timestamp');
-    assert.strictEqual(b.updated_at, undefined, 'Test 48: Must not create updated_at timestamp');
+    const bundleRecord = imgRes.bundle as unknown as Record<string, unknown>;
+    assert.strictEqual(bundleRecord.project_id, undefined, 'Test 44: Must not add project_id');
+    assert.strictEqual(bundleRecord.content_item_id, undefined, 'Test 45: Must not add content_item_id');
+    assert.strictEqual(bundleRecord.package_id, undefined, 'Test 46: Must not add package_id');
+    assert.strictEqual(bundleRecord.production_status, undefined, 'Test 47: Must not add production_status');
+    assert.strictEqual(bundleRecord.created_at, undefined, 'Test 48: Must not create created_at timestamp');
+    assert.strictEqual(bundleRecord.updated_at, undefined, 'Test 48: Must not create updated_at timestamp');
   }
   console.log('✅ Tests 44-48: Translator does NOT add extraneous authority or timestamps');
 }
@@ -887,4 +897,110 @@ const translatorSource = fs.readFileSync(translatorPath, 'utf-8');
   console.log('✅ Test 52: lib/prompt-translation.ts does not import Gemini client/API utilities');
 }
 
-console.log('\n🎉 ALL 52 PHASE 4A TESTS PASSED SUCCESSFULLY (100% OK)');
+// ==================================================
+// REGRESSION & STATIC GUARD TESTS (53 - 55)
+// ==================================================
+
+console.log('\n--- PHASE 4A REGRESSION & TYPE SAFETY TESTS ---');
+
+// Test 53: Dedicated regression test: Empty video canonical voiceover and on_screen_text are preserved
+{
+  const cand = makeValidVideoCandidate('motion_explainer');
+  // Explicitly configure scene 1 with empty canonical strings
+  cand.production_details.scenes[0].voiceover = '';
+  cand.production_details.scenes[0].on_screen_text = '';
+
+  const res = translateVideoProductionPrompts({ candidate: cand });
+  assert.strictEqual(res.ok, true, 'Translation must succeed for candidate with empty canonical text');
+  if (res.ok && res.bundle.asset_type === 'video') {
+    const s1 = res.bundle.scenes[0];
+    assert.strictEqual(s1.voiceover, '', 'Scene 1 voiceover must remain exactly empty string');
+    assert.strictEqual(s1.on_screen_text, '', 'Scene 1 on_screen_text must remain exactly empty string');
+    assert.notStrictEqual(s1.voiceover, '—', 'Scene 1 voiceover must NOT be replaced with placeholder "—"');
+    assert.notStrictEqual(s1.on_screen_text, '—', 'Scene 1 on_screen_text must NOT be replaced with placeholder "—"');
+    assert(s1.start_frame_prompt.trim().length > 0, 'Start frame prompt must still be a valid non-empty string');
+    assert(s1.motion_prompt.trim().length > 0, 'Motion prompt must still be a valid non-empty string');
+  }
+  console.log('✅ Test 53: Empty video canonical text is strictly preserved as empty string');
+}
+
+// Test 54: Dedicated regression test: One-slide canonical carousel translates successfully
+{
+  const oneSlideCand = makeValidCarouselCandidate(1);
+  const oneSlideMeta: CarouselPromptSlideMetadata[] = [
+    {
+      slide_number: 1,
+      visual_format: 'photography',
+    },
+  ];
+  const res = translateCarouselProductionPrompts({
+    candidate: oneSlideCand,
+    slides: oneSlideMeta,
+  });
+  assert.strictEqual(res.ok, true, 'One-slide carousel translation must succeed');
+  if (res.ok && res.bundle.asset_type === 'carousel') {
+    assert.strictEqual(res.bundle.slides.length, 1);
+    assert.strictEqual(res.bundle.slides[0].slide_number, 1);
+    assert.strictEqual(
+      res.bundle.slides[0].execution_prompt,
+      oneSlideCand.final_prompts.slides[0].prompt
+    );
+  }
+
+  // Also verify that slide_count <= 0 fails closed
+  const zeroSlideCand = {
+    ...makeValidCarouselCandidate(1),
+    production_details: {
+      ...makeValidCarouselCandidate(1).production_details,
+      slide_count: 0,
+      slides: [],
+    },
+    final_prompts: {
+      master_prompt: 'Master prompt',
+      slides: [],
+    },
+  } as unknown as CarouselProductionCandidate;
+  const zeroRes = translateCarouselProductionPrompts({ candidate: zeroSlideCand, slides: [] });
+  assert.strictEqual(zeroRes.ok, false, 'Carousel translator must reject slide_count <= 0');
+
+  console.log('✅ Test 54: One-slide canonical carousel translates successfully and slide_count <= 0 fails closed');
+}
+
+// Test 55: Type Safety Static Guard (no `as any`, `: any`, `any[]` in Phase 4A code)
+{
+  const targetFiles = [
+    path.join(process.cwd(), 'lib', 'prompt-translation.ts'),
+    path.join(process.cwd(), 'scripts', 'test-prompt-translation.ts'),
+  ];
+
+  function stripCodeCommentsAndStrings(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')
+      .replace(/`[\s\S]*?`/g, '""')
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      .replace(/'(?:[^'\\]|\\.)*'/g, "''");
+  }
+
+  const keyword = ['a', 'n', 'y'].join('');
+  const forbiddenPatterns = [
+    { name: ['as', keyword].join(' '), regex: new RegExp('\\bas\\s+' + keyword + '\\b') },
+    { name: [':', keyword].join(' '), regex: new RegExp(':\\s*' + keyword + '\\b') },
+    { name: [keyword, '[]'].join(''), regex: new RegExp('\\b' + keyword + '\\s*\\[\\s*\\]') },
+  ];
+
+  for (const filePath of targetFiles) {
+    const rawContent = fs.readFileSync(filePath, 'utf-8');
+    const cleanedCode = stripCodeCommentsAndStrings(rawContent);
+    for (const { name, regex } of forbiddenPatterns) {
+      const match = regex.exec(cleanedCode);
+      assert(
+        !match,
+        `Type safety violation in ${path.relative(process.cwd(), filePath)}: forbidden "${name}" detected in executable code.`
+      );
+    }
+  }
+  console.log('✅ Test 55: Static Type Safety Guard passed for lib/prompt-translation.ts and scripts/test-prompt-translation.ts');
+}
+
+console.log('\n🎉 ALL 55 PHASE 4A TESTS PASSED SUCCESSFULLY (100% OK)');

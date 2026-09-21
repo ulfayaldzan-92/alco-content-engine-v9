@@ -3,15 +3,12 @@ import path from 'path';
 import {
   EXECUTION_PROMPT_CONTRACT_VERSION,
   buildExecutionPromptAuthority,
-  hashDeterministicString,
   isValidExecutionSignatureFormat,
 } from '../lib/execution-prompt-authority';
 import {
   translateImageProductionPrompt,
   translateCarouselProductionPrompts,
   translateVideoProductionPrompts,
-  type ImageTranslatedPromptBundle,
-  type CarouselTranslatedPromptBundle,
   type VideoTranslatedPromptBundle,
 } from '../lib/prompt-translation';
 import { bindTranslatedPromptBundleToAssetInput } from '../lib/prompt-package-binding';
@@ -293,7 +290,10 @@ console.log('--- TEST GROUP 1: Three Video Mode Fixtures & Translation ---');
 
 const imgTransRes = translateImageProductionPrompt({ candidate: mockImageCandidate, characterDNA: mockCharacterDNA });
 assert(imgTransRes.ok, 'Image translation succeeds');
-const imgBundle = imgTransRes.ok ? imgTransRes.bundle : null!;
+if (!imgTransRes.ok || imgTransRes.bundle.asset_type !== 'image') {
+  throw new Error('Expected ImageTranslatedPromptBundle');
+}
+const imgBundle = imgTransRes.bundle;
 
 const carTransRes = translateCarouselProductionPrompts({
   candidate: mockCarouselCandidate,
@@ -305,22 +305,34 @@ const carTransRes = translateCarouselProductionPrompts({
   characterDNA: mockCharacterDNA,
 });
 assert(carTransRes.ok, 'Carousel translation succeeds');
-const carBundle = carTransRes.ok ? carTransRes.bundle : null!;
+if (!carTransRes.ok || carTransRes.bundle.asset_type !== 'carousel') {
+  throw new Error('Expected CarouselTranslatedPromptBundle');
+}
+const carBundle = carTransRes.bundle;
 
 // 1. human_led video translation
 const humanTransRes = translateVideoProductionPrompts({ candidate: humanLedCandidate, characterDNA: mockCharacterDNA });
 assert(humanTransRes.ok, 'human_led video translation succeeds with CharacterDNA');
-const humanVidBundle = humanTransRes.ok ? humanTransRes.bundle : null!;
+if (!humanTransRes.ok || humanTransRes.bundle.asset_type !== 'video') {
+  throw new Error('Expected VideoTranslatedPromptBundle');
+}
+const humanVidBundle = humanTransRes.bundle;
 
 // 2. product_demo video translation
 const demoTransRes = translateVideoProductionPrompts({ candidate: productDemoCandidate, productAssetContext: mockProductAssetContext });
 assert(demoTransRes.ok, 'product_demo video translation succeeds with ProductAssetContext');
-const demoVidBundle = demoTransRes.ok ? demoTransRes.bundle : null!;
+if (!demoTransRes.ok || demoTransRes.bundle.asset_type !== 'video') {
+  throw new Error('Expected VideoTranslatedPromptBundle');
+}
+const demoVidBundle = demoTransRes.bundle;
 
 // 3. motion_explainer video translation
 const explainTransRes = translateVideoProductionPrompts({ candidate: motionExplainerCandidate });
 assert(explainTransRes.ok, 'motion_explainer video translation succeeds without CharacterDNA/ProductAssetContext');
-const explainVidBundle = explainTransRes.ok ? explainTransRes.bundle : null!;
+if (!explainTransRes.ok || explainTransRes.bundle.asset_type !== 'video') {
+  throw new Error('Expected VideoTranslatedPromptBundle');
+}
+const explainVidBundle = explainTransRes.bundle;
 
 const humanAuth = buildExecutionPromptAuthority(humanVidBundle);
 const demoAuth = buildExecutionPromptAuthority(demoVidBundle);
@@ -349,7 +361,7 @@ if (imgAuth1.ok && imgAuth2.ok) {
 }
 
 // B. Change execution_prompt -> different execution_signature
-const mutatedImgPromptBundle: ImageTranslatedPromptBundle = {
+const mutatedImgPromptBundle = {
   ...imgBundle,
   execution_prompt: imgBundle.execution_prompt + ' [MODIFIED PROMPT]',
 };
@@ -360,7 +372,7 @@ if (imgAuth1.ok && mutatedImgPromptAuth.ok) {
 }
 
 // C. Change candidate_id -> different execution_signature
-const mutatedImgCandBundle: ImageTranslatedPromptBundle = {
+const mutatedImgCandBundle = {
   ...imgBundle,
   candidate_id: 'cand_img_999',
 };
@@ -394,7 +406,7 @@ if (carAuth1.ok && carAuth2.ok) {
 }
 
 // B. Change master_prompt -> different execution_signature
-const mutatedCarMasterBundle: CarouselTranslatedPromptBundle = {
+const mutatedCarMasterBundle = {
   ...carBundle,
   master_prompt: carBundle.master_prompt + ' [MODIFIED MASTER]',
 };
@@ -405,7 +417,7 @@ if (carAuth1.ok && mutatedCarMasterAuth.ok) {
 }
 
 // C. Change one slide execution_prompt -> different execution_signature
-const mutatedCarSlideBundle: CarouselTranslatedPromptBundle = {
+const mutatedCarSlideBundle = {
   ...carBundle,
   slides: [
     carBundle.slides[0],
@@ -420,7 +432,7 @@ if (carAuth1.ok && mutatedCarSlideAuth.ok) {
 }
 
 // D. Change candidate_id -> different execution_signature
-const mutatedCarCandBundle: CarouselTranslatedPromptBundle = {
+const mutatedCarCandBundle = {
   ...carBundle,
   candidate_id: 'cand_car_888',
 };
@@ -431,7 +443,7 @@ if (carAuth1.ok && mutatedCarCandAuth.ok) {
 }
 
 // E. Out-of-order slide sequence -> FAIL CLOSED
-const outOfOrderCarBundle: CarouselTranslatedPromptBundle = {
+const outOfOrderCarBundle = {
   ...carBundle,
   slides: [
     { slide_number: 2, execution_prompt: 'Slide 2 prompt' },
@@ -443,7 +455,7 @@ const outOfOrderRes = buildExecutionPromptAuthority(outOfOrderCarBundle);
 assert(!outOfOrderRes.ok, 'Out-of-order carousel slides fail closed without auto-repair');
 
 // F. Duplicate slide_number -> FAIL CLOSED
-const duplicateCarSlideBundle: CarouselTranslatedPromptBundle = {
+const duplicateCarSlideBundle = {
   ...carBundle,
   slides: [
     { slide_number: 1, execution_prompt: 'Slide 1' },
@@ -455,7 +467,7 @@ const duplicateCarRes = buildExecutionPromptAuthority(duplicateCarSlideBundle);
 assert(!duplicateCarRes.ok, 'Duplicate carousel slide_number fails closed');
 
 // G. Empty slide execution_prompt -> FAIL CLOSED
-const emptySlidePromptBundle: CarouselTranslatedPromptBundle = {
+const emptySlidePromptBundle = {
   ...carBundle,
   slides: [
     { slide_number: 1, execution_prompt: 'Slide 1' },
@@ -467,7 +479,7 @@ const emptySlideRes = buildExecutionPromptAuthority(emptySlidePromptBundle);
 assert(!emptySlideRes.ok, 'Empty carousel slide execution_prompt fails closed');
 
 // H. Empty master_prompt -> FAIL CLOSED
-const emptyMasterCarBundle: CarouselTranslatedPromptBundle = {
+const emptyMasterCarBundle = {
   ...carBundle,
   master_prompt: '   ',
 };
@@ -560,11 +572,25 @@ if (vidAuth1.ok && mutVidCandAuth.ok) {
   assert(vidAuth1.authority.execution_signature !== mutVidCandAuth.authority.execution_signature, 'Change candidate_id yields different video execution signature');
 }
 
-// H. Scene count != 3 -> FAIL CLOSED
-const twoSceneVidBundle: VideoTranslatedPromptBundle = {
+// G. Change production_mode -> different execution_signature
+const mutVidMode: VideoTranslatedPromptBundle = {
   ...humanVidBundle,
-  scenes: [humanVidBundle.scenes[0], humanVidBundle.scenes[1]],
+  production_mode: 'motion_explainer',
 };
+const mutVidModeAuth = buildExecutionPromptAuthority(mutVidMode);
+assert(mutVidModeAuth.ok, 'Mutated video production_mode builds authority');
+if (vidAuth1.ok && mutVidModeAuth.ok) {
+  assert(vidAuth1.authority.execution_signature !== mutVidModeAuth.authority.execution_signature, 'Change production_mode yields different video execution signature');
+}
+
+// H. Scene count != 3 -> FAIL CLOSED
+const twoSceneVidBundle = {
+  ...humanVidBundle,
+  scenes: [
+    humanVidBundle.scenes[0],
+    humanVidBundle.scenes[1],
+  ],
+} as unknown as VideoTranslatedPromptBundle;
 const twoSceneRes = buildExecutionPromptAuthority(twoSceneVidBundle);
 assert(!twoSceneRes.ok, 'Video with 2 scenes fails closed');
 

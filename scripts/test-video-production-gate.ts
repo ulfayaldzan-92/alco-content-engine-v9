@@ -33,6 +33,7 @@ import {
 } from '../lib/video-scene-completion';
 import { prepareProductionPackage } from '../lib/production-package-workflow';
 import { translateVideoProductionPrompts } from '../lib/prompt-translation';
+import { buildExecutionPromptAuthority } from '../lib/execution-prompt-authority';
 import {
   saveProductionPackage,
   loadProductionPackage,
@@ -203,6 +204,17 @@ const validProductionInputSig = buildVideoProductionInputSignature({
   product_asset_context: null,
 });
 
+const validTranslationRes = translateVideoProductionPrompts({
+  candidate: validCandidateMotion,
+  characterDNA: null,
+  productAssetContext: null,
+});
+assert(validTranslationRes.ok && !!validTranslationRes.bundle, 'Video translation must succeed');
+const validPromptBundle = validTranslationRes.bundle!;
+const validAuthorityRes = buildExecutionPromptAuthority(validPromptBundle);
+assert(validAuthorityRes.ok && !!validAuthorityRes.authority, 'Authority build must succeed');
+const validExecutionAuthority = validAuthorityRes.authority;
+
 const validReadiness: VideoProductionReadiness = {
   mode: 'motion_explainer',
   is_ready: true,
@@ -219,6 +231,7 @@ const emptyCompletion = createEmptyVideoSceneCompletionState({
   production_mode: 'motion_explainer',
   scene_plan_signature: validScenePlanSig,
   production_input_signature: validProductionInputSig,
+  execution_prompt_signature: validExecutionAuthority.execution_signature,
 });
 const s1Complete = setVideoSceneClipCreated(emptyCompletion, 1, true);
 const s2Complete = setVideoSceneClipCreated(s1Complete, 2, true);
@@ -235,6 +248,7 @@ const makeBaseParams = (): EvaluateVideoProductionGateParams => ({
   completion_state: completeCompletionState,
   current_scene_plan_signature: validScenePlanSig,
   current_production_input_signature: validProductionInputSig,
+  current_execution_authority: validExecutionAuthority,
 });
 
 // TEST 1: Valid authoritative source + valid context + exact candidate + readiness true + valid completion + 3/3 → gate allowed
@@ -631,7 +645,7 @@ assert(
 
 // Verify reset useEffect dependencies (TEST F)
 assert(
-  pageFile.includes('canonicalProjectId,\n    sourceItem?.content_item_id,\n    selectedVideoProductionMode,\n    activeVideoCandidate?.candidate_id,\n    currentScenePlanSignature,\n    currentVideoProductionInputSignature,\n    videoOutputSource,'),
+  pageFile.includes('canonicalProjectId,\n    sourceItem?.content_item_id,\n    selectedVideoProductionMode,\n    activeVideoCandidate?.candidate_id,\n    currentScenePlanSignature,\n    currentVideoProductionInputSignature,\n    currentVideoExecutionAuthority?.execution_signature,\n    videoOutputSource,'),
   'page.tsx must reset videoProductionPackagePrepared on all canonical identity dependencies'
 );
 

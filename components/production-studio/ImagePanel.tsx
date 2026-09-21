@@ -8,6 +8,7 @@ import {
 import { PromptNextStepLinks } from './PromptNextStepLinks';
 import CharacterSelector from './CharacterSelector';
 import { ImageTranslatedPromptBundle } from '@/lib/prompt-translation';
+import { isGeneratedImageOutputCurrent, getGeneratedImageOutputKey } from '@/lib/image-generated-output-state';
 
 export default function ImagePanel(props: any) {
   const {
@@ -35,6 +36,7 @@ export default function ImagePanel(props: any) {
     characterDNA,
     imageTranslatedPromptBundle,
     imageTranslatedPromptBundles,
+    imageExecutionAuthorities,
     imageTranslationError,
   } = props;
 
@@ -64,11 +66,26 @@ export default function ImagePanel(props: any) {
 
   const activeAngle = imageAnglesPackage.angles.find((a: any) => a.id === selectedAngleId) || imageAnglesPackage.angles[0];
   const recommendedAngleId = imageAnglesPackage.recommendedAngleId || 'A';
-  const imageKey = `${sourceItem?.no || 1}_${activeAngle.id}`;
-  const generatedImg = generatedImages[imageKey];
-  const isGenerating = imageGeneratingKey === imageKey;
+  const legacyKey = `${sourceItem?.no || 1}_${activeAngle.id}`;
+  const canonicalProjectId = sourceItem?.projectId || sourceItem?.project_id || activeItem?.projectId || activeItem?.project_id || '';
+  const contentItemId = sourceItem?.content_item_id || activeItem?.content_item_id || '';
+  const canonicalKey = getGeneratedImageOutputKey(canonicalProjectId, contentItemId, activeAngle.id);
   
-  // Phase 4B-B: Authority prompt bundle resolution
+  const rawGeneratedImg = generatedImages?.[canonicalKey] ?? generatedImages?.[legacyKey];
+  const activeAuthority = imageExecutionAuthorities?.[activeAngle.id] ?? null;
+
+  const isOutputCurrent = isGeneratedImageOutputCurrent(rawGeneratedImg, {
+    project_id: canonicalProjectId,
+    content_item_id: contentItemId,
+    candidate_id: activeAngle.id,
+    execution_authority: activeAuthority,
+  });
+
+  const generatedImg = isOutputCurrent ? rawGeneratedImg : null;
+  const imageKey = legacyKey;
+  const isGenerating = imageGeneratingKey === imageKey || imageGeneratingKey === canonicalKey;
+  
+  // Phase 4B-B / Phase 4C-B: Authority prompt bundle resolution
   const activeBundle = imageTranslatedPromptBundles?.[activeAngle.id] ?? (imageTranslatedPromptBundle?.candidate_id === activeAngle.id ? imageTranslatedPromptBundle : null);
   const effectivePrompt = activeBundle?.execution_prompt ?? null;
 

@@ -1,3 +1,5 @@
+import { isValidExecutionSignatureFormat } from './execution-prompt-authority';
+
 export interface CarouselSlideCompletionEntry {
   slide_number: number;
   asset_created: boolean;
@@ -9,6 +11,7 @@ export interface CarouselSlideCompletionState {
   content_item_id: string;
   candidate_id: string;
   production_plan_signature: string;
+  execution_prompt_signature: string;
   slide_count: number;
   slides: CarouselSlideCompletionEntry[];
   updated_at: string;
@@ -24,6 +27,7 @@ export interface CarouselSlideCompletionExpected {
   content_item_id?: string;
   candidate_id?: string;
   production_plan_signature?: string;
+  execution_prompt_signature?: string;
   slide_count?: number;
 }
 
@@ -45,8 +49,16 @@ export function createEmptyCarouselSlideCompletionState(
   content_item_id: string,
   candidate_id: string,
   production_plan_signature: string,
-  slide_count: number
+  slide_count: number,
+  execution_prompt_signature: string
 ): CarouselSlideCompletionState {
+  if (
+    typeof execution_prompt_signature !== 'string' ||
+    !isValidExecutionSignatureFormat('carousel', execution_prompt_signature)
+  ) {
+    throw new Error('createEmptyCarouselSlideCompletionState requires a valid carousel execution_prompt_signature');
+  }
+
   const slides: CarouselSlideCompletionEntry[] = [];
   for (let i = 1; i <= slide_count; i++) {
     slides.push({
@@ -61,6 +73,7 @@ export function createEmptyCarouselSlideCompletionState(
     content_item_id,
     candidate_id,
     production_plan_signature,
+    execution_prompt_signature,
     slide_count,
     slides,
     updated_at: new Date().toISOString(),
@@ -97,6 +110,13 @@ export function validateCarouselSlideCompletionState(
     s.production_plan_signature.trim().length === 0
   ) {
     return { isValid: false, error: 'production_plan_signature must be a non-empty string' };
+  }
+
+  if (
+    typeof s.execution_prompt_signature !== 'string' ||
+    !isValidExecutionSignatureFormat('carousel', s.execution_prompt_signature)
+  ) {
+    return { isValid: false, error: 'execution_prompt_signature missing, empty, or malformed' };
   }
 
   if (
@@ -209,6 +229,15 @@ export function validateCarouselSlideCompletionState(
       };
     }
     if (
+      expected.execution_prompt_signature &&
+      s.execution_prompt_signature !== expected.execution_prompt_signature
+    ) {
+      return {
+        isValid: false,
+        error: `execution_prompt_signature mismatch: state=${s.execution_prompt_signature} expected=${expected.execution_prompt_signature}`,
+      };
+    }
+    if (
       expected.slide_count !== undefined &&
       s.slide_count !== expected.slide_count
     ) {
@@ -250,6 +279,7 @@ export function setCarouselSlideAssetCreated(
     content_item_id: currentState.content_item_id,
     candidate_id: currentState.candidate_id,
     production_plan_signature: currentState.production_plan_signature,
+    execution_prompt_signature: currentState.execution_prompt_signature,
     slide_count: currentState.slide_count,
     slides: nextSlides,
     updated_at: new Date().toISOString(),

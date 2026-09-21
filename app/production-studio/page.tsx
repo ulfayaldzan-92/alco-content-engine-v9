@@ -114,6 +114,15 @@ import {
   CarouselProductionGateResult,
   evaluateCarouselProductionGate,
 } from '@/lib/carousel-production-gate';
+import {
+  buildExecutionPromptAuthority,
+  ExecutionPromptAuthority,
+} from '@/lib/execution-prompt-authority';
+import {
+  GeneratedImageExecutionOutput,
+  getGeneratedImageOutputKey,
+  isGeneratedImageOutputCurrent,
+} from '@/lib/image-generated-output-state';
 
 
 
@@ -3422,13 +3431,21 @@ export default function ProductionStudioPage() {
         const errMsg = data.error || data.message || "Gagal generate image. Coba lagi nanti.";
         setImageGenerateError(errMsg);
       } else {
+        const authority = buildExecutionPromptAuthority(translatedBundle);
+        const imageOutputData: GeneratedImageExecutionOutput = {
+          project_id: canonicalProjectId,
+          content_item_id: sourceItem.content_item_id,
+          candidate_id: angleId,
+          imageDataUrl: data.imageDataUrl,
+          model: data.model,
+          aspectRatio: data.aspectRatio,
+          execution_authority: authority,
+        };
+        const canonicalKey = getGeneratedImageOutputKey(canonicalProjectId, sourceItem.content_item_id, angleId);
         setGeneratedImages(prev => ({
           ...prev,
-          [key]: {
-            imageDataUrl: data.imageDataUrl,
-            model: data.model,
-            aspectRatio: data.aspectRatio,
-          },
+          [key]: imageOutputData,
+          [canonicalKey]: imageOutputData,
         }));
       }
     } catch (err: any) {
@@ -4602,6 +4619,14 @@ ${formatDirection}${revisionDirective}`;
     return map;
   }, [imageTranslationResults]);
 
+  const imageExecutionAuthorities = useMemo<Record<string, ExecutionPromptAuthority | null>>(() => {
+    const map: Record<string, ExecutionPromptAuthority | null> = {};
+    for (const [id, bundle] of Object.entries(imageTranslatedPromptBundles)) {
+      map[id] = bundle ? buildExecutionPromptAuthority(bundle) : null;
+    }
+    return map;
+  }, [imageTranslatedPromptBundles]);
+
   const selectedImageTranslationResult = selectedAngleId ? (imageTranslationResults[selectedAngleId] ?? null) : null;
   const imageTranslatedPromptBundle = selectedImageTranslationResult?.ok ? (selectedImageTranslationResult.bundle as ImageTranslatedPromptBundle) : null;
   const imageTranslationError = selectedImageTranslationResult && !selectedImageTranslationResult.ok ? selectedImageTranslationResult.error : null;
@@ -4623,6 +4648,11 @@ ${formatDirection}${revisionDirective}`;
   const carouselTranslatedPromptBundle = carouselTranslationResult?.ok ? (carouselTranslationResult.bundle as CarouselTranslatedPromptBundle) : null;
   const carouselTranslationError = carouselTranslationResult && !carouselTranslationResult.ok ? carouselTranslationResult.error : null;
 
+  const currentCarouselExecutionAuthority = useMemo<ExecutionPromptAuthority | null>(() => {
+    if (!carouselTranslatedPromptBundle) return null;
+    return buildExecutionPromptAuthority(carouselTranslatedPromptBundle);
+  }, [carouselTranslatedPromptBundle]);
+
   // 3. Video Translated Prompt Bundle (Requires Authoritative ProductionEngineContext)
   const videoTranslationResult = useMemo(() => {
     if (!productionEngineContext || !activeVideoCandidate || !selectedVideoProductionMode) return null;
@@ -4642,7 +4672,12 @@ ${formatDirection}${revisionDirective}`;
   const videoTranslatedPromptBundle = videoTranslationResult?.ok ? (videoTranslationResult.bundle as VideoTranslatedPromptBundle) : null;
   const videoTranslationError = videoTranslationResult && !videoTranslationResult.ok ? videoTranslationResult.error : null;
 
-  // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature)
+  const currentVideoExecutionAuthority = useMemo<ExecutionPromptAuthority | null>(() => {
+    if (!videoTranslatedPromptBundle) return null;
+    return buildExecutionPromptAuthority(videoTranslatedPromptBundle);
+  }, [videoTranslatedPromptBundle]);
+
+  // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature + Execution Signature)
   const [videoSceneCompletionState, setVideoSceneCompletionState] =
     useState<VideoSceneCompletionState | null>(null);
 
@@ -4652,7 +4687,8 @@ ${formatDirection}${revisionDirective}`;
       !sourceItem?.content_item_id ||
       !selectedVideoProductionMode ||
       !currentScenePlanSignature ||
-      !currentVideoProductionInputSignature
+      !currentVideoProductionInputSignature ||
+      !currentVideoExecutionAuthority
     ) {
       setVideoSceneCompletionState(null);
       return;
@@ -4670,6 +4706,7 @@ ${formatDirection}${revisionDirective}`;
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
       production_input_signature: currentVideoProductionInputSignature,
+      execution_prompt_signature: currentVideoExecutionAuthority.execution_signature,
     };
 
     const validation = validateVideoSceneCompletionState(stored, expected);
@@ -4686,6 +4723,7 @@ ${formatDirection}${revisionDirective}`;
     selectedVideoProductionMode,
     currentScenePlanSignature,
     currentVideoProductionInputSignature,
+    currentVideoExecutionAuthority,
   ]);
 
   const handleToggleSceneCompletion = (sceneNumber: 1 | 2 | 3, isCompleted: boolean) => {
@@ -4694,7 +4732,8 @@ ${formatDirection}${revisionDirective}`;
       !sourceItem?.content_item_id ||
       !selectedVideoProductionMode ||
       !currentScenePlanSignature ||
-      !currentVideoProductionInputSignature
+      !currentVideoProductionInputSignature ||
+      !currentVideoExecutionAuthority
     ) {
       return;
     }
@@ -4705,6 +4744,7 @@ ${formatDirection}${revisionDirective}`;
       production_mode: selectedVideoProductionMode,
       scene_plan_signature: currentScenePlanSignature,
       production_input_signature: currentVideoProductionInputSignature,
+      execution_prompt_signature: currentVideoExecutionAuthority.execution_signature,
     };
 
     const currentState =
@@ -4747,6 +4787,7 @@ ${formatDirection}${revisionDirective}`;
     activeVideoCandidate?.candidate_id,
     currentScenePlanSignature,
     currentVideoProductionInputSignature,
+    currentVideoExecutionAuthority?.execution_signature,
     videoOutputSource,
   ]);
 
@@ -4762,6 +4803,7 @@ ${formatDirection}${revisionDirective}`;
       completion_state: videoSceneCompletionState,
       current_scene_plan_signature: currentScenePlanSignature,
       current_production_input_signature: currentVideoProductionInputSignature,
+      current_execution_authority: currentVideoExecutionAuthority,
     });
   }, [
     productionEngineContext,
@@ -4773,6 +4815,7 @@ ${formatDirection}${revisionDirective}`;
     videoSceneCompletionState,
     currentScenePlanSignature,
     currentVideoProductionInputSignature,
+    currentVideoExecutionAuthority,
   ]);
 
   // Explicit Video Production Package Preparation Handler
@@ -4788,6 +4831,7 @@ ${formatDirection}${revisionDirective}`;
       completion_state: videoSceneCompletionState,
       current_scene_plan_signature: currentScenePlanSignature,
       current_production_input_signature: currentVideoProductionInputSignature,
+      current_execution_authority: currentVideoExecutionAuthority,
     });
 
     if (!gateCheck.is_allowed) {
@@ -4921,7 +4965,8 @@ ${formatDirection}${revisionDirective}`;
       !canonicalProjectId ||
       !sourceItem?.content_item_id ||
       !effectiveCarouselCandidate ||
-      !currentCarouselProductionPlanSignature
+      !currentCarouselProductionPlanSignature ||
+      !currentCarouselExecutionAuthority
     ) {
       setCarouselSlideCompletionState(null);
       return;
@@ -4938,6 +4983,7 @@ ${formatDirection}${revisionDirective}`;
       content_item_id: contentItemId,
       candidate_id: candidateId,
       production_plan_signature: currentCarouselProductionPlanSignature,
+      execution_prompt_signature: currentCarouselExecutionAuthority.execution_signature,
       slide_count: slideCount,
     };
 
@@ -4950,7 +4996,8 @@ ${formatDirection}${revisionDirective}`;
         contentItemId,
         candidateId,
         currentCarouselProductionPlanSignature,
-        slideCount
+        slideCount,
+        currentCarouselExecutionAuthority.execution_signature
       );
       setCarouselSlideCompletionState(fresh);
       saveProjectData(canonicalProjectId, storageKey, fresh);
@@ -4960,6 +5007,7 @@ ${formatDirection}${revisionDirective}`;
     sourceItem?.content_item_id,
     effectiveCarouselCandidate,
     currentCarouselProductionPlanSignature,
+    currentCarouselExecutionAuthority,
   ]);
 
   const handleToggleCarouselSlideCompletion = (slideNumber: number, isCompleted: boolean) => {
@@ -4967,7 +5015,8 @@ ${formatDirection}${revisionDirective}`;
       !canonicalProjectId ||
       !sourceItem?.content_item_id ||
       !effectiveCarouselCandidate ||
-      !currentCarouselProductionPlanSignature
+      !currentCarouselProductionPlanSignature ||
+      !currentCarouselExecutionAuthority
     ) {
       return;
     }
@@ -4980,6 +5029,7 @@ ${formatDirection}${revisionDirective}`;
       content_item_id: contentItemId,
       candidate_id: candidateId,
       production_plan_signature: currentCarouselProductionPlanSignature,
+      execution_prompt_signature: currentCarouselExecutionAuthority.execution_signature,
       slide_count: slideCount,
     };
 
@@ -4992,7 +5042,8 @@ ${formatDirection}${revisionDirective}`;
             contentItemId,
             candidateId,
             currentCarouselProductionPlanSignature,
-            slideCount
+            slideCount,
+            currentCarouselExecutionAuthority.execution_signature
           );
 
     const nextState = setCarouselSlideAssetCreated(currentState, slideNumber, isCompleted);
@@ -5025,6 +5076,7 @@ ${formatDirection}${revisionDirective}`;
     sourceItem?.content_item_id,
     effectiveCarouselCandidate?.candidate_id,
     currentCarouselProductionPlanSignature,
+    currentCarouselExecutionAuthority?.execution_signature,
     carouselOutputSource,
   ]);
 
@@ -5037,6 +5089,7 @@ ${formatDirection}${revisionDirective}`;
       effective_candidate: effectiveCarouselCandidate,
       completion_state: carouselSlideCompletionState,
       current_production_plan_signature: currentCarouselProductionPlanSignature,
+      current_execution_authority: currentCarouselExecutionAuthority,
     });
   }, [
     productionEngineContext,
@@ -5045,6 +5098,7 @@ ${formatDirection}${revisionDirective}`;
     effectiveCarouselCandidate,
     carouselSlideCompletionState,
     currentCarouselProductionPlanSignature,
+    currentCarouselExecutionAuthority,
   ]);
 
   // Explicit Carousel Production Package Preparation Handler
@@ -5057,6 +5111,7 @@ ${formatDirection}${revisionDirective}`;
       effective_candidate: effectiveCarouselCandidate,
       completion_state: carouselSlideCompletionState,
       current_production_plan_signature: currentCarouselProductionPlanSignature,
+      current_execution_authority: currentCarouselExecutionAuthority,
     });
 
     if (!gateCheck.is_allowed) {
@@ -5215,11 +5270,14 @@ ${formatDirection}${revisionDirective}`;
       carouselProductionPackagePrepared,
       imageTranslatedPromptBundle,
       imageTranslatedPromptBundles,
+      imageExecutionAuthorities,
       imageTranslationError,
       carouselTranslatedPromptBundle,
       carouselTranslationError,
+      currentCarouselExecutionAuthority,
       videoTranslatedPromptBundle,
       videoTranslationError,
+      currentVideoExecutionAuthority,
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} />;

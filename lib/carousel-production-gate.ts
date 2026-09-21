@@ -14,6 +14,11 @@ import {
   getCompletedCarouselSlideCount,
 } from './carousel-slide-completion';
 import { buildCarouselProductionPlanSignature } from './carousel-production-path';
+import {
+  ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+  isValidExecutionSignatureFormat,
+} from './execution-prompt-authority';
 
 export interface CarouselProductionGateResult {
   is_allowed: boolean;
@@ -27,6 +32,7 @@ export interface EvaluateCarouselProductionGateParams {
   effective_candidate: CarouselProductionCandidate | null;
   completion_state: CarouselSlideCompletionState | null;
   current_production_plan_signature: string;
+  current_execution_authority: ExecutionPromptAuthority | null;
 }
 
 /**
@@ -162,15 +168,44 @@ export function evaluateCarouselProductionGate(
     }
   }
 
+  // 5b. Current Execution Authority Validation
+  let isExecutionAuthorityValid = false;
+  if (!params.current_execution_authority) {
+    blockers.push('Otoritas eksekusi prompt carousel (current_execution_authority) belum tersedia.');
+  } else {
+    const auth = params.current_execution_authority;
+    if (auth.asset_type !== 'carousel') {
+      blockers.push(`Otoritas eksekusi harus bertipe carousel (ditemukan "${auth.asset_type}").`);
+    } else if (
+      params.effective_candidate &&
+      auth.candidate_id !== params.effective_candidate.candidate_id
+    ) {
+      blockers.push(
+        `Candidate ID pada otoritas eksekusi ("${auth.candidate_id}") tidak cocok dengan candidate carousel aktif ("${params.effective_candidate.candidate_id}").`
+      );
+    } else if (auth.contract_version !== EXECUTION_PROMPT_CONTRACT_VERSION) {
+      blockers.push(
+        `Versi kontrak otoritas eksekusi ("${auth.contract_version}") tidak mencocoki versi aktif ("${EXECUTION_PROMPT_CONTRACT_VERSION}").`
+      );
+    } else if (!isValidExecutionSignatureFormat('carousel', auth.execution_signature)) {
+      blockers.push('Format execution_signature pada otoritas eksekusi carousel tidak valid.');
+    } else {
+      isExecutionAuthorityValid = true;
+    }
+  }
+
   // 6. Completion State Validation
   if (!params.completion_state) {
     blockers.push('Status penyelesaian slide carousel belum tersedia.');
+  } else if (!isExecutionAuthorityValid || !params.current_execution_authority) {
+    blockers.push('Status penyelesaian slide carousel tidak dapat divalidasi karena otoritas eksekusi belum valid.');
   } else {
     const expected = {
       project_id: params.production_context?.project_id,
       content_item_id: params.source_item?.content_item_id,
       candidate_id: params.effective_candidate?.candidate_id,
       production_plan_signature: params.current_production_plan_signature,
+      execution_prompt_signature: params.current_execution_authority.execution_signature,
       slide_count: params.effective_candidate?.production_details?.slide_count,
     };
 

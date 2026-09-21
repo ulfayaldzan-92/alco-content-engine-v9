@@ -294,12 +294,14 @@ assert(buildVideoScenePlanSignature(mockCandidate4Scenes) === '', '4-scene candi
 // TEST 13: Completion state false + null marked_at is valid
 console.log('Running Test 13: Completion state false + null marked_at is valid');
 const defaultMotionInputSig = 'input_sig_motion_explainer_v1';
+const defaultExecutionSig = 'exec_sig_video_12345678';
 const initialState = createEmptyVideoSceneCompletionState({
   project_id: 'proj_alpha',
   content_item_id: 'item_101',
   production_mode: 'motion_explainer',
   scene_plan_signature: sigA,
   production_input_signature: defaultMotionInputSig,
+  execution_prompt_signature: defaultExecutionSig,
 });
 const valInit = validateVideoSceneCompletionState(initialState, {
   project_id: 'proj_alpha',
@@ -307,6 +309,7 @@ const valInit = validateVideoSceneCompletionState(initialState, {
   production_mode: 'motion_explainer',
   scene_plan_signature: sigA,
   production_input_signature: defaultMotionInputSig,
+  execution_prompt_signature: defaultExecutionSig,
 });
 assert(valInit.isValid === true, 'Initial state with false + null marked_at must be valid');
 
@@ -321,6 +324,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'false + undefined marked_at must be invalid'
 );
@@ -336,6 +340,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'false + empty string marked_at must be invalid'
 );
@@ -350,6 +355,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === true,
   'true + valid timestamp marked_at must be valid'
 );
@@ -365,6 +371,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'true + null marked_at must be invalid'
 );
@@ -380,6 +387,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'Empty updated_at must be invalid'
 );
@@ -416,6 +424,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'Validation fails for wrong project_id'
 );
@@ -429,6 +438,7 @@ assert(
     production_mode: 'motion_explainer',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'Validation fails for wrong content_item_id'
 );
@@ -442,6 +452,7 @@ assert(
     production_mode: 'human_led',
     scene_plan_signature: sigA,
     production_input_signature: defaultMotionInputSig,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'Validation fails for wrong production_mode'
 );
@@ -454,8 +465,21 @@ const valSigMismatch = validateVideoSceneCompletionState(stateScene1Done, {
   production_mode: 'motion_explainer',
   scene_plan_signature: sigAVisMod,
   production_input_signature: defaultMotionInputSig,
+  execution_prompt_signature: defaultExecutionSig,
 });
 assert(valSigMismatch.isValid === false, 'Validation fails when scene_plan_signature mismatches');
+
+// TEST 25B: Phase 4C-B execution_prompt_signature mismatch invalidation
+console.log('Running Test 25B: Execution prompt signature mismatch invalidation');
+const valExecSigMismatch = validateVideoSceneCompletionState(stateScene1Done, {
+  project_id: 'proj_alpha',
+  content_item_id: 'item_101',
+  production_mode: 'motion_explainer',
+  scene_plan_signature: sigA,
+  production_input_signature: defaultMotionInputSig,
+  execution_prompt_signature: 'exec_sig_video_87654321',
+});
+assert(valExecSigMismatch.isValid === false, 'Validation fails when execution_prompt_signature mismatches');
 
 // TEST 26: Progress counter and all scenes created
 console.log('Running Test 26: Progress counter and all scenes created');
@@ -803,6 +827,7 @@ const stateHuman = createEmptyVideoSceneCompletionState({
   production_mode: 'human_led',
   scene_plan_signature: sigA,
   production_input_signature: sigHuman,
+  execution_prompt_signature: defaultExecutionSig,
 });
 const valInputSigMismatch = validateVideoSceneCompletionState(stateHuman, {
   project_id: 'proj_alpha',
@@ -810,6 +835,7 @@ const valInputSigMismatch = validateVideoSceneCompletionState(stateHuman, {
   production_mode: 'human_led',
   scene_plan_signature: sigA,
   production_input_signature: sigHumanCharMod,
+  execution_prompt_signature: defaultExecutionSig,
 });
 assert(
   valInputSigMismatch.isValid === false,
@@ -827,6 +853,7 @@ assert(
     production_mode: 'human_led',
     scene_plan_signature: sigA,
     production_input_signature: sigHuman,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'C1C-D+ TEST 22: Completion validation fails when production_input_signature missing'
 );
@@ -842,6 +869,7 @@ assert(
     production_mode: 'human_led',
     scene_plan_signature: sigA,
     production_input_signature: sigHuman,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === false,
   'C1C-D+ TEST 23: Completion validation fails when production_input_signature empty'
 );
@@ -855,6 +883,7 @@ assert(
     production_mode: 'human_led',
     scene_plan_signature: sigA,
     production_input_signature: sigHuman,
+    execution_prompt_signature: defaultExecutionSig,
   }).isValid === true,
   'C1C-D+ TEST 24: Completion remains valid when scene signature AND production input signature both match'
 );
@@ -876,6 +905,7 @@ const newExpectedHuman = {
   production_mode: 'human_led' as const,
   scene_plan_signature: sigA,
   production_input_signature: sigHumanCharMod,
+  execution_prompt_signature: defaultExecutionSig,
 };
 assert(
   validateVideoSceneCompletionState(humanCompleted, newExpectedHuman).isValid === false,
@@ -890,6 +920,7 @@ const stateProdCompleted = createEmptyVideoSceneCompletionState({
   production_mode: 'product_demo',
   scene_plan_signature: sigA,
   production_input_signature: sigProd,
+  execution_prompt_signature: defaultExecutionSig,
 });
 const prodAll3Done = setVideoSceneClipCreated(
   setVideoSceneClipCreated(
@@ -908,6 +939,7 @@ const newExpectedProd = {
   production_mode: 'product_demo' as const,
   scene_plan_signature: sigA,
   production_input_signature: sigProdScreenIdMod,
+  execution_prompt_signature: defaultExecutionSig,
 };
 assert(
   validateVideoSceneCompletionState(prodAll3Done, newExpectedProd).isValid === false,

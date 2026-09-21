@@ -50,6 +50,10 @@ import {
 import { prepareProductionPackage } from '../lib/production-package-workflow';
 import { translateCarouselProductionPrompts } from '../lib/prompt-translation';
 import {
+  buildExecutionPromptAuthority,
+  ExecutionPromptAuthority,
+} from '../lib/execution-prompt-authority';
+import {
   saveProductionPackage,
   loadProductionPackage,
 } from '../lib/production-package-storage';
@@ -254,6 +258,29 @@ function createMockCharacterDNA(projectId: string = 'proj-carousel-123'): Charac
   };
 }
 
+function getHelperCarouselAuthority(
+  candidate: CarouselProductionCandidate,
+  characterDNA: CharacterDNA | null = null
+): ExecutionPromptAuthority {
+  const slides = candidate.production_details?.slides?.map((s) => ({
+    slide_number: s.slide_number,
+    visual_format: s.visual_format || 'photography',
+  }));
+  const translationRes = translateCarouselProductionPrompts({
+    candidate,
+    slides,
+    characterDNA,
+  });
+  if (!translationRes.ok || !translationRes.bundle) {
+    throw new Error('Helper translateCarouselProductionPrompts failed: ' + translationRes.error);
+  }
+  const authorityRes = buildExecutionPromptAuthority(translationRes.bundle);
+  if (!authorityRes.ok || !authorityRes.authority) {
+    throw new Error('Helper buildExecutionPromptAuthority failed: ' + authorityRes.error);
+  }
+  return authorityRes.authority;
+}
+
 async function runCarouselProductionPathTests(): Promise<void> {
   console.log('--- RUNNING PHASE 3D-D TEST SUITE: CAROUSEL PRODUCTION PATH ---');
 
@@ -277,12 +304,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
     const eff3 = buildEffectiveCarouselProductionCandidate(cand3, slides3, null);
     assert(eff3 !== null, 'Effective candidate 3 should not be null');
     const sig3 = buildCarouselProductionPlanSignature(eff3);
+    const auth3 = getHelperCarouselAuthority(eff3, null);
     let comp3 = createEmptyCarouselSlideCompletionState(
       mockItem.project_id,
       mockItem.content_item_id,
       eff3.candidate_id,
       sig3,
-      eff3.production_details.slide_count
+      eff3.production_details.slide_count,
+      auth3.execution_signature
     );
     for (let s = 1; s <= 3; s++) {
       comp3 = setCarouselSlideAssetCreated(comp3, s, true);
@@ -294,6 +323,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: eff3,
       completion_state: comp3,
       current_production_plan_signature: sig3,
+      current_execution_authority: auth3,
     });
     if (!res.is_allowed) {
       console.log('Test 1 blockers:', res.blockers);
@@ -310,12 +340,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
     const eff5 = buildEffectiveCarouselProductionCandidate(cand5, slides5, null);
     assert(eff5 !== null, 'Effective candidate 5 should not be null');
     const sig5 = buildCarouselProductionPlanSignature(eff5);
+    const auth5 = getHelperCarouselAuthority(eff5, null);
     let comp5 = createEmptyCarouselSlideCompletionState(
       mockItem.project_id,
       mockItem.content_item_id,
       eff5.candidate_id,
       sig5,
-      eff5.production_details.slide_count
+      eff5.production_details.slide_count,
+      auth5.execution_signature
     );
     for (let s = 1; s <= 5; s++) {
       comp5 = setCarouselSlideAssetCreated(comp5, s, true);
@@ -327,6 +359,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: eff5,
       completion_state: comp5,
       current_production_plan_signature: sig5,
+      current_execution_authority: auth5,
     });
     assert(res.is_allowed === true, 'Expected gate to allow 5-slide carousel');
   }
@@ -339,12 +372,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
     const eff7 = buildEffectiveCarouselProductionCandidate(cand7, slides7, null);
     assert(eff7 !== null, 'Effective candidate 7 should not be null');
     const sig7 = buildCarouselProductionPlanSignature(eff7);
+    const auth7 = getHelperCarouselAuthority(eff7, null);
     let comp7 = createEmptyCarouselSlideCompletionState(
       mockItem.project_id,
       mockItem.content_item_id,
       eff7.candidate_id,
       sig7,
-      eff7.production_details.slide_count
+      eff7.production_details.slide_count,
+      auth7.execution_signature
     );
     for (let s = 1; s <= 7; s++) {
       comp7 = setCarouselSlideAssetCreated(comp7, s, true);
@@ -356,6 +391,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: eff7,
       completion_state: comp7,
       current_production_plan_signature: sig7,
+      current_execution_authority: auth7,
     });
     assert(res.is_allowed === true, 'Expected gate to allow 7-slide carousel');
   }
@@ -366,12 +402,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
   const baseEff = buildEffectiveCarouselProductionCandidate(baseCand, baseSlides, null);
   assert(baseEff !== null, 'baseEff should not be null');
   const baseSig = buildCarouselProductionPlanSignature(baseEff);
+  const baseAuthority = getHelperCarouselAuthority(baseEff, null);
   let baseComp = createEmptyCarouselSlideCompletionState(
     mockItem.project_id,
     mockItem.content_item_id,
     baseEff.candidate_id,
     baseSig,
-    baseEff.production_details.slide_count
+    baseEff.production_details.slide_count,
+    baseAuthority.execution_signature
   );
   for (let s = 1; s <= 5; s++) {
     baseComp = setCarouselSlideAssetCreated(baseComp, s, true);
@@ -387,6 +425,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'none should be blocked');
     assert(res.blockers.some((b) => b.includes('Output carousel belum otoritatif')), 'Expected blocker for none');
@@ -402,6 +441,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'initial_draft should be blocked');
   }
@@ -416,6 +456,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === true, 'generated_output should be allowed');
   }
@@ -430,6 +471,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === true, 'stored_output should be allowed');
   }
@@ -444,6 +486,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === true, 'user_edited_output should be allowed');
   }
@@ -458,6 +501,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'null context should be blocked');
   }
@@ -476,6 +520,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'invalid ProductionEngineContext should be blocked');
   }
@@ -490,6 +535,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'null sourceItem should be blocked');
   }
@@ -505,6 +551,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'foreign content_item_id should be blocked');
   }
@@ -524,6 +571,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'foreign project sourceItem must be blocked');
   }
@@ -538,6 +586,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: null,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'null candidate must be blocked');
   }
@@ -556,6 +605,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: imageCandidate,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'non-carousel candidate_type must be blocked');
   }
@@ -577,6 +627,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: mismatchedCand,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'mismatched slide_count must be blocked');
   }
@@ -598,6 +649,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: mismatchedPromptsCand,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'mismatched final_prompts slide count must be blocked');
   }
@@ -623,6 +675,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: emptyPromptCand,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'empty prompt must be blocked');
   }
@@ -637,6 +690,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: null,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'null completion_state must be blocked');
   }
@@ -655,6 +709,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: foreignProjectComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'foreign project completion_state must be blocked');
   }
@@ -673,6 +728,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: foreignItemComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'foreign item completion_state must be blocked');
   }
@@ -691,6 +747,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: foreignCandComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'foreign candidate_id completion_state must be blocked');
   }
@@ -709,6 +766,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: foreignCountComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'mismatched slide_count in completion_state must be blocked');
   }
@@ -727,6 +785,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: shortComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'short slides array in completion_state must be blocked');
   }
@@ -745,6 +804,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: foreignSigComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'mismatched completion plan_signature must be blocked');
   }
@@ -757,7 +817,8 @@ async function runCarouselProductionPathTests(): Promise<void> {
       mockItem.content_item_id,
       baseEff.candidate_id,
       baseSig,
-      baseEff.production_details.slide_count
+      baseEff.production_details.slide_count,
+      baseAuthority.execution_signature
     );
     const res = evaluateCarouselProductionGate({
       production_context: prodEngineCtx,
@@ -766,6 +827,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: zeroComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, '0/N completed slides must be blocked');
     assert(getCompletedCarouselSlideCount(zeroComp) === 0, 'Completed count should be 0');
@@ -779,7 +841,8 @@ async function runCarouselProductionPathTests(): Promise<void> {
       mockItem.content_item_id,
       baseEff.candidate_id,
       baseSig,
-      baseEff.production_details.slide_count
+      baseEff.production_details.slide_count,
+      baseAuthority.execution_signature
     );
     partialComp = setCarouselSlideAssetCreated(partialComp, 1, true);
     partialComp = setCarouselSlideAssetCreated(partialComp, 2, true);
@@ -790,6 +853,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: partialComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, '2/5 completed slides must be blocked');
     assert(getCompletedCarouselSlideCount(partialComp) === 2, 'Completed count should be 2');
@@ -808,6 +872,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: baseComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === true, '5/5 completed slides must be allowed');
   }
@@ -839,12 +904,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
   const effWithChar = buildEffectiveCarouselProductionCandidate(baseCand, baseSlides, charDNA);
   assert(effWithChar !== null, 'effWithChar should not be null');
   const sigWithChar = buildCarouselProductionPlanSignature(effWithChar);
+  const authWithChar = getHelperCarouselAuthority(effWithChar, charDNA);
   let compWithChar = createEmptyCarouselSlideCompletionState(
     mockItem.project_id,
     mockItem.content_item_id,
     effWithChar.candidate_id,
     sigWithChar,
-    effWithChar.production_details.slide_count
+    effWithChar.production_details.slide_count,
+    authWithChar.execution_signature
   );
   for (let s = 1; s <= effWithChar.production_details.slide_count; s++) {
     compWithChar = setCarouselSlideAssetCreated(compWithChar, s, true);
@@ -913,6 +980,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: effWithChar,
       completion_state: compWithChar,
       current_production_plan_signature: sigWithChar,
+      current_execution_authority: authWithChar,
     });
     assert(gateRes1.is_allowed === true, 'Gate remains strictly authoritative and uncoupled from UI copy states');
   }
@@ -937,7 +1005,8 @@ async function runCarouselProductionPathTests(): Promise<void> {
       mockItem.content_item_id,
       baseEff.candidate_id,
       baseSig,
-      baseEff.production_details.slide_count
+      baseEff.production_details.slide_count,
+      baseAuthority.execution_signature
     );
     for (let s = 1; s <= 5; s++) {
       toggledComp = setCarouselSlideAssetCreated(toggledComp, s, true);
@@ -955,6 +1024,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
       effective_candidate: baseEff,
       completion_state: toggledComp,
       current_production_plan_signature: baseSig,
+      current_execution_authority: baseAuthority,
     });
     assert(res.is_allowed === false, 'Gate must block when a slide is toggled back to false');
   }
@@ -969,13 +1039,15 @@ async function runCarouselProductionPathTests(): Promise<void> {
       const dynamicEff = buildEffectiveCarouselProductionCandidate(dynamicCand, dynamicSlides, null);
       assert(dynamicEff !== null, `dynamicEff for count ${count} should not be null`);
       const dynamicSig = buildCarouselProductionPlanSignature(dynamicEff);
+      const dynamicAuth = getHelperCarouselAuthority(dynamicEff, null);
 
       const emptyComp = createEmptyCarouselSlideCompletionState(
         mockItem.project_id,
         mockItem.content_item_id,
         dynamicEff.candidate_id,
         dynamicSig,
-        count
+        count,
+        dynamicAuth.execution_signature
       );
       assert(emptyComp.slide_count === count, `slide_count should be ${count}`);
       assert(emptyComp.slides.length === count, `Should have ${count} slide entries`);

@@ -20,6 +20,12 @@ import {
   areAllVideoScenesCreated,
 } from './video-scene-completion';
 
+import {
+  ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+  isValidExecutionSignatureFormat,
+} from './execution-prompt-authority';
+
 export interface VideoProductionGateResult {
   is_allowed: boolean;
   blockers: string[];
@@ -35,6 +41,7 @@ export interface EvaluateVideoProductionGateParams {
   completion_state: VideoSceneCompletionState | null;
   current_scene_plan_signature: string;
   current_production_input_signature: string;
+  current_execution_authority: ExecutionPromptAuthority | null;
 }
 
 const VALID_VIDEO_PRODUCTION_MODES: readonly VideoProductionMode[] = [
@@ -226,6 +233,32 @@ export function evaluateVideoProductionGate(
     blockers.push('Signature input produksi saat ini wajib tersedia dan tidak boleh kosong.');
   }
 
+  // 8b. Current Execution Authority Validation
+  let isExecutionAuthorityValid = false;
+  if (!params.current_execution_authority) {
+    blockers.push('Otoritas eksekusi prompt video (current_execution_authority) belum tersedia.');
+  } else {
+    const auth = params.current_execution_authority;
+    if (auth.asset_type !== 'video') {
+      blockers.push(`Otoritas eksekusi harus bertipe video (ditemukan "${auth.asset_type}").`);
+    } else if (
+      params.selected_candidate &&
+      auth.candidate_id !== params.selected_candidate.candidate_id
+    ) {
+      blockers.push(
+        `Candidate ID pada otoritas eksekusi ("${auth.candidate_id}") tidak cocok dengan candidate video yang dipilih ("${params.selected_candidate.candidate_id}").`
+      );
+    } else if (auth.contract_version !== EXECUTION_PROMPT_CONTRACT_VERSION) {
+      blockers.push(
+        `Versi kontrak otoritas eksekusi ("${auth.contract_version}") tidak mencocoki versi aktif ("${EXECUTION_PROMPT_CONTRACT_VERSION}").`
+      );
+    } else if (!isValidExecutionSignatureFormat('video', auth.execution_signature)) {
+      blockers.push('Format execution_signature pada otoritas eksekusi video tidak valid.');
+    } else {
+      isExecutionAuthorityValid = true;
+    }
+  }
+
   // 9. Completion State Validation
   if (!params.completion_state) {
     blockers.push('State penyelesaian scene video (completion_state) belum tersedia.');
@@ -238,7 +271,9 @@ export function evaluateVideoProductionGate(
       isSelectedModeValid &&
       params.selected_mode &&
       isSceneSignatureProvided &&
-      isInputSignatureProvided
+      isInputSignatureProvided &&
+      isExecutionAuthorityValid &&
+      params.current_execution_authority
     ) {
       const expected = {
         project_id: params.production_context.project_id,
@@ -246,6 +281,7 @@ export function evaluateVideoProductionGate(
         production_mode: params.selected_mode,
         scene_plan_signature: params.current_scene_plan_signature,
         production_input_signature: params.current_production_input_signature,
+        execution_prompt_signature: params.current_execution_authority.execution_signature,
       };
 
       const completionValidation = validateVideoSceneCompletionState(
@@ -256,12 +292,12 @@ export function evaluateVideoProductionGate(
       if (!completionValidation.isValid) {
         blockers.push(
           completionValidation.error ||
-            'State penyelesaian scene video tidak valid terhadap konteks dan signature saat ini.'
+            'State penyelesaian scene video tidak valid terhadap konteks, signature, atau execution prompt saat ini.'
         );
       }
     } else {
       blockers.push(
-        'State penyelesaian scene video tidak dapat divalidasi karena prasyarat konteks atau signature belum valid.'
+        'State penyelesaian scene video tidak dapat divalidasi karena prasyarat konteks, signature, atau otoritas eksekusi belum valid.'
       );
     }
   }

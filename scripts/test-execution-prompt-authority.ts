@@ -955,18 +955,18 @@ assert(!candAdapterContent.includes('prompt-translation'), 'lib/production-candi
 assert(!candAdapterContent.includes('buildExecutionPromptAuthority('), 'lib/production-candidate-adapter.ts does not call buildExecutionPromptAuthority()');
 assert(!candAdapterContent.includes('exec_sig_'), 'lib/production-candidate-adapter.ts does not construct execution signatures');
 
-// 5. Phase 4C-B Absence check
+// 5. Phase 4C-B Presence check
 const vidCompletionContent = fs.readFileSync(path.join(projectRoot, 'lib', 'video-scene-completion.ts'), 'utf-8');
-assert(!vidCompletionContent.includes('execution_prompt_signature'), 'lib/video-scene-completion.ts does not contain execution_prompt_signature (Phase 4C-B absent)');
+assert(vidCompletionContent.includes('execution_prompt_signature'), 'lib/video-scene-completion.ts contains execution_prompt_signature (Phase 4C-B present)');
 
 const carCompletionContent = fs.readFileSync(path.join(projectRoot, 'lib', 'carousel-slide-completion.ts'), 'utf-8');
-assert(!carCompletionContent.includes('execution_prompt_signature'), 'lib/carousel-slide-completion.ts does not contain execution_prompt_signature (Phase 4C-B absent)');
+assert(carCompletionContent.includes('execution_prompt_signature'), 'lib/carousel-slide-completion.ts contains execution_prompt_signature (Phase 4C-B present)');
 
 const vidGateContent = fs.readFileSync(path.join(projectRoot, 'lib', 'video-production-gate.ts'), 'utf-8');
-assert(!vidGateContent.includes('execution_signature') && !vidGateContent.includes('execution_prompt_signature'), 'lib/video-production-gate.ts does not contain execution signature logic (Phase 4C-B absent)');
+assert(vidGateContent.includes('execution_prompt_signature') || vidGateContent.includes('current_execution_authority'), 'lib/video-production-gate.ts contains execution signature logic (Phase 4C-B present)');
 
 const carGateContent = fs.readFileSync(path.join(projectRoot, 'lib', 'carousel-production-gate.ts'), 'utf-8');
-assert(!carGateContent.includes('execution_signature') && !carGateContent.includes('execution_prompt_signature'), 'lib/carousel-production-gate.ts does not contain execution signature logic (Phase 4C-B absent)');
+assert(carGateContent.includes('execution_prompt_signature') || carGateContent.includes('current_execution_authority'), 'lib/carousel-production-gate.ts contains execution signature logic (Phase 4C-B present)');
 
 console.log('\n====================================================');
 console.log('ALL PHASE 4C-A TESTS PASSED SUCCESSFULLY! ✅');

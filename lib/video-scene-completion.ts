@@ -2,6 +2,7 @@ import { VideoProductionMode, VideoSceneProductionPlan } from './production-cont
 import { VideoProductionCandidate } from './production-candidate';
 import { CharacterDNA } from './content-contract';
 import { ProductAssetContext, ProductAssetReference } from './video-production-input';
+import { isValidExecutionSignatureFormat } from './execution-prompt-authority';
 
 // ============================================================================
 // PHASE 3D-C1C-D: REAL SCENE COMPLETION CONTRACT
@@ -21,6 +22,7 @@ export interface VideoSceneCompletionState {
   production_mode: VideoProductionMode;
   scene_plan_signature: string;
   production_input_signature: string;
+  execution_prompt_signature: string;
   scenes: [
     VideoSceneCompletionEntry,
     VideoSceneCompletionEntry,
@@ -390,6 +392,7 @@ export function createEmptyVideoSceneCompletionState(params: {
   production_mode: VideoProductionMode;
   scene_plan_signature: string;
   production_input_signature: string;
+  execution_prompt_signature: string;
 }): VideoSceneCompletionState {
   if (
     typeof params.production_input_signature !== 'string' ||
@@ -398,12 +401,20 @@ export function createEmptyVideoSceneCompletionState(params: {
     throw new Error('createEmptyVideoSceneCompletionState requires a non-empty production_input_signature');
   }
 
+  if (
+    typeof params.execution_prompt_signature !== 'string' ||
+    !isValidExecutionSignatureFormat('video', params.execution_prompt_signature)
+  ) {
+    throw new Error('createEmptyVideoSceneCompletionState requires a valid video execution_prompt_signature');
+  }
+
   return {
     project_id: params.project_id,
     content_item_id: params.content_item_id,
     production_mode: params.production_mode,
     scene_plan_signature: params.scene_plan_signature,
     production_input_signature: params.production_input_signature,
+    execution_prompt_signature: params.execution_prompt_signature,
     scenes: [
       { scene_number: 1, clip_created: false, marked_at: null },
       { scene_number: 2, clip_created: false, marked_at: null },
@@ -414,7 +425,7 @@ export function createEmptyVideoSceneCompletionState(params: {
 }
 
 /**
- * Validates persisted VideoSceneCompletionState against expected project, item, mode, scene signature, and production input signature.
+ * Validates persisted VideoSceneCompletionState against expected project, item, mode, scene signature, production input signature, and execution prompt signature.
  * Fails closed on any corruption, missing scenes, duplicate scene numbers, or signature mismatch.
  */
 export function validateVideoSceneCompletionState(
@@ -425,6 +436,7 @@ export function validateVideoSceneCompletionState(
     production_mode: VideoProductionMode;
     scene_plan_signature: string;
     production_input_signature: string;
+    execution_prompt_signature: string;
   }
 ): VideoSceneCompletionValidationResult {
   if (!state || typeof state !== 'object') {
@@ -490,6 +502,23 @@ export function validateVideoSceneCompletionState(
     return {
       isValid: false,
       error: `Production input signature mismatch: expected "${expected.production_input_signature}", found "${typed.production_input_signature}"`,
+    };
+  }
+
+  if (
+    typeof typed.execution_prompt_signature !== 'string' ||
+    !isValidExecutionSignatureFormat('video', typed.execution_prompt_signature)
+  ) {
+    return {
+      isValid: false,
+      error: 'execution_prompt_signature missing, empty, or malformed in completion state',
+    };
+  }
+
+  if (typed.execution_prompt_signature !== expected.execution_prompt_signature) {
+    return {
+      isValid: false,
+      error: `Execution prompt signature mismatch: expected "${expected.execution_prompt_signature}", found "${typed.execution_prompt_signature}"`,
     };
   }
 

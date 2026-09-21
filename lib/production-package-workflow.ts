@@ -8,7 +8,7 @@ import {
   type ProductionPackageMetadata,
   buildProductionPackage,
 } from './production-engine';
-import type { TranslatedProductionPromptBundle, PromptTranslationResult } from './prompt-translation';
+import type { TranslatedProductionPromptBundle } from './prompt-translation';
 import { bindTranslatedPromptBundleToAssetInput } from './prompt-package-binding';
 
 export interface PrepareProductionPackageInput {
@@ -19,7 +19,7 @@ export interface PrepareProductionPackageInput {
   characterDNA?: CharacterDNA | null;
   candidates: ProductionCandidate[];
   selectedCandidateId: string;
-  translatedPromptBundle: TranslatedProductionPromptBundle | PromptTranslationResult;
+  translatedPromptBundle: TranslatedProductionPromptBundle;
   metadata: ProductionPackageMetadata;
 }
 
@@ -85,29 +85,16 @@ export function prepareProductionPackage(
   }
 
   // 3. Strict translated prompt bundle presence & binding (Phase 4B-A)
-  if (!input.translatedPromptBundle || typeof input.translatedPromptBundle !== 'object') {
+  if (!input.translatedPromptBundle || typeof input.translatedPromptBundle !== 'object' || !('asset_type' in input.translatedPromptBundle)) {
     return {
       ok: false,
-      error: 'Missing required translatedPromptBundle for package creation (FAIL CLOSED).',
+      error: 'Missing or invalid required translatedPromptBundle for package creation (FAIL CLOSED).',
     };
-  }
-
-  let authoritativeBundle: TranslatedProductionPromptBundle;
-  if ('ok' in input.translatedPromptBundle) {
-    if (!input.translatedPromptBundle.ok) {
-      return {
-        ok: false,
-        error: `Prompt translation failed: ${input.translatedPromptBundle.error} (FAIL CLOSED).`,
-      };
-    }
-    authoritativeBundle = input.translatedPromptBundle.bundle;
-  } else {
-    authoritativeBundle = input.translatedPromptBundle;
   }
 
   const bindingResult = bindTranslatedPromptBundleToAssetInput(
     selectionResult.candidate,
-    authoritativeBundle
+    input.translatedPromptBundle
   );
 
   if (!bindingResult.ok) {

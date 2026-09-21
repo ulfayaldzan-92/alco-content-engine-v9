@@ -76,17 +76,8 @@ export interface TranslateImagePromptInput {
 }
 
 export function translateImageProductionPrompt(
-  inputOrCandidate: TranslateImagePromptInput | ImageProductionCandidate,
-  maybeCharacterDNA?: CharacterDNA | null
+  input: TranslateImagePromptInput
 ): PromptTranslationResult {
-  const input: TranslateImagePromptInput =
-    inputOrCandidate && typeof inputOrCandidate === 'object' && 'candidate' in inputOrCandidate
-      ? (inputOrCandidate as TranslateImagePromptInput)
-      : {
-          candidate: inputOrCandidate as ImageProductionCandidate,
-          characterDNA: maybeCharacterDNA,
-        };
-
   if (!input || typeof input !== 'object' || !input.candidate) {
     return { ok: false, error: 'Candidate missing for image prompt translation (FAIL CLOSED).' };
   }
@@ -134,44 +125,18 @@ export interface CarouselPromptSlideMetadata {
 
 export interface TranslateCarouselPromptInput {
   candidate: CarouselProductionCandidate;
-  slides?: CarouselPromptSlideMetadata[];
+  slides: CarouselPromptSlideMetadata[];
   characterDNA?: CharacterDNA | null;
 }
 
 export function translateCarouselProductionPrompts(
-  inputOrCandidate: TranslateCarouselPromptInput | CarouselProductionCandidate,
-  maybeCharacterDNAOrSlides?: CharacterDNA | null | CarouselPromptSlideMetadata[],
-  maybeCharacterDNA?: CharacterDNA | null
+  input: TranslateCarouselPromptInput
 ): PromptTranslationResult {
-  let input: TranslateCarouselPromptInput;
-
-  if (inputOrCandidate && typeof inputOrCandidate === 'object' && 'candidate' in inputOrCandidate) {
-    input = inputOrCandidate as TranslateCarouselPromptInput;
-  } else {
-    const candidate = inputOrCandidate as CarouselProductionCandidate;
-    let slides: CarouselPromptSlideMetadata[] | undefined = undefined;
-    let characterDNA: CharacterDNA | null | undefined = undefined;
-
-    if (Array.isArray(maybeCharacterDNAOrSlides)) {
-      slides = maybeCharacterDNAOrSlides;
-      characterDNA = maybeCharacterDNA;
-    } else {
-      characterDNA = maybeCharacterDNAOrSlides;
-    }
-
-    input = {
-      candidate,
-      slides,
-      characterDNA,
-    };
-  }
-
   if (!input || typeof input !== 'object' || !input.candidate) {
     return { ok: false, error: 'Candidate missing for carousel prompt translation (FAIL CLOSED).' };
   }
 
-  const { candidate, characterDNA } = input;
-  let slideMeta = input.slides;
+  const { candidate, characterDNA, slides: slideMeta } = input;
 
   const validation = validateProductionCandidate(candidate);
   if (!validation.isValid) {
@@ -206,15 +171,8 @@ export function translateCarouselProductionPrompts(
     return { ok: false, error: 'Candidate master_prompt must be non-empty (FAIL CLOSED).' };
   }
 
-  if (!slideMeta) {
-    slideMeta = Array.from({ length: expectedSlideCount }, (_, i) => ({
-      slide_number: i + 1,
-      visual_format: 'photography',
-    }));
-  }
-
-  if (!Array.isArray(slideMeta) || slideMeta.length !== expectedSlideCount) {
-    return { ok: false, error: 'Slide metadata length does not match candidate slide_count (FAIL CLOSED).' };
+  if (!slideMeta || !Array.isArray(slideMeta) || slideMeta.length !== expectedSlideCount) {
+    return { ok: false, error: 'Slide metadata must be an array matching candidate slide_count (FAIL CLOSED).' };
   }
 
   const VALID_FORMATS = new Set<CarouselVisualFormat>(['photography', 'infographic', 'hybrid']);
@@ -441,19 +399,8 @@ Negative Constraints: no abrupt cuts, no jittery animation, no unreadable typogr
 }
 
 export function translateVideoProductionPrompts(
-  inputOrCandidate: TranslateVideoPromptInput | VideoProductionCandidate,
-  maybeCharacterDNA?: CharacterDNA | null,
-  maybeProductAssetContext?: ProductAssetContext | null
+  input: TranslateVideoPromptInput
 ): PromptTranslationResult {
-  const input: TranslateVideoPromptInput =
-    inputOrCandidate && typeof inputOrCandidate === 'object' && 'candidate' in inputOrCandidate
-      ? (inputOrCandidate as TranslateVideoPromptInput)
-      : {
-          candidate: inputOrCandidate as VideoProductionCandidate,
-          characterDNA: maybeCharacterDNA,
-          productAssetContext: maybeProductAssetContext,
-        };
-
   if (!input || typeof input !== 'object' || !input.candidate) {
     return { ok: false, error: 'Candidate missing for video prompt translation (FAIL CLOSED).' };
   }

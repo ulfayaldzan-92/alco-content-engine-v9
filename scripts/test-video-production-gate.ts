@@ -473,7 +473,11 @@ const packageMetadata: ProductionPackageMetadata = {
   package_id: 'pkg_test_33_uuid',
   created_at: new Date().toISOString(),
 };
-const translatedBundle33 = translateVideoProductionPrompts(validCandidateMotion);
+const translationResult33 = translateVideoProductionPrompts({ candidate: validCandidateMotion });
+assert(translationResult33.ok === true, 'Translation must succeed');
+if (!translationResult33.ok) {
+  throw new Error('Translation failed');
+}
 const prepResult = prepareProductionPackage({
   projectId: 'proj_gate_video_001',
   sharedContext: baseSharedContext,
@@ -481,7 +485,7 @@ const prepResult = prepareProductionPackage({
   contentItem: baseContentItem,
   candidates: [validCandidateMotion],
   selectedCandidateId: validCandidateMotion.candidate_id,
-  translatedPromptBundle: translatedBundle33,
+  translatedPromptBundle: translationResult33.bundle,
   metadata: packageMetadata,
 });
 assert(prepResult.ok === true, `prepareProductionPackage must succeed: ${!prepResult.ok ? prepResult.error : ''}`);

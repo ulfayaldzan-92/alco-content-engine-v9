@@ -2114,10 +2114,39 @@ const p3bVideoDetails = {
   negative_constraints: 'No blurry video, no robotic monotone audio',
 };
 
+const p3bVideoExecutionPrompts = {
+  candidate_id: 'cand_vid_p3b',
+  production_mode: 'human_led' as const,
+  scenes: [
+    {
+      scene_number: 1 as const,
+      start_frame_prompt: 'Start frame scene 1 prompt',
+      motion_prompt: 'Motion prompt scene 1',
+      voiceover: 'Stop guessing your funnel strategy. Use an authoritative engine.',
+      on_screen_text: 'Stop Guessing Strategy',
+    },
+    {
+      scene_number: 2 as const,
+      start_frame_prompt: 'Start frame scene 2 prompt',
+      motion_prompt: 'Motion prompt scene 2',
+      voiceover: 'Our system takes three concrete steps to generate video outlines.',
+      on_screen_text: 'Three Simple Steps',
+    },
+    {
+      scene_number: 3 as const,
+      start_frame_prompt: 'Start frame scene 3 prompt',
+      motion_prompt: 'Motion prompt scene 3',
+      voiceover: 'Go to Alco Content Engine now.',
+      on_screen_text: 'Alco.ai',
+    },
+  ],
+};
+
 const p3bVideoInput: ProductionAssetInput = {
   asset_type: 'video',
   video: p3bVideoDetails,
   final_prompt: '15-second vertical video prompt for Alco Content Engine...',
+  execution_prompts: p3bVideoExecutionPrompts,
 };
 
 const p3bMetadata: ProductionPackageMetadata = {
@@ -3291,6 +3320,9 @@ const p3daImageCandidate = buildImageProductionCandidate({
 });
 
 // P3D-A-01: Valid image candidate -> workflow produces Image ProductionPackage
+const p3daImageBundle = (translateImageProductionPrompt({ candidate: p3daImageCandidate, characterDNA: p3daCharacterDNA }) as any).bundle;
+const p3daImageNoDnaBundle = (translateImageProductionPrompt({ candidate: p3daImageCandidate }) as any).bundle;
+
 const p3daRes01 = prepareProductionPackage({
   projectId: p3daProjectId,
   sharedContext: p3daSharedContext,
@@ -3299,7 +3331,7 @@ const p3daRes01 = prepareProductionPackage({
   characterDNA: p3daCharacterDNA,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate, p3daCharacterDNA),
+  translatedPromptBundle: p3daImageBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3325,6 +3357,15 @@ const p3daCarouselCandidate = buildCarouselProductionCandidate({
   negative_constraints: 'No noise',
   final_prompts: { master_prompt: 'Master', slides: [{ slide_number: 1, prompt: 'P1' }, { slide_number: 2, prompt: 'P2' }] },
 });
+const p3daCarouselBundle = (translateCarouselProductionPrompts({
+  candidate: p3daCarouselCandidate,
+  slides: [
+    { slide_number: 1, visual_format: 'photography' },
+    { slide_number: 2, visual_format: 'photography' },
+  ],
+  characterDNA: p3daCharacterDNA,
+}) as any).bundle;
+
 const p3daRes02 = prepareProductionPackage({
   projectId: p3daProjectId,
   sharedContext: p3daSharedContext,
@@ -3333,7 +3374,7 @@ const p3daRes02 = prepareProductionPackage({
   characterDNA: p3daCharacterDNA,
   candidates: [p3daCarouselCandidate],
   selectedCandidateId: 'cand_car_p3da',
-  translatedPromptBundle: translateCarouselProductionPrompts(p3daCarouselCandidate, p3daCharacterDNA),
+  translatedPromptBundle: p3daCarouselBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3359,6 +3400,11 @@ const p3daVideoCandidate = buildVideoProductionCandidate({
   negative_constraints: 'No blur',
   final_prompt: 'Prompt Video Alpha',
 });
+const p3daVideoBundle = (translateVideoProductionPrompts({
+  candidate: p3daVideoCandidate,
+  characterDNA: p3daCharacterDNA,
+}) as any).bundle;
+
 const p3daRes03 = prepareProductionPackage({
   projectId: p3daProjectId,
   sharedContext: p3daSharedContext,
@@ -3367,7 +3413,7 @@ const p3daRes03 = prepareProductionPackage({
   characterDNA: p3daCharacterDNA,
   candidates: [p3daVideoCandidate],
   selectedCandidateId: 'cand_vid_p3da',
-  translatedPromptBundle: translateVideoProductionPrompts(p3daVideoCandidate, p3daCharacterDNA),
+  translatedPromptBundle: p3daVideoBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3383,7 +3429,7 @@ const p3daRes04 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'unknown_cand',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3399,7 +3445,7 @@ const p3daRes05 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: '   ',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3415,7 +3461,7 @@ const p3daRes06 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate, { ...p3daImageCandidate }],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3431,7 +3477,7 @@ const p3daRes07 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3447,7 +3493,7 @@ const p3daRes08 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3463,7 +3509,7 @@ const p3daRes09 = prepareProductionPackage({
   contentItem: { ...p3daContentItem, project_id: 'other_proj_id' },
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3480,7 +3526,7 @@ const p3daRes10 = prepareProductionPackage({
   characterDNA: { ...p3daCharacterDNA, project_id: 'other_proj_id' },
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3496,7 +3542,7 @@ const p3daRes11 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: { ...p3daMetadata, package_id: '' },
 });
 assert(
@@ -3512,7 +3558,7 @@ const p3daRes12 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [p3daImageCandidate],
   selectedCandidateId: 'cand_img_p3da',
-  translatedPromptBundle: translateImageProductionPrompt(p3daImageCandidate),
+  translatedPromptBundle: p3daImageNoDnaBundle,
   metadata: { ...p3daMetadata, created_at: '' },
 });
 assert(
@@ -3769,7 +3815,7 @@ const resB_B13 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [candA_B13, candB_B13, candC_B13],
   selectedCandidateId: 'B',
-  translatedPromptBundle: translateImageProductionPrompt(candB_B13),
+  translatedPromptBundle: (translateImageProductionPrompt({ candidate: candB_B13 }) as any).bundle,
   metadata: p3daMetadata,
 });
 
@@ -3788,7 +3834,7 @@ const resUnknown_B14 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [candA_B13, candB_B13],
   selectedCandidateId: 'UNKNOWN_ANGLE_Z',
-  translatedPromptBundle: translateImageProductionPrompt(candA_B13),
+  translatedPromptBundle: (translateImageProductionPrompt({ candidate: candA_B13 }) as any).bundle,
   metadata: p3daMetadata,
 });
 assert(
@@ -3819,7 +3865,7 @@ const resDup_B15 = prepareProductionPackage({
   contentItem: p3daContentItem,
   candidates: [candA_B13, candDup_B15],
   selectedCandidateId: 'A',
-  translatedPromptBundle: translateImageProductionPrompt(candA_B13),
+  translatedPromptBundle: (translateImageProductionPrompt({ candidate: candA_B13 }) as any).bundle,
   metadata: p3daMetadata,
 });
 assert(

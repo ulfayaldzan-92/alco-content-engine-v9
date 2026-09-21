@@ -849,11 +849,14 @@ async function runCarouselProductionPathTests(): Promise<void> {
   for (let s = 1; s <= effWithChar.production_details.slide_count; s++) {
     compWithChar = setCarouselSlideAssetCreated(compWithChar, s, true);
   }
-  const translatedCarouselBundle30 = translateCarouselProductionPrompts(
-    effWithChar,
-    baseSlides.map((s) => ({ slide_number: s.slide, visual_format: s.visual_format })),
-    charDNA
-  );
+  const translatedCarouselResult30 = translateCarouselProductionPrompts({
+    candidate: effWithChar,
+    slides: baseSlides.map((s) => ({ slide_number: s.slide, visual_format: s.visual_format })),
+    characterDNA: charDNA,
+  });
+  assert(translatedCarouselResult30.ok === true, 'Translation must succeed');
+  if (!translatedCarouselResult30.ok) throw new Error('Translation failed');
+  const translatedCarouselBundle30 = translatedCarouselResult30.bundle;
   const prepResult = prepareProductionPackage({
     projectId: mockItem.project_id,
     sharedContext: mockCtx,

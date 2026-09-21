@@ -3337,7 +3337,17 @@ export default function ProductionStudioPage() {
     };
 
     // Phase 4B: Translate candidate prompt to canonical execution prompt bundle
-    const translatedPromptBundle = translateImageProductionPrompt(selectedCandidate, characterDNA);
+    const translationResult = translateImageProductionPrompt({
+      candidate: selectedCandidate,
+      characterDNA: characterDNA || null,
+    });
+
+    if (!translationResult.ok) {
+      const transErr = translationResult.error || 'Gagal menerjemahkan prompt image ke format eksekusi.';
+      setImageGenerateError(transErr);
+      showToast(`Gagal: ${transErr}`);
+      return;
+    }
 
     // Prepare Production Package
     const prepResult = prepareProductionPackage({
@@ -3348,7 +3358,7 @@ export default function ProductionStudioPage() {
       characterDNA: characterDNA || undefined,
       candidates,
       selectedCandidateId: angleId,
-      translatedPromptBundle,
+      translatedPromptBundle: translationResult.bundle,
       metadata: packageMetadata,
     });
 
@@ -4771,11 +4781,27 @@ ${formatDirection}${revisionDirective}`;
     setVideoProductionPackageError(null);
 
     // Phase 4B: Translate video candidate to canonical execution prompt bundle
-    const translatedPromptBundle = translateVideoProductionPrompts(
-      activeVideoCandidate,
-      productionEngineContext?.character_dna || characterDNA,
-      selectedVideoProductionMode === 'product_demo' ? productAssetContext : null
-    );
+    const translationResult = translateVideoProductionPrompts({
+      candidate: activeVideoCandidate,
+      characterDNA:
+        selectedVideoProductionMode === 'human_led'
+          ? productionEngineContext?.character_dna ?? characterDNA ?? null
+          : null,
+      productAssetContext:
+        selectedVideoProductionMode === 'product_demo'
+          ? productAssetContext
+          : null,
+    });
+
+    if (!translationResult.ok) {
+      const transErr =
+        translationResult.error ||
+        'Gagal menerjemahkan prompt video ke format eksekusi.';
+      setVideoProductionPackageError(transErr);
+      setVideoProductionPackagePreparing(false);
+      showToast(`Gagal: ${transErr}`);
+      return;
+    }
 
     // 6. Prepare production package using exact activeVideoCandidate.candidate_id
     const prepResult = prepareProductionPackage({
@@ -4786,7 +4812,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA: productionEngineContext?.character_dna || undefined,
       candidates: canonicalVideoCandidates,
       selectedCandidateId: activeVideoCandidate.candidate_id,
-      translatedPromptBundle,
+      translatedPromptBundle: translationResult.bundle,
       metadata: packageMetadata,
     });
 
@@ -4995,7 +5021,9 @@ ${formatDirection}${revisionDirective}`;
       !sourceItem ||
       !sharedContextSnapshot ||
       !funnelStrategySnapshot ||
-      !effectiveCarouselCandidate
+      !effectiveCarouselCandidate ||
+      !baseCarouselCandidate ||
+      !carouselPlan?.slides
     ) {
       const missingMsg = 'Data proyek atau candidate carousel tidak lengkap.';
       setCarouselProductionPackageError(missingMsg);
@@ -5036,27 +5064,38 @@ ${formatDirection}${revisionDirective}`;
     setCarouselProductionPackagePreparing(true);
     setCarouselProductionPackageError(null);
 
-    // Phase 4B: Translate carousel candidate to canonical execution prompt bundle
-    const carouselSlideMetadata = carouselPlan?.slides
-      ? carouselPlan.slides.map((s) => ({ slide_number: s.slide, visual_format: s.visual_format }))
-      : undefined;
+    // Phase 4B: Translate base canonical carousel candidate to canonical execution prompt bundle
+    const carouselSlideMetadata = carouselPlan.slides.map((s) => ({
+      slide_number: s.slide,
+      visual_format: s.visual_format,
+    }));
 
-    const translatedPromptBundle = translateCarouselProductionPrompts(
-      effectiveCarouselCandidate,
-      carouselSlideMetadata,
-      productionEngineContext?.character_dna || characterDNA
-    );
+    const translationResult = translateCarouselProductionPrompts({
+      candidate: baseCarouselCandidate,
+      slides: carouselSlideMetadata,
+      characterDNA: productionEngineContext?.character_dna ?? characterDNA ?? null,
+    });
 
-    // 6. Prepare production package using exactly effectiveCarouselCandidate
+    if (!translationResult.ok) {
+      const transErr =
+        translationResult.error ||
+        'Gagal menerjemahkan prompt carousel ke format eksekusi.';
+      setCarouselProductionPackageError(transErr);
+      setCarouselProductionPackagePreparing(false);
+      showToast(`Gagal: ${transErr}`);
+      return;
+    }
+
+    // 6. Prepare production package using canonical base candidate
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
       sharedContext: sharedContextSnapshot,
       funnelStrategy: funnelStrategySnapshot,
       contentItem: sourceItem,
       characterDNA: productionEngineContext?.character_dna || undefined,
-      candidates: [effectiveCarouselCandidate],
-      selectedCandidateId: effectiveCarouselCandidate.candidate_id,
-      translatedPromptBundle,
+      candidates: [baseCarouselCandidate],
+      selectedCandidateId: baseCarouselCandidate.candidate_id,
+      translatedPromptBundle: translationResult.bundle,
       metadata: packageMetadata,
     });
 

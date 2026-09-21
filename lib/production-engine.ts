@@ -60,6 +60,95 @@ export interface BuildProductionPackageResult {
 }
 
 /**
+ * Pure validation helper for video execution prompts in new package builds.
+ * Fails closed if execution authority is missing or invalid.
+ */
+function validateNewVideoExecutionPrompts(
+  executionPrompts: unknown,
+  expectedProductionMode?: string
+): { isValid: boolean; error?: string } {
+  if (!executionPrompts || typeof executionPrompts !== 'object') {
+    return {
+      isValid: false,
+      error: 'Video production asset input requires execution_prompts (FAIL CLOSED).',
+    };
+  }
+
+  const ep = executionPrompts as VideoExecutionPrompts;
+  if (typeof ep.candidate_id !== 'string' || !ep.candidate_id.trim()) {
+    return {
+      isValid: false,
+      error: 'Video execution_prompts.candidate_id must be a non-empty string.',
+    };
+  }
+
+  const validModes = ['human_led', 'product_demo', 'motion_explainer'];
+  if (!validModes.includes(ep.production_mode)) {
+    return {
+      isValid: false,
+      error: `Invalid video execution_prompts.production_mode: "${ep.production_mode}".`,
+    };
+  }
+
+  if (expectedProductionMode && ep.production_mode !== expectedProductionMode) {
+    return {
+      isValid: false,
+      error: `Video execution_prompts.production_mode ("${ep.production_mode}") does not match assetInput.video.production_mode ("${expectedProductionMode}").`,
+    };
+  }
+
+  if (!Array.isArray(ep.scenes) || ep.scenes.length !== 3) {
+    return {
+      isValid: false,
+      error: 'Video execution_prompts must contain exactly 3 scenes.',
+    };
+  }
+
+  for (let i = 0; i < 3; i++) {
+    const s = ep.scenes[i];
+    const expectedNum = (i + 1) as 1 | 2 | 3;
+    if (!s || typeof s !== 'object') {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene ${i + 1} is missing or invalid.`,
+      };
+    }
+    if (s.scene_number !== expectedNum) {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene sequence mismatch: expected ${expectedNum}, got ${s.scene_number}.`,
+      };
+    }
+    if (typeof s.start_frame_prompt !== 'string' || !s.start_frame_prompt.trim()) {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene ${expectedNum} start_frame_prompt must be non-empty.`,
+      };
+    }
+    if (typeof s.motion_prompt !== 'string' || !s.motion_prompt.trim()) {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene ${expectedNum} motion_prompt must be non-empty.`,
+      };
+    }
+    if (typeof s.voiceover !== 'string') {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene ${expectedNum} voiceover must be a string.`,
+      };
+    }
+    if (typeof s.on_screen_text !== 'string') {
+      return {
+        isValid: false,
+        error: `Video execution_prompts scene ${expectedNum} on_screen_text must be a string.`,
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
+/**
  * Single Production Engine Core.
  * 
  * Transforms authoritative ProductionEngineContext + structured ProductionAssetInput + system metadata
@@ -234,6 +323,16 @@ export function buildProductionPackage(
       final_prompts: assetInput.final_prompts,
     };
   } else if (assetInput.asset_type === 'video') {
+    const epValidation = validateNewVideoExecutionPrompts(
+      (assetInput as any).execution_prompts,
+      assetInput.video?.production_mode
+    );
+    if (!epValidation.isValid) {
+      return {
+        isValid: false,
+        error: epValidation.error || 'Invalid video execution_prompts for new package creation.',
+      };
+    }
     candidate = {
       ...basePackage,
       asset_type: 'video',

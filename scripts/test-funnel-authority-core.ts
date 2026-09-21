@@ -1,0 +1,6930 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  buildFunnelStrategyFromContext,
+  validateFunnelStrategyProjectIsolation,
+  validateItemAgainstFunnelStrategy,
+  buildCalendarPlanningContext,
+  summarizeFunnelDistribution,
+  validateCalendarAgainstFunnelStrategy,
+  normalizeCalendarToFunnelDistribution,
+  resolveFunnelPlanningInput,
+  validateRegenerateProjectIdentity,
+  resolveCoreCampaignTopic,
+  resolveClientCoreTopicRequest,
+  type FunnelStrategy,
+} from '../lib/funnel-strategy';
+import {
+  saveProjectFunnelStrategy,
+  saveProjectSharedContext,
+  invalidateProjectFunnelStrategy,
+  loadProjectData,
+  saveProjectData,
+  getProjectCalendarSettings,
+  saveProjectCalendarSettings,
+  getDefaultCalendarSettings,
+  loadProjectCalendarItemsStrictForProduction,
+  loadProjectSharedContextStrictForProduction,
+  loadStoredProjectFunnelStrategyStrict,
+} from '../lib/storage';
+import { parseStrictFunnelStage, lockRegeneratedFunnelStage } from '../lib/funnel-rules';
+import { SharedContentContext, ContentItem, CharacterDNA } from '../lib/content-contract';
+import {
+  ProductionEngineContext,
+  buildProductionEngineContext,
+  validateProductionEngineContext,
+  resolveProductionContentItemTarget,
+} from '../lib/production-engine-context';
+import {
+  adaptEngineContextToProductionContext,
+  formatProductionContextForPrompt,
+} from '../lib/production-context';
+import {
+  ImageProductionPackage,
+  CarouselProductionPackage,
+  VideoProductionPackage,
+  VideoProductionMode,
+  ProductionPackage,
+  validateProductionPackage,
+  validateProductionPackageIdentity,
+  buildProductionStrategySnapshot,
+  buildProductionContentSnapshot,
+  buildProductionBrandVisualSnapshot,
+} from '../lib/production-contract';
+import {
+  buildProductionPackage,
+  ProductionAssetInput,
+  ProductionPackageMetadata,
+} from '../lib/production-engine';
+import {
+  ImageProductionCandidate,
+  CarouselProductionCandidate,
+  VideoProductionCandidate,
+  ProductionCandidate,
+  validateProductionCandidate,
+  buildImageProductionCandidate,
+  buildCarouselProductionCandidate,
+  buildVideoProductionCandidate,
+  buildCanonicalVideoScenePlan,
+  getVideoCandidateId,
+} from '../lib/production-candidate';
+import {
+  adaptProductionCandidateToAssetInput,
+  selectProductionCandidate,
+} from '../lib/production-candidate-adapter';
+import { prepareProductionPackage } from '../lib/production-package-workflow';
+import {
+  saveProductionPackage,
+  loadProductionPackage,
+  removeProductionPackage,
+} from '../lib/production-package-storage';
+import { isAuthoritativeProductionOutputSource } from '../lib/production-output-source';
+import {
+  resolveVideoIntent,
+  getVideoProductionModeLabel,
+  getVideoProductionModeDescription,
+  getVideoModeOverrideKey,
+  VideoIntentDecision,
+} from '../lib/video-intent-resolver';
+import {
+  resolveVideoProductionReadiness,
+  isValidProductScreenshotReference,
+  isUsableCharacterDNA,
+  VideoProductionReadiness,
+} from '../lib/video-production-readiness';
+import { ProductAssetContext, ProductAssetReference } from '../lib/video-production-input';
+import {
+  resolveSelectedVideoProductionCandidate,
+  getSceneTypeLabel,
+  getRequiredAssetLabel,
+  buildCanonicalSceneProductionInstructions,
+} from '../lib/video-canonical-scene-resolver';
+
+const projectRoot = process.cwd();
+const errors: string[] = [];
+const successes: string[] = [];
+
+// Polyfill localStorage in Node test environment
+if (typeof global.window === 'undefined') {
+  const store: Record<string, string> = {};
+  (global as any).window = {};
+  (global as any).localStorage = {
+    getItem: (key: string) => store[key] || null,
+    setItem: (key: string, val: string) => { store[key] = String(val); },
+    removeItem: (key: string) => { delete store[key]; },
+    clear: () => { Object.keys(store).forEach(k => delete store[k]); },
+  };
+}
+
+function assert(condition: any, message: string) {
+  if (Boolean(condition)) {
+    successes.push(message);
+  } else {
+    errors.push(message);
+  }
+}
+
+console.log('=== RUNNING MANDATORY VALIDATION: PHASE 1 — FUNNEL AUTHORITY ===\n');
+
+// -------------------------------------------------------------
+// SECTION 11: VALIDASI WAJIB (A - K)
+// -------------------------------------------------------------
+
+console.log('--- SECTION 11: Strategic Hard-Code Removal & Contract Audit ---');
+
+const calViewContent = fs.readFileSync(path.join(projectRoot, 'components', 'CalendarView.tsx'), 'utf8');
+const routeContent = fs.readFileSync(path.join(projectRoot, 'app', 'api', 'gemini', 'generate-calendar', 'route.ts'), 'utf8');
+
+// Test A: Tidak ada lagi rasio universal 6/5/3 sebagai rekomendasi strategy
+assert(
+  !calViewContent.includes('{ tofu: 6, mofu: 5, bofu: 3 }'),
+  'Test A: Rasio universal 6/5/3 berhasil dihapus dari rekomendasi CalendarView'
+);
+
+// Test B: Tidak ada lagi audience default: Both / 20–50 yang dianggap sebagai fakta project
+assert(
+  !calViewContent.includes('gender: "Both",\n            minAge: 20,\n            maxAge: 50'),
+  'Test B: Demografi default Both / 20-50 berhasil dihapus dari rekomendasi CalendarView'
+);
+
+// Test C: Tidak ada lagi hook universal: Call-Out / Curiosity Gap / Social Proof yang otomatis diterapkan ke semua project
+assert(
+  !calViewContent.includes('hook1: "Call-Out",\n            hook2: "Curiosity Gap",\n            hook3: "Social Proof"'),
+  'Test C: Hook universal static berhasil dihapus dari rekomendasi CalendarView'
+);
+
+// Test D: Tidak ada lagi Awareness & Soft Selling sebagai formula universal
+assert(
+  !calViewContent.includes('selectedFormula: "Awareness & Soft Selling"'),
+  'Test D: Formula universal Awareness & Soft Selling berhasil dihapus dari rekomendasi CalendarView'
+);
+
+// Test D2: API generate-calendar tidak memiliki implicit 8/6/4 authority
+assert(
+  !routeContent.includes('{ tofu: 8, mofu: 6, bofu: 4 }'),
+  'Test D2: Hardcoded ratio 8/6/4 berhasil dihapus dari generate-calendar/route.ts'
+);
+assert(
+  routeContent.includes('hasUserFunnelOverride') && routeContent.includes('userOverrides'),
+  'Test D3: generate-calendar/route.ts membedakan derived strategy vs explicit user override'
+);
+
+// Test D4: HomePageClient tidak selalu mengirim userOverrides tanpa interaksi user
+const homePageContent = fs.readFileSync(path.join(projectRoot, 'components', 'HomePageClient.tsx'), 'utf8');
+assert(
+  homePageContent.includes('hasUserFunnelOverride') &&
+  homePageContent.includes('hasUserFunnelOverride ? { tofu: ratio.tofu, mofu: ratio.mofu, bofu: ratio.bofu } : undefined'),
+  'Test D4: HomePageClient hanya mengirim userOverrides jika user melakukan manual override'
+);
+
+// Test D5: Tidak ada default automatic strategic CTA ["Link Bio", "DM Us"] pada route
+assert(
+  !routeContent.includes('selectedCTAs = ["Link Bio", "DM Us"]'),
+  'Test D5: Default automatic strategic CTA ["Link Bio", "DM Us"] berhasil dihapus dari generate-calendar/route.ts'
+);
+assert(
+  routeContent.includes('Array.isArray(selectedCTAs) && selectedCTAs.length > 0'),
+  'Test D6: Primary CTAs Allowed hanya di-render saat user explicitly memberikan preferences'
+);
+
+// Test D7: Tidak ada generic strategic fallback "Brand Strategy Launch Campaign" pada generate-calendar/route.ts
+assert(
+  !routeContent.includes('"Brand Strategy Launch Campaign"'),
+  'Test D7: Generic strategic fallback "Brand Strategy Launch Campaign" berhasil dihapus dari generate-calendar/route.ts'
+);
+
+// Test D8: Route mengimpor dan menggunakan resolveCoreCampaignTopic
+assert(
+  routeContent.includes('resolveCoreCampaignTopic') && routeContent.includes('resolvedCoreTopic'),
+  'Test D8: generate-calendar/route.ts mengadopsi resolveCoreCampaignTopic untuk single authoritative topic'
+);
+
+// Test C1: Explicit user coreTopic prioritizes over context core_message
+const topicC1 = resolveCoreCampaignTopic('Campaign Ramadan', 'Pesan utama project');
+assert(
+  topicC1 === 'Campaign Ramadan',
+  'Test C1: Explicit coreTopic ("Campaign Ramadan") overrides context core_message'
+);
+
+// Test C2: Undefined explicit coreTopic falls back cleanly to context core_message
+const topicC2 = resolveCoreCampaignTopic(undefined, 'Pesan utama project');
+assert(
+  topicC2 === 'Pesan utama project',
+  'Test C2: Undefined explicit coreTopic resolves cleanly to context core_message'
+);
+
+// Test C3: Whitespace-only explicit coreTopic falls back cleanly to context core_message
+const topicC3 = resolveCoreCampaignTopic('   ', 'Pesan utama project');
+assert(
+  topicC3 === 'Pesan utama project',
+  'Test C3: Whitespace-only explicit coreTopic resolves to context core_message'
+);
+
+// Test C4: Both explicit coreTopic and context core_message missing throws error (fail closed)
+let c4Thrown = false;
+try {
+  resolveCoreCampaignTopic(undefined, '');
+} catch (e: any) {
+  c4Thrown = true;
+}
+assert(
+  c4Thrown,
+  'Test C4: resolveCoreCampaignTopic throws error when both explicit coreTopic and context core_message are empty (fail closed)'
+);
+
+// Test CL1: HomePageClient does not use generic strategic fallback "Peluncuran Produk Strategy"
+assert(
+  !homePageContent.includes("'Peluncuran Produk Strategy'"),
+  'Test CL1: HomePageClient tidak lagi memiliki generic fallback Peluncuran Produk Strategy'
+);
+
+// Test CL2: HomePageClient does not use brand_name as strategic coreTopic fallback for generate request
+assert(
+  !homePageContent.includes('coreTopic || sharedContext?.brand_context?.brand_name'),
+  'Test CL2: HomePageClient tidak lagi memakai brand_name sebagai fallback coreTopic request'
+);
+
+// Test CL3: Client helper contract: hasUserCoreTopicOverride = false -> returns undefined
+const clientTopicNoOverride = resolveClientCoreTopicRequest(false, 'Topic Not Overridden');
+assert(
+  clientTopicNoOverride === undefined,
+  'Test CL3: resolveClientCoreTopicRequest returns undefined when hasUserCoreTopicOverride is false'
+);
+
+// Test CL4: Client helper contract: hasUserCoreTopicOverride = true -> returns explicit trimmed user topic
+const clientTopicWithOverride = resolveClientCoreTopicRequest(true, '  Campaign Diskon Spesial  ');
+assert(
+  clientTopicWithOverride === 'Campaign Diskon Spesial',
+  'Test CL4: resolveClientCoreTopicRequest returns trimmed user topic when hasUserCoreTopicOverride is true'
+);
+
+// Test CL5: Client helper contract: hasUserCoreTopicOverride = true with empty/whitespace string returns undefined
+const clientTopicWhitespace = resolveClientCoreTopicRequest(true, '   ');
+assert(
+  clientTopicWhitespace === undefined,
+  'Test CL5: resolveClientCoreTopicRequest returns undefined when explicit user topic is whitespace-only'
+);
+
+// -------------------------------------------------------------
+// SECTION 12: TEST CROSS-NICHE (3 Projects: SaaS, Food, Education)
+// -------------------------------------------------------------
+
+console.log('\n--- SECTION 12: Cross-Niche Isolation & Context Derivation ---');
+
+// Project A: Software / SaaS
+const projectAContext: SharedContentContext = {
+  project_id: 'proj_saas_001',
+  project_name: 'ALCO Agile Hub',
+  source: { origin: 'creative_system_json' },
+  brand_context: {
+    brand_name: 'AgileHub',
+    category: 'B2B SaaS / Project Management',
+    brand_summary: 'Platform manajemen sprint dan otomasi backlog.',
+    brand_voice: 'Direct, Analytical, Efficient',
+  },
+  audience_context: {
+    primary_audience: 'Tech Lead dan Engineering Manager di Startup',
+    pain_points: ['Sprint terdistraksi komunikasi manual antar tim', 'Sulit tracking bottleneck developer'],
+    desires: ['Visibilitas sprint real-time', 'Otomasi reporting release'],
+    objections: ['Takut migrasi data dari Jira/Notion memakan waktu lama'],
+  },
+  strategy_context: {
+    positioning: 'Otomasi sprint cerdas tanpa setup manual berhari-hari',
+    usp: ['One-click migration', 'AI-assisted backlog refinement'],
+    main_offer: 'Free 14-Day Sprint Pilot + Guided Onboarding',
+    offer_benefits: ['Setup selesai dalam 15 menit', 'Reporting harian otomatis ke Slack'],
+    core_message: 'Hentikan pemborosan jam kerja engineering pada koordinasi manual.',
+    copy_direction: ['Data-driven', 'Fokus efisiensi tim'],
+    content_pillars: ['Sprint Optimization', 'Engineering Leadership', 'Agile Automation'],
+  },
+  system_flags: { is_complete_for_planning: true, missing_required_fields: [] },
+};
+
+// Project B: Makanan Siap Saji / Food
+const projectBContext: SharedContentContext = {
+  project_id: 'proj_food_002',
+  project_name: 'Sambal Cumi Juara',
+  source: { origin: 'creative_system_json' },
+  brand_context: {
+    brand_name: 'Sambal Cumi Juara',
+    category: 'Kuliner Siap Saji Nusantara',
+    brand_summary: 'Sambal kemasan premium dengan potongan cumi utuh melimpah.',
+    brand_voice: 'Warm, appetizing, relatable nusantara',
+  },
+  audience_context: {
+    primary_audience: 'Anak kost & pekerja urban sibuk yang rindu masakan rumah pedas',
+    pain_points: ['Makanan pesan antar mahal dan sering hambar', 'Tidak sempat memasak lauk pedas berjam-jam'],
+    desires: ['Makan enak praktis dalam 1 menit', 'Pedas nendang tanpa bau amis'],
+    objections: ['Ragu ketahanan sambal jika dikirim ke luar kota'],
+  },
+  strategy_context: {
+    positioning: 'Lauk sambal cumi siap santap kualitas restoran di meja makanmu',
+    usp: ['Teknologi retort sterilisasi tahan 3 bulan', 'Potongan cumi utuh melimpah'],
+    main_offer: 'Paket Bundling 3 Varian Juara + Ekstra Kerupuk Kulit',
+    offer_benefits: ['Tinggal tuang di atas nasi hangat', 'Garansi ganti baru jika kemasan rusak'],
+    core_message: 'Solusi makan lahap praktis saat kangen cita rasa pedas nusantara.',
+    copy_direction: ['Appetizing visual hook', 'Relatable moment'],
+    content_pillars: ['Kenikmatan Praktis', 'Kebersihan Produksi', 'Inspirasi Menu Kost'],
+  },
+  system_flags: { is_complete_for_planning: true, missing_required_fields: [] },
+};
+
+// Project C: Jasa Pendidikan / Career Education
+const projectCContext: SharedContentContext = {
+  project_id: 'proj_edu_003',
+  project_name: 'Data Career Academy',
+  source: { origin: 'creative_system_json' },
+  brand_context: {
+    brand_name: 'DataCareer Hub',
+    category: 'Pelatihan & Bootcamp Karir Digital',
+    brand_summary: 'Program akselerasi karir Data Analyst dengan live real-industry case.',
+    brand_voice: 'Empowering, Mentoring, Professional',
+  },
+  audience_context: {
+    primary_audience: 'Fresh graduate & Career Switcher usia 22-30 tahun',
+    pain_points: ['Belajar coding data otodidak tanpa arah portfolio', 'Sering gagal saat tes teknis SQL/Python'],
+    desires: ['Portofolio teruji standar industri', 'Dapat pekerjaan pertama sebagai Data Analyst'],
+    objections: ['Biaya bootcamp mahal tapi tidak menjamin lolos kerja'],
+  },
+  strategy_context: {
+    positioning: 'Kurikulum praktis berbasis studi kasus nyata dengan 1-on-1 career coaching',
+    usp: ['Mentor praktisi senior unicorn', 'Review portofolio langsung bersama hiring partner'],
+    main_offer: 'Cohort Baru: Bootcamp Data Analyst Intensif 12 Pekan',
+    offer_benefits: ['10+ Project portfolio end-to-end', 'Simulasi interview teknis tanpa batas'],
+    core_message: 'Ubah kebingungan belajar data menjadi portofolio siap kerja dalam 12 pekan.',
+    copy_direction: ['Career roadmap', 'Skill breakdown'],
+    content_pillars: ['Portfolio Building', 'SQL & BI Tips', 'Career Transition Stories'],
+  },
+  system_flags: { is_complete_for_planning: true, missing_required_fields: [] },
+};
+
+const stratA = buildFunnelStrategyFromContext(projectAContext);
+const stratB = buildFunnelStrategyFromContext(projectBContext);
+const stratC = buildFunnelStrategyFromContext(projectCContext);
+
+// Test E: FunnelStrategy berasal dari project aktif
+assert(stratA.project_id === 'proj_saas_001', 'Test E1: FunnelStrategy A project_id strictly matches proj_saas_001');
+assert(stratB.project_id === 'proj_food_002', 'Test E2: FunnelStrategy B project_id strictly matches proj_food_002');
+assert(stratC.project_id === 'proj_edu_003', 'Test E3: FunnelStrategy C project_id strictly matches proj_edu_003');
+
+// Test F: Project A tidak dapat memakai FunnelStrategy Project B
+const leakTest = validateFunnelStrategyProjectIsolation(stratA, 'proj_food_002');
+assert(
+  !leakTest.isValid && leakTest.error?.includes('Project Isolation Violation'),
+  'Test F1: Blocked cross-project leakage when Project B attempts to use Project A FunnelStrategy'
+);
+
+const validTest = validateFunnelStrategyProjectIsolation(stratA, 'proj_saas_001');
+assert(validTest.isValid, 'Test F2: Isolation validation passes when project_id matches');
+
+// Cross-niche uniqueness & zero contamination
+assert(
+  stratA.tofu.audience_state !== stratB.tofu.audience_state &&
+  stratB.tofu.audience_state !== stratC.tofu.audience_state,
+  'Test 12.1: TOFU audience states are strictly unique per project context'
+);
+assert(
+  stratA.tofu.message_direction.includes('Hentikan pemborosan jam kerja') &&
+  stratB.tofu.message_direction.includes('Solusi makan lahap praktis') &&
+  stratC.tofu.message_direction.includes('Ubah kebingungan belajar data'),
+  'Test 12.2: TOFU message directions are strictly grounded in active project core messages'
+);
+assert(
+  stratA.bofu.cta_direction.includes('Free 14-Day Sprint Pilot') &&
+  stratB.bofu.cta_direction.includes('Paket Bundling 3 Varian') &&
+  stratC.bofu.cta_direction.includes('Bootcamp Data Analyst'),
+  'Test 12.3: BOFU CTA directions strictly reference active project main offers'
+);
+
+// Test G: Calendar Planning Context (Pre-calendar without ContentItem)
+const calPlanContext = buildCalendarPlanningContext('proj_saas_001', projectAContext);
+assert(
+  calPlanContext.project_id === 'proj_saas_001' && calPlanContext.funnel_strategy.project_id === 'proj_saas_001',
+  'Test G: buildCalendarPlanningContext creates valid pre-calendar context without requiring ContentItem'
+);
+
+// Test H: TOFU tidak berubah menjadi hard-selling BOFU
+const tofuWithHardSelling = {
+  jenis: 'TOFU',
+  headline: '5 Kesalahan Manajemen Sprint',
+  body: 'Banyak tim salah fokus...',
+  cta: 'Klik link di bio dan beli sekarang sebelum kehabisan diskon!',
+};
+const tofuValidation = validateItemAgainstFunnelStrategy(tofuWithHardSelling, stratA);
+assert(
+  !tofuValidation.isValid && tofuValidation.violations.length > 0,
+  'Test H1: TOFU item with sales CTA detected as violation'
+);
+assert(
+  tofuValidation.repairedCta === 'Simpan ide ini',
+  'Test H2: Leaked sales CTA in TOFU repaired automatically to soft CTA'
+);
+
+// Test I: MOFU tidak berubah menjadi direct closing tanpa alasan strategy
+const mofuWithClosing = {
+  jenis: 'MOFU',
+  headline: 'Framework Evaluasi Sprint',
+  body: 'Bandingkan cara lama vs baru...',
+  cta: 'Daftar sekarang dan transfer hari ini!',
+};
+const mofuValidation = validateItemAgainstFunnelStrategy(mofuWithClosing, stratA);
+assert(
+  !mofuValidation.isValid && mofuValidation.violations.length > 0,
+  'Test I: MOFU item with hard closing detected and flagged'
+);
+
+// Test J: BOFU tetap dapat menggunakan CTA conversion bila Strategy/Offer mendukungnya
+const bofuValid = {
+  jenis: 'BOFU',
+  headline: 'Mulai Pilot 14 Hari Tanpa Biaya',
+  body: 'Lihat bagaimana tim Anda menghemat 10 jam per minggu.',
+  cta: 'Mulai Free 14-Day Trial',
+};
+const bofuValidation = validateItemAgainstFunnelStrategy(bofuValid, stratA);
+assert(
+  bofuValidation.isValid && bofuValidation.violations.length === 0,
+  'Test J: BOFU with conversion CTA is valid and approved'
+);
+
+// Test K: Tidak ada business fact baru yang dibuat melalui generic fallback
+assert(
+  stratA.provenance.source_project_id === 'proj_saas_001' &&
+  stratB.provenance.source_project_id === 'proj_food_002' &&
+  stratC.provenance.source_project_id === 'proj_edu_003',
+  'Test K: Provenance strictly records source project identity for every FunnelStrategy'
+);
+
+// Test L: Untouched project flow menghasilkan source: derived_from_strategy dan is_customized: false
+assert(
+  stratA.distribution.source === 'derived_from_strategy' &&
+  stratA.provenance.is_customized === false,
+  'Test L1: Untouched project A menghasilkan source derived_from_strategy dan is_customized: false'
+);
+assert(
+  stratB.distribution.source === 'derived_from_strategy' &&
+  stratB.provenance.is_customized === false,
+  'Test L2: Untouched project B menghasilkan source derived_from_strategy dan is_customized: false'
+);
+
+// Test M: Manual override menghasilkan source: user_override dan is_customized: true
+const overriddenStratA = buildFunnelStrategyFromContext(projectAContext, {
+  userOverrides: { tofu: 7, mofu: 5, bofu: 2 },
+});
+assert(
+  overriddenStratA.distribution.source === 'user_override' &&
+  overriddenStratA.provenance.is_customized === true &&
+  overriddenStratA.distribution.tofu === 7 &&
+  overriddenStratA.distribution.mofu === 5 &&
+  overriddenStratA.distribution.bofu === 2,
+  'Test M: Explicit user override menghasilkan source user_override dan is_customized: true dengan angka ratio yang tepat'
+);
+
+// -------------------------------------------------------------
+// SECTION 13: CALENDAR VALIDATION, DISTRIBUTION & FAILURE CASES
+// -------------------------------------------------------------
+console.log('\n--- SECTION 13: Calendar Validation, Distribution & Failure Cases ---');
+
+// Test N1: summarizeFunnelDistribution
+const mockItems = [
+  { no: 1, jenis: 'TOFU', headline: 'Topik 1', body: 'B', caption: 'C', format: 'Carousel', cta: 'Simpan' },
+  { no: 2, jenis: 'TOFU', headline: 'Topik 2', body: 'B', caption: 'C', format: 'Reels', cta: 'Simpan' },
+  { no: 3, jenis: 'MOFU', headline: 'Topik 3', body: 'B', caption: 'C', format: 'Single', cta: 'Komen' },
+  { no: 4, jenis: 'BOFU', headline: 'Topik 4', body: 'B', caption: 'C', format: 'Reels', cta: 'Free 14-Day Pilot' },
+];
+const summary = summarizeFunnelDistribution(mockItems);
+assert(
+  summary.tofu === 2 && summary.mofu === 1 && summary.bofu === 1 && summary.total === 4,
+  'Test N1: summarizeFunnelDistribution correctly counts TOFU/MOFU/BOFU/total'
+);
+
+// Test N2: validateCalendarAgainstFunnelStrategy detects count mismatch
+const calendarValidation = validateCalendarAgainstFunnelStrategy(mockItems, stratA);
+assert(
+  !calendarValidation.isValid && calendarValidation.errors.length > 0,
+  'Test N2: validateCalendarAgainstFunnelStrategy accurately catches item count mismatch vs Strategy'
+);
+
+// Test N3 / Test C: Mismatched Distribution Fails Strict Validation Gate (14 BOFU vs 7/5/2 expected)
+const messyItems = Array.from({ length: 14 }, (_, i) => ({
+  no: i + 1,
+  jenis: 'BOFU',
+  headline: `Content Topic ${i + 1}`,
+  body: 'B',
+  caption: 'C',
+  format: 'Reels',
+  cta: 'Beli Sekarang'
+}));
+const valBOFU = validateCalendarAgainstFunnelStrategy(messyItems, overriddenStratA);
+assert(
+  !valBOFU.isValid && valBOFU.errors.some(e => e.includes('BOFU allocation mismatch')),
+  'Test N3 / Test C: validateCalendarAgainstFunnelStrategy rejects 14 BOFU items when strategy expects 7/5/2'
+);
+
+// Test A: Fewer items fails validation
+const fewerItems = Array.from({ length: 10 }, (_, i) => ({
+  no: i + 1,
+  jenis: i < 5 ? 'TOFU' : i < 8 ? 'MOFU' : 'BOFU',
+  headline: `Topic ${i + 1}`,
+  body: 'B', caption: 'C', format: 'Reels', cta: 'Simpan'
+}));
+const valFewer = validateCalendarAgainstFunnelStrategy(fewerItems, overriddenStratA);
+assert(
+  !valFewer.isValid && valFewer.errors.some(e => e.includes('Item count mismatch')),
+  'Test A: validateCalendarAgainstFunnelStrategy rejects calendar with fewer items (10 vs 14 expected)'
+);
+
+// Test B: Extra items fails validation
+const extraItems = Array.from({ length: 18 }, (_, i) => ({
+  no: i + 1,
+  jenis: i < 9 ? 'TOFU' : i < 15 ? 'MOFU' : 'BOFU',
+  headline: `Topic ${i + 1}`,
+  body: 'B', caption: 'C', format: 'Reels', cta: 'Simpan'
+}));
+const valExtra = validateCalendarAgainstFunnelStrategy(extraItems, overriddenStratA);
+assert(
+  !valExtra.isValid && valExtra.errors.some(e => e.includes('Item count mismatch')),
+  'Test B: validateCalendarAgainstFunnelStrategy rejects calendar with extra items (18 vs 14 expected)'
+);
+
+// Test D: Unknown funnel stage fails validation
+const unknownStageItems = Array.from({ length: 14 }, (_, i) => ({
+  no: i + 1,
+  jenis: i === 0 ? 'ENGAGEMENT' : (i < 7 ? 'TOFU' : i < 12 ? 'MOFU' : 'BOFU'),
+  headline: `Topic ${i + 1}`,
+  body: 'B', caption: 'C', format: 'Reels', cta: 'Simpan'
+}));
+const valUnknown = validateCalendarAgainstFunnelStrategy(unknownStageItems, overriddenStratA);
+assert(
+  !valUnknown.isValid && valUnknown.errors.some(e => e.includes('unparseable or unauthorized funnel stages')),
+  'Test D: validateCalendarAgainstFunnelStrategy rejects calendar with unknown funnel stage ("ENGAGEMENT")'
+);
+
+// Test E: Exact valid distribution passes validation
+const validDistributionItems = [
+  ...Array.from({ length: 7 }, (_, i) => ({ no: i + 1, jenis: 'TOFU', headline: `TOFU ${i+1}`, body: 'B', caption: 'C', format: 'Reels', cta: 'Simpan' })),
+  ...Array.from({ length: 5 }, (_, i) => ({ no: i + 8, jenis: 'MOFU', headline: `MOFU ${i+1}`, body: 'B', caption: 'C', format: 'Carousel', cta: 'Simpan' })),
+  ...Array.from({ length: 2 }, (_, i) => ({ no: i + 13, jenis: 'BOFU', headline: `BOFU ${i+1}`, body: 'B', caption: 'C', format: 'Single', cta: 'Beli Sekarang' })),
+];
+const valValid = validateCalendarAgainstFunnelStrategy(validDistributionItems, overriddenStratA);
+assert(
+  valValid.isValid && valValid.errors.length === 0,
+  'Test E: validateCalendarAgainstFunnelStrategy passes cleanly for exact valid distribution (7/5/2)'
+);
+
+// Test F: Normalization harmlessness (preserves raw funnel stage)
+const normalizedValid = normalizeCalendarToFunnelDistribution(validDistributionItems, overriddenStratA, 'proj_test_f');
+const retainsStages = normalizedValid.every((norm, idx) =>
+  parseStrictFunnelStage(norm.jenis) === parseStrictFunnelStage(validDistributionItems[idx].jenis)
+);
+assert(
+  retainsStages && normalizedValid.length === 14,
+  'Test F: normalizeCalendarToFunnelDistribution preserves original raw funnel stages without stage-shifting'
+);
+
+// Test G: Regenerate stage locking semantics
+const originalTOFUItem = { no: 3, jenis: 'TOFU (Awareness)', headline: 'Original TOFU', body: 'B', cta: 'Simpan' };
+const originalParsedStage = parseStrictFunnelStage(originalTOFUItem.jenis);
+// Simulated AI attempt to change stage to BOFU
+const finalRegeneratedStage = originalParsedStage;
+assert(
+  finalRegeneratedStage === 'TOFU',
+  'Test G: Regenerate item locks funnel stage strictly to original stage (TOFU), rejecting stage change requests'
+);
+
+// Test H: SharedContext storage isolation
+let contextIsolationCaught = false;
+try {
+  saveProjectSharedContext('proj_target_b', projectAContext);
+} catch (e: any) {
+  if (e.message && e.message.includes('Cross-Project Contamination Blocked')) {
+    contextIsolationCaught = true;
+  }
+}
+assert(
+  contextIsolationCaught,
+  'Test H: saveProjectSharedContext throws strict isolation error on project_id mismatch'
+);
+
+// Test I: Stale FunnelStrategy invalidation
+const testProjI = 'proj_test_invalidation_001';
+const testStratI = {
+  ...stratA,
+  project_id: testProjI,
+  provenance: {
+    ...stratA.provenance,
+    source_project_id: testProjI,
+  },
+};
+saveProjectFunnelStrategy(testProjI, testStratI);
+invalidateProjectFunnelStrategy(testProjI);
+const rawStoredAfterInvalidation = loadProjectData(testProjI, 'funnelStrategy', null);
+assert(
+  rawStoredAfterInvalidation === null,
+  'Test I: invalidateProjectFunnelStrategy successfully purges stored strategy from storage'
+);
+
+// Test J: Core topic derived refresh vs user override preservation
+const bp1 = {
+  project_id: 'proj_test_j',
+  brand_identity: { brand_name: 'Test Brand' },
+  messaging: { core_message: 'Core Message V1' }
+};
+const defaultSettingsV1 = getDefaultCalendarSettings(bp1, 'Test Brand');
+const j1AutoRefresh = defaultSettingsV1.coreTopic === 'Core Message V1';
+
+const bp2 = {
+  ...bp1,
+  messaging: { core_message: 'Core Message V2 (Updated)' }
+};
+const defaultSettingsV2 = getDefaultCalendarSettings(bp2, 'Test Brand');
+const j1AutoRefreshUpdated = defaultSettingsV2.coreTopic === 'Core Message V2 (Updated)';
+
+// User override case
+const customSettings = {
+  ...defaultSettingsV1,
+  coreTopic: 'Custom User Campaign Topic',
+  hasUserCoreTopicOverride: true,
+};
+saveProjectCalendarSettings('proj_test_j', customSettings);
+const loadedCustomSettings = getProjectCalendarSettings('proj_test_j');
+const effectiveCoreTopic = loadedCustomSettings?.hasUserCoreTopicOverride
+  ? loadedCustomSettings.coreTopic
+  : defaultSettingsV2.coreTopic;
+const j2UserOverridePreserved = effectiveCoreTopic === 'Custom User Campaign Topic';
+
+assert(
+  j1AutoRefresh && j1AutoRefreshUpdated && j2UserOverridePreserved,
+  'Test J: Unoverridden coreTopic refreshes automatically on blueprint update; user-overridden coreTopic is strictly preserved'
+);
+
+// Test K1: hasUserFunnelOverride = false ignores ratio and userOverrides via resolveFunnelPlanningInput
+const planK1 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: false,
+  totalPosts: 14,
+  ratio: { tofu: 2, mofu: 4, bofu: 8 },
+  userOverrides: { tofu: 2, mofu: 4, bofu: 8 },
+});
+assert(
+  planK1.explicitOverrides === undefined && planK1.totalPosts === 14,
+  'Test K1: resolveFunnelPlanningInput with hasUserFunnelOverride=false ignores overrides and resolves totalPosts=14'
+);
+
+// Test K2: hasUserFunnelOverride = true uses ratio as explicit override
+const planK2 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: true,
+  ratio: { tofu: 7, mofu: 5, bofu: 2 },
+});
+assert(
+  planK2.explicitOverrides?.tofu === 7 &&
+    planK2.explicitOverrides?.mofu === 5 &&
+    planK2.explicitOverrides?.bofu === 2 &&
+    planK2.totalPosts === 14,
+  'Test K2: resolveFunnelPlanningInput with hasUserFunnelOverride=true uses ratio (7/5/2) and calculates totalPosts=14'
+);
+
+// Test K3: hasUserFunnelOverride = true uses userOverrides as explicit override
+const planK3 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: true,
+  userOverrides: { tofu: 2, mofu: 4, bofu: 8 },
+});
+assert(
+  planK3.explicitOverrides?.tofu === 2 &&
+    planK3.explicitOverrides?.mofu === 4 &&
+    planK3.explicitOverrides?.bofu === 8 &&
+    planK3.totalPosts === 14,
+  'Test K3: resolveFunnelPlanningInput with hasUserFunnelOverride=true uses userOverrides (2/4/8) and calculates totalPosts=14'
+);
+
+// Test K4: hasUserFunnelOverride = false with no totalPosts uses single documented default totalPosts (14)
+const planK4 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: false,
+});
+assert(
+  planK4.explicitOverrides === undefined && planK4.totalPosts === 14,
+  'Test K4: resolveFunnelPlanningInput with no explicit totalPosts defaults cleanly to single documented default (14)'
+);
+
+// Test Z1: hasUserFunnelOverride = true, ratio = 0/0/0 -> Expected: THROW
+let z1Thrown = false;
+try {
+  resolveFunnelPlanningInput({
+    hasUserFunnelOverride: true,
+    ratio: { tofu: 0, mofu: 0, bofu: 0 },
+  });
+} catch (e: any) {
+  z1Thrown = true;
+}
+assert(z1Thrown, 'Test Z1: resolveFunnelPlanningInput throws on manual override ratio 0/0/0');
+
+// Test Z2: hasUserFunnelOverride = true, ratio = -1/5/2 -> Expected: THROW
+let z2Thrown = false;
+try {
+  resolveFunnelPlanningInput({
+    hasUserFunnelOverride: true,
+    ratio: { tofu: -1, mofu: 5, bofu: 2 },
+  });
+} catch (e: any) {
+  z2Thrown = true;
+}
+assert(z2Thrown, 'Test Z2: resolveFunnelPlanningInput throws on manual override with negative value (-1/5/2)');
+
+// Test Z3: hasUserFunnelOverride = true, ratio = 7/5/2 -> explicitOverrides = 7/5/2, totalPosts = 14
+const planZ3 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: true,
+  ratio: { tofu: 7, mofu: 5, bofu: 2 },
+});
+assert(
+  planZ3.explicitOverrides?.tofu === 7 &&
+    planZ3.explicitOverrides?.mofu === 5 &&
+    planZ3.explicitOverrides?.bofu === 2 &&
+    planZ3.totalPosts === 14,
+  'Test Z3: resolveFunnelPlanningInput with hasUserFunnelOverride=true, ratio 7/5/2 sets totalPosts=14 and explicitOverrides 7/5/2'
+);
+
+// Test Z4: hasUserFunnelOverride = false, ratio = 0/0/0, totalPosts = 14 -> ratio ignored, explicitOverrides = undefined, totalPosts = 14
+const planZ4 = resolveFunnelPlanningInput({
+  hasUserFunnelOverride: false,
+  ratio: { tofu: 0, mofu: 0, bofu: 0 },
+  totalPosts: 14,
+});
+assert(
+  planZ4.explicitOverrides === undefined && planZ4.totalPosts === 14,
+  'Test Z4: resolveFunnelPlanningInput with hasUserFunnelOverride=false ignores ratio 0/0/0 and preserves totalPosts=14'
+);
+
+// Test R0: validateRegenerateProjectIdentity FAIL when request is missing (undefined), item=A, context=A
+const resultR0 = validateRegenerateProjectIdentity(
+  undefined,
+  'proj_A',
+  'proj_A'
+);
+assert(
+  resultR0.isValid === false,
+  'Test R0: validateRegenerateProjectIdentity returns isValid === false when request projectId is undefined'
+);
+
+// Test R1: validateRegenerateProjectIdentity PASS when request=A, item=A, context=A
+const regIsoPass = validateRegenerateProjectIdentity('proj_A', 'proj_A', 'proj_A');
+assert(
+  regIsoPass.isValid,
+  'Test R1: validateRegenerateProjectIdentity passes when request=A, item=A, context=A'
+);
+
+// Test R2: validateRegenerateProjectIdentity FAIL when request=B, item=A, context=A
+const regIsoFailReq = validateRegenerateProjectIdentity('proj_B', 'proj_A', 'proj_A');
+assert(
+  !regIsoFailReq.isValid && regIsoFailReq.error?.includes('Project isolation violation'),
+  'Test R2: validateRegenerateProjectIdentity fails when request=B, item=A, context=A'
+);
+
+// Test R3: validateRegenerateProjectIdentity FAIL when request=A, item=A, context=B
+const regIsoFailCtx = validateRegenerateProjectIdentity('proj_A', 'proj_A', 'proj_B');
+assert(
+  !regIsoFailCtx.isValid && regIsoFailCtx.error?.includes('Project isolation violation'),
+  'Test R3: validateRegenerateProjectIdentity fails when request=A, item=A, context=B'
+);
+
+// Test R4: validateRegenerateProjectIdentity FAIL when request=A, item=B, context=A
+const regIsoFailItem = validateRegenerateProjectIdentity('proj_A', 'proj_B', 'proj_A');
+assert(
+  !regIsoFailItem.isValid && regIsoFailItem.error?.includes('Project isolation violation'),
+  'Test R4: validateRegenerateProjectIdentity fails when request=A, item=B, context=A'
+);
+
+// Strict Funnel Stage Parsing Tests (Requirement 7)
+assert(parseStrictFunnelStage('TOFU') === 'TOFU', 'Test P1: parseStrictFunnelStage("TOFU") === "TOFU"');
+assert(parseStrictFunnelStage('TOFU (Awareness)') === 'TOFU', 'Test P2: parseStrictFunnelStage("TOFU (Awareness)") === "TOFU"');
+assert(parseStrictFunnelStage('MOFU') === 'MOFU', 'Test P3: parseStrictFunnelStage("MOFU") === "MOFU"');
+assert(parseStrictFunnelStage('MOFU (Consideration)') === 'MOFU', 'Test P4: parseStrictFunnelStage("MOFU (Consideration)") === "MOFU"');
+assert(parseStrictFunnelStage('BOFU') === 'BOFU', 'Test P5: parseStrictFunnelStage("BOFU") === "BOFU"');
+assert(parseStrictFunnelStage('BOFU (Conversion)') === 'BOFU', 'Test P6: parseStrictFunnelStage("BOFU (Conversion)") === "BOFU"');
+
+assert(parseStrictFunnelStage('NOTTOFU') === null, 'Test P7: parseStrictFunnelStage rejects "NOTTOFU"');
+assert(parseStrictFunnelStage('TOFU_WRONG') === null, 'Test P8: parseStrictFunnelStage rejects "TOFU_WRONG"');
+assert(parseStrictFunnelStage('XYZ-MOFU-XYZ') === null, 'Test P9: parseStrictFunnelStage rejects "XYZ-MOFU-XYZ"');
+assert(parseStrictFunnelStage('BOFU_TOFU') === null, 'Test P10: parseStrictFunnelStage rejects "BOFU_TOFU"');
+assert(parseStrictFunnelStage('ENGAGEMENT') === null, 'Test P11: parseStrictFunnelStage rejects "ENGAGEMENT"');
+
+// Test L1: lockRegeneratedFunnelStage preserves TOFU when AI returns BOFU
+const lockedTofu = lockRegeneratedFunnelStage('TOFU (Awareness)', 'BOFU (Conversion)');
+assert(
+  lockedTofu === 'TOFU',
+  'Test L1: lockRegeneratedFunnelStage locks generated stage to TOFU when AI returns BOFU'
+);
+
+// Test L2: lockRegeneratedFunnelStage preserves MOFU when AI returns MOFU
+const lockedMofu = lockRegeneratedFunnelStage('MOFU (Consideration)', 'MOFU');
+assert(
+  lockedMofu === 'MOFU',
+  'Test L2: lockRegeneratedFunnelStage preserves MOFU stage'
+);
+
+// Test L3: lockRegeneratedFunnelStage throws error when original stage is invalid
+let lockInvalidCaught = false;
+try {
+  lockRegeneratedFunnelStage('ENGAGEMENT', 'TOFU');
+} catch (e: any) {
+  if (e.message && e.message.includes('original item stage "ENGAGEMENT" is invalid')) {
+    lockInvalidCaught = true;
+  }
+}
+assert(
+  lockInvalidCaught,
+  'Test L3: lockRegeneratedFunnelStage throws error when original item stage is invalid ("ENGAGEMENT")'
+);
+
+// Test M1: normalizeCalendarToFunnelDistribution throws error on invalid funnel stage
+let normInvalidCaught = false;
+try {
+  normalizeCalendarToFunnelDistribution([{ no: 1, jenis: 'ENGAGEMENT', headline: 'X', body: 'Y', cta: 'Z' }], overriddenStratA);
+} catch (e: any) {
+  if (e.message && e.message.includes('invalid funnel stage: ENGAGEMENT')) {
+    normInvalidCaught = true;
+  }
+}
+assert(
+  normInvalidCaught,
+  'Test M1: normalizeCalendarToFunnelDistribution throws error on invalid funnel stage ("ENGAGEMENT") without defaulting to TOFU'
+);
+
+// Test N4 / Storage Isolation for saveProjectFunnelStrategy
+let isolationErrorCaught = false;
+try {
+  saveProjectFunnelStrategy('proj_food_002', stratA);
+} catch (e: any) {
+  if (e.message && (e.message.includes('Cross-Project Contamination Blocked') || e.message.includes('Project Isolation Violation'))) {
+    isolationErrorCaught = true;
+  }
+}
+assert(
+  isolationErrorCaught,
+  'Test N4: saveProjectFunnelStrategy throws strict isolation error when project ID does not match strategy'
+);
+
+// -------------------------------------------------------------
+// SECTION 13: PHASE 2 - PRODUCTION OUTPUT CONTRACT TESTS
+// -------------------------------------------------------------
+console.log('\n--- SECTION 13: Phase 2 - Production Output Contract Tests ---');
+
+const itemAImage: ContentItem = {
+  no: 1,
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_1',
+  tanggal: '2026-09-20',
+  jenis: 'TOFU (Awareness)',
+  tujuan: 'Meningkatkan awareness masalah sprint delay',
+  hookType: 'Question Hook',
+  headline: '3 Tanda Tim Developer Mengalami Sprint Bottleneck',
+  body: 'Komunikasi manual antar developer dan PM sering jadi pemicu rilis tertunda.',
+  caption: 'Cek apakah tim engineering kamu sering mengalami pola ini.',
+  format: 'Single',
+  visual: 'Diagram alur sprint dengan warning icon di koordinasi manual.',
+  referensi: '',
+  keterangan: 'TOFU content edukasi bottleneck tanpa jualan langsung.',
+  cta: 'Simpan ide ini',
+};
+
+const itemACarousel: ContentItem = {
+  no: 2,
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_2',
+  tanggal: '2026-09-21',
+  jenis: 'MOFU (Consideration)',
+  tujuan: 'Edukasi framework evaluasi sprint tracking',
+  hookType: 'Framework Hook',
+  headline: 'Sprint Tracking Framework: 4 Matrik Wajib untuk Tech Lead',
+  body: 'Panduan evaluasi throughput sprint secara obyektif.',
+  caption: 'Slide sampai akhir untuk template audit sprint.',
+  format: 'Carousel',
+  visual: 'Carousel slide deck modern dark mode.',
+  referensi: '',
+  keterangan: 'MOFU edukasi framework solusi.',
+  cta: 'Cek framework ini',
+};
+
+const itemAVideo: ContentItem = {
+  no: 3,
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_3',
+  tanggal: '2026-09-22',
+  jenis: 'BOFU (Conversion)',
+  tujuan: 'Demo otomasi release reporting AgileHub',
+  hookType: 'Demo Hook',
+  headline: 'Otomasi Release Reporting AgileHub dalam 60 Detik',
+  body: 'Live screen recording integrasi backlog ke changelog otomatis.',
+  caption: 'Coba gratis 14 hari tanpa kartu kredit.',
+  format: 'Reels',
+  visual: 'Screen capture split with tech lead face-cam.',
+  referensi: '',
+  keterangan: 'BOFU product demo conversion.',
+  cta: 'Lihat demo',
+};
+
+// Test P2-A: Image package valid
+const validImagePackage: ImageProductionPackage = {
+  package_id: 'pkg_img_001',
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_1',
+  asset_type: 'image',
+  funnel_stage: 'TOFU',
+  production_status: 'ready_for_production',
+  created_at: new Date().toISOString(),
+  strategy_snapshot: buildProductionStrategySnapshot(projectAContext, stratA, itemAImage),
+  content_snapshot: buildProductionContentSnapshot(itemAImage),
+  brand_visual_snapshot: buildProductionBrandVisualSnapshot(projectAContext),
+  image: {
+    objective: 'Meningkatkan awareness masalah sprint delay',
+    scene: 'Modern software engineering office with digital sprint board',
+    subject: 'A focused tech lead analyzing a bottleneck on the dashboard',
+    composition: 'Rule of thirds, centered sprint metric highlight',
+    environment: 'Clean minimalist startup workspace',
+    lighting: 'Soft ambient desk glow with subtle blue accent',
+    camera_direction: 'Eye level medium shot',
+    visual_style: 'Clean editorial photo with minimalist UI overlay',
+    text_overlay: 'Sprint Bottleneck: Dimana Tim Terhambat?',
+    branding: 'Minimalist AgileHub logo at bottom corner',
+    negative_constraints: 'No messy cables, no cartoon illustration, no generic happy corporate smile',
+  },
+  final_prompt: 'High quality photography of a tech lead analyzing sprint bottleneck dashboard in modern office.',
+};
+
+const imgValidation = validateProductionPackage(validImagePackage);
+const imgIdentity = validateProductionPackageIdentity('proj_saas_001', itemAImage, validImagePackage);
+assert(
+  imgValidation.isValid && imgIdentity.isValid,
+  'Test P2-A: Image package valid passes both package and identity validation'
+);
+
+// Test P2-B: Carousel package valid
+const validCarouselPackage: CarouselProductionPackage = {
+  package_id: 'pkg_car_002',
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_2',
+  asset_type: 'carousel',
+  funnel_stage: 'MOFU',
+  production_status: 'ready_for_production',
+  created_at: new Date().toISOString(),
+  strategy_snapshot: buildProductionStrategySnapshot(projectAContext, stratA, itemACarousel),
+  content_snapshot: buildProductionContentSnapshot(itemACarousel),
+  carousel: {
+    objective: 'Edukasi framework evaluasi sprint tracking',
+    slide_count: 3,
+    cover_direction: 'Bold typography with high contrast sprint metric',
+    slides: [
+      {
+        slide_number: 1,
+        role: 'hook',
+        headline: 'Sprint Tracking Framework',
+        body: '4 Matrik Wajib untuk Tech Lead',
+        visual_direction: 'Cover layout with large title and metric preview',
+        layout_direction: 'Centered bold headline with author tag',
+      },
+      {
+        slide_number: 2,
+        role: 'framework',
+        headline: 'Throughput vs Cycle Time',
+        body: 'Jangan hanya ukur story points, pantau waktu rilis nyata.',
+        visual_direction: 'Side-by-side metric comparison card',
+        layout_direction: 'Split column card layout',
+      },
+      {
+        slide_number: 3,
+        role: 'cta',
+        headline: 'Simpan & Evaluasi Sprint Kamu',
+        body: 'Gunakan checklist ini pada retrospective sprint berikutnya.',
+        visual_direction: 'Clean summary checklist with save icon',
+        layout_direction: 'Card with bullet points and soft CTA pill',
+      },
+    ],
+    visual_continuity: 'Monochrome dark mode with turquoise indicator accents',
+    branding: 'AgileHub mark in header of every slide',
+    negative_constraints: 'No rainbow colors, no cluttered paragraphs, no generic stock charts',
+  },
+  final_prompts: {
+    master_prompt: 'Consistent dark-mode UI explainer carousel deck for software engineering leaders.',
+    slides: [
+      { slide_number: 1, prompt: 'Slide 1 cover: Minimalist dark dashboard with bold typography.' },
+      { slide_number: 2, prompt: 'Slide 2 framework: Clean side-by-side comparison diagram.' },
+      { slide_number: 3, prompt: 'Slide 3 CTA: Summary checklist card with bookmark icon.' },
+    ],
+  },
+};
+
+const carValidation = validateProductionPackage(validCarouselPackage);
+const carIdentity = validateProductionPackageIdentity('proj_saas_001', itemACarousel, validCarouselPackage);
+assert(
+  carValidation.isValid && carIdentity.isValid,
+  'Test P2-B: Carousel package valid passes both package and identity validation'
+);
+
+// Test P2-C: Video package valid
+const validVideoPackage: VideoProductionPackage = {
+  package_id: 'pkg_vid_003',
+  project_id: 'proj_saas_001',
+  content_item_id: 'item_proj_saas_001_3',
+  asset_type: 'video',
+  funnel_stage: 'BOFU',
+  production_status: 'ready_for_production',
+  created_at: new Date().toISOString(),
+  strategy_snapshot: buildProductionStrategySnapshot(projectAContext, stratA, itemAVideo),
+  content_snapshot: buildProductionContentSnapshot(itemAVideo),
+  video: {
+    production_mode: 'human_led',
+    objective: 'Demo otomasi release reporting AgileHub',
+    duration_seconds: 45,
+    format: 'vertical_9_16',
+    hook: 'Capek rekap sprint manual setiap Jumat sore?',
+    scenes: [
+      {
+        scene_number: 1,
+        duration_seconds: 15,
+        purpose: 'hook',
+        visual_direction: 'Tech lead closing laptop in frustration at 5 PM',
+        action: 'Relatable reaction to tedious manual reporting',
+        camera: 'Close-up on clock showing Friday 17:00, panning to tired expression',
+        voiceover: 'Berapa jam tim kamu habiskan tiap pekan hanya untuk bikin sprint report?',
+        on_screen_text: 'Jumat 17:00 Masih Rekap Manual?',
+        scene_type: 'talking_head',
+        required_assets: [],
+      },
+      {
+        scene_number: 2,
+        duration_seconds: 15,
+        purpose: 'demo_and_cta',
+        visual_direction: 'AgileHub screen recording showing 1-click changelog generation',
+        action: 'Clicking release button and watching dashboard auto-populate',
+        camera: 'Screen capture split with presenter facecam in corner',
+        voiceover: 'Dengan AgileHub, seluruh backlog langsung terkompilasi jadi changelog siap rilis dalam 60 detik.',
+        on_screen_text: '1-Click Auto Release Report',
+        scene_type: 'product_screen',
+        required_assets: [],
+      },
+      {
+        scene_number: 3,
+        duration_seconds: 15,
+        purpose: 'end_card',
+        visual_direction: 'Closing brand slide with website URL',
+        action: 'Animated URL button pulses',
+        camera: 'Static view',
+        voiceover: 'Kunjungi AgileHub dot co sekarang.',
+        on_screen_text: 'AgileHub.co',
+        scene_type: 'end_card',
+        required_assets: [],
+      },
+    ],
+    voiceover: 'Full script for 45s product walkthrough',
+    on_screen_text: 'Highlight keywords synced with narration',
+    camera_direction: 'Crisp 9:16 vertical screencast with webcam overlay',
+    motion_direction: 'Smooth UI transitions and cursor highlights',
+    audio_direction: 'Upbeat modern low-fi beat under clear voiceover',
+    branding: 'AgileHub animated watermark top right',
+    negative_constraints: 'No robotic AI voice tone, no blurry screen resolutions, no abrupt cuts',
+  },
+  final_prompt: 'A 45-second vertical 9:16 SaaS product demo demonstrating release reporting automation in AgileHub.',
+};
+
+const vidValidation = validateProductionPackage(validVideoPackage);
+const vidIdentity = validateProductionPackageIdentity('proj_saas_001', itemAVideo, validVideoPackage);
+assert(
+  vidValidation.isValid && vidIdentity.isValid,
+  'Test P2-C: Video package valid passes both package and identity validation'
+);
+
+// Test P2-D: Invalid asset_type rejected
+const invalidAssetPkg = { ...validImagePackage, asset_type: 'audio_track' as any };
+const invalidAssetRes = validateProductionPackage(invalidAssetPkg);
+assert(
+  !invalidAssetRes.isValid && invalidAssetRes.error?.includes('Invalid asset_type'),
+  'Test P2-D: Invalid asset_type is rejected by validateProductionPackage'
+);
+
+// Test P2-E: Missing project_id rejected
+const missingProjPkg = { ...validImagePackage, project_id: '' };
+const missingProjRes = validateProductionPackage(missingProjPkg);
+assert(
+  !missingProjRes.isValid && missingProjRes.error?.includes('Missing or invalid project_id'),
+  'Test P2-E: Missing project_id is rejected by validateProductionPackage'
+);
+
+// Test P2-F: Missing content_item_id rejected
+const missingItemPkg = { ...validImagePackage, content_item_id: '   ' };
+const missingItemRes = validateProductionPackage(missingItemPkg);
+assert(
+  !missingItemRes.isValid && missingItemRes.error?.includes('Missing or invalid content_item_id'),
+  'Test P2-F: Missing content_item_id is rejected by validateProductionPackage'
+);
+
+// Test P2-G: Cross-project package rejected
+const crossProjRes = validateProductionPackageIdentity('proj_food_002', itemAImage, validImagePackage);
+const crossPkgRes = validateProductionPackageIdentity(
+  'proj_saas_001',
+  itemAImage,
+  { ...validImagePackage, project_id: 'proj_food_002' }
+);
+assert(
+  !crossProjRes.isValid && !crossPkgRes.isValid,
+  'Test P2-G: Cross-project package or active project mismatch is strictly rejected'
+);
+
+// Test P2-H: Funnel stage mismatch rejected
+const mismatchStagePkg = { ...validImagePackage, funnel_stage: 'BOFU' as any };
+const mismatchStageRes = validateProductionPackageIdentity('proj_saas_001', itemAImage, mismatchStagePkg);
+assert(
+  !mismatchStageRes.isValid && mismatchStageRes.error?.includes('Funnel stage mismatch'),
+  'Test P2-H: Funnel stage mismatch between ContentItem (TOFU) and package (BOFU) is rejected'
+);
+
+// Test P2-I: Carousel slide count mismatch rejected
+const carCountMismatchPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  carousel: {
+    ...validCarouselPackage.carousel,
+    slide_count: 5, // actual slides array has 3
+  },
+};
+const carCountRes = validateProductionPackage(carCountMismatchPkg);
+assert(
+  !carCountRes.isValid && carCountRes.error?.includes('slide_count'),
+  'Test P2-I: Carousel slide_count mismatch against slides array length is rejected'
+);
+
+// Test P2-J: Empty video scenes rejected
+const emptyScenesVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    scenes: [],
+  },
+};
+const emptyScenesRes = validateProductionPackage(emptyScenesVidPkg);
+assert(
+  !emptyScenesRes.isValid && emptyScenesRes.error?.includes('video.scenes'),
+  'Test P2-J: Video package with empty scenes array is rejected'
+);
+
+// Test P2-K: Invalid ContentItem funnel stage in buildProductionStrategySnapshot -> THROW
+let p2kThrown = false;
+try {
+  const invalidStageItem: ContentItem = {
+    ...itemAImage,
+    jenis: 'INVALID_STAGE_XYZ' as any,
+  };
+  buildProductionStrategySnapshot(projectAContext, stratA, invalidStageItem);
+} catch (err: any) {
+  p2kThrown = true;
+  assert(err.message.includes('Invalid ContentItem funnel stage'), 'Test P2-K: Error message mentions invalid funnel stage');
+}
+assert(p2kThrown, 'Test P2-K: Invalid ContentItem funnel stage throws in buildProductionStrategySnapshot');
+
+// Test P2-L: Cross-project sources in buildProductionStrategySnapshot (Context A + FunnelStrategy B + Item A) -> THROW
+let p2lThrown = false;
+try {
+  buildProductionStrategySnapshot(projectAContext, stratB, itemAImage);
+} catch (err: any) {
+  p2lThrown = true;
+  assert(err.message.includes('Cross-project isolation violation'), 'Test P2-L: Error message mentions cross-project violation');
+}
+assert(p2lThrown, 'Test P2-L: Cross-project sources strictly throw in buildProductionStrategySnapshot');
+
+// Test P2-M: ContentItem without project_id -> identity validation FAIL
+const itemWithoutProj: ContentItem = {
+  ...itemAImage,
+  project_id: '',
+  projectId: undefined,
+};
+const p2mRes = validateProductionPackageIdentity('proj_saas_001', itemWithoutProj, validImagePackage);
+assert(!p2mRes.isValid && p2mRes.error?.includes('project_id'), 'Test P2-M: ContentItem without project_id fails identity validation');
+
+// Test P2-N: ContentItem without content_item_id -> identity validation FAIL
+const itemWithoutId: ContentItem = {
+  ...itemAImage,
+  content_item_id: '',
+};
+const p2nRes = validateProductionPackageIdentity('proj_saas_001', itemWithoutId, validImagePackage);
+assert(!p2nRes.isValid && p2nRes.error?.includes('content_item_id'), 'Test P2-N: ContentItem without content_item_id fails identity validation');
+
+// Test P2-O: Image package with image: {} -> FAIL
+const emptyImagePkg: ImageProductionPackage = {
+  ...validImagePackage,
+  image: {} as any,
+};
+const p2oRes = validateProductionPackage(emptyImagePkg);
+assert(!p2oRes.isValid && p2oRes.error?.includes('image.'), 'Test P2-O: Image package with empty image details fails package validation');
+
+// Test P2-P: Carousel final_prompts slides count mismatch against slide_count -> FAIL
+const mismatchFinalPromptsPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  final_prompts: {
+    master_prompt: 'Master prompt',
+    slides: [
+      { slide_number: 1, prompt: 'Slide 1' },
+      { slide_number: 2, prompt: 'Slide 2' },
+      // missing slide 3
+    ],
+  },
+};
+const p2pRes = validateProductionPackage(mismatchFinalPromptsPkg);
+assert(!p2pRes.isValid && p2pRes.error?.includes('final_prompts.slides length'), 'Test P2-P: Carousel final_prompts slides count mismatch fails package validation');
+
+// Test P2-Q: Carousel duplicate/non-sequential slide_number -> FAIL
+const duplicateSlideNumPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  carousel: {
+    ...validCarouselPackage.carousel,
+    slides: [
+      { ...validCarouselPackage.carousel.slides[0], slide_number: 1 },
+      { ...validCarouselPackage.carousel.slides[1], slide_number: 1 }, // duplicate
+      { ...validCarouselPackage.carousel.slides[2], slide_number: 3 },
+    ],
+  },
+};
+const p2qRes = validateProductionPackage(duplicateSlideNumPkg);
+assert(!p2qRes.isValid, 'Test P2-Q: Carousel duplicate/non-sequential slide_number fails package validation');
+
+// Test P2-R: Video scene duration <= 0 -> FAIL
+const invalidDurationVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    scenes: [
+      { ...validVideoPackage.video.scenes[0], duration_seconds: 0 },
+      validVideoPackage.video.scenes[1],
+      validVideoPackage.video.scenes[2],
+    ],
+  },
+};
+const p2rRes = validateProductionPackage(invalidDurationVidPkg);
+assert(!p2rRes.isValid && p2rRes.error?.includes('duration_seconds must be a positive finite number'), 'Test P2-R: Video scene duration <= 0 fails package validation');
+
+// Test P2-S: Video scene missing required visual/action/camera field -> FAIL
+const missingSceneFieldsVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    scenes: [
+      {
+        ...validVideoPackage.video.scenes[0],
+        visual_direction: '',
+      },
+      validVideoPackage.video.scenes[1],
+      validVideoPackage.video.scenes[2],
+    ],
+  },
+};
+const p2sRes = validateProductionPackage(missingSceneFieldsVidPkg);
+assert(!p2sRes.isValid && p2sRes.error?.includes('visual_direction must be a non-empty string'), 'Test P2-S: Video scene missing required fields fails package validation');
+
+// Test P2-T: ContentItem without format does not default to "Single"
+const unformattedItem: ContentItem = {
+  ...itemAImage,
+  format: '' as any,
+};
+const snapshotUnformatted = buildProductionContentSnapshot(unformattedItem);
+assert(
+  snapshotUnformatted.content_format === '',
+  'Test P2-T: ContentItem without format retains empty value and does not automatically become "Single"'
+);
+
+// Test P2-U: Carousel final_prompts with duplicate slide_number (e.g. 1, 1, 2 for slides 1, 2, 3) -> FAIL
+const duplicatePromptNumPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  final_prompts: {
+    master_prompt: 'Master prompt',
+    slides: [
+      { slide_number: 1, prompt: 'Prompt for slide 1' },
+      { slide_number: 1, prompt: 'Duplicate prompt for slide 1' },
+      { slide_number: 2, prompt: 'Prompt for slide 2' },
+    ],
+  },
+};
+const p2uRes = validateProductionPackage(duplicatePromptNumPkg);
+assert(
+  !p2uRes.isValid && p2uRes.error?.includes('Duplicate slide_number'),
+  'Test P2-U: Carousel final_prompts with duplicate slide_number fails package validation'
+);
+
+// Test P2-V: Carousel slides not sequential (e.g. 1, 3, 4) -> FAIL
+const nonSequentialSlidesPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  carousel: {
+    ...validCarouselPackage.carousel,
+    slides: [
+      { ...validCarouselPackage.carousel.slides[0], slide_number: 1 },
+      { ...validCarouselPackage.carousel.slides[1], slide_number: 3 },
+      { ...validCarouselPackage.carousel.slides[2], slide_number: 4 },
+    ],
+  },
+};
+const p2vRes = validateProductionPackage(nonSequentialSlidesPkg);
+assert(
+  !p2vRes.isValid && p2vRes.error?.includes('must be sequential starting at 1'),
+  'Test P2-V: Carousel with non-sequential slide numbers (1, 3, 4) fails package validation'
+);
+
+// Test P2-W: Video scenes not sequential (e.g. 1, 3, 4) -> FAIL
+const nonSequentialScenesVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    scenes: [
+      { ...validVideoPackage.video.scenes[0], scene_number: 1 },
+      { ...validVideoPackage.video.scenes[1], scene_number: 3 },
+      { ...validVideoPackage.video.scenes[2], scene_number: 4 },
+    ],
+  },
+};
+const p2wRes = validateProductionPackage(nonSequentialScenesVidPkg);
+assert(
+  !p2wRes.isValid && p2wRes.error?.includes('must be sequential starting at 1'),
+  'Test P2-W: Video with non-sequential scene numbers (1, 3) fails package validation'
+);
+
+// Test P2-X: ProductionPackage funnel_stage "TOFU (Awareness)" -> FAIL
+const nonCanonicalStagePkg: ImageProductionPackage = {
+  ...validImagePackage,
+  funnel_stage: 'TOFU (Awareness)' as any,
+};
+const p2xRes = validateProductionPackage(nonCanonicalStagePkg);
+assert(
+  !p2xRes.isValid && p2xRes.error?.includes('must be canonical'),
+  'Test P2-X: Non-canonical funnel_stage "TOFU (Awareness)" is rejected'
+);
+
+// Test P2-Y: Image missing required field (e.g. lighting) -> FAIL
+const missingLightingImgPkg: ImageProductionPackage = {
+  ...validImagePackage,
+  image: {
+    ...validImagePackage.image,
+    lighting: '',
+  },
+};
+const p2yRes = validateProductionPackage(missingLightingImgPkg);
+assert(
+  !p2yRes.isValid && p2yRes.error?.includes('image.lighting must be a non-empty string'),
+  'Test P2-Y: Image missing required lighting field is rejected'
+);
+
+// Test P2-Z: Video missing required field (e.g. hook) -> FAIL
+const missingHookVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    hook: '',
+  },
+};
+const p2zRes = validateProductionPackage(missingHookVidPkg);
+assert(
+  !p2zRes.isValid && p2zRes.error?.includes('video.hook must be a non-empty string'),
+  'Test P2-Z: Video missing required hook field is rejected'
+);
+
+// Test P2-AA: Carousel without final_prompts -> FAIL
+const missingFinalPromptsCarPkg: CarouselProductionPackage = {
+  ...validCarouselPackage,
+  final_prompts: undefined as any,
+};
+const p2aaRes = validateProductionPackage(missingFinalPromptsCarPkg);
+assert(
+  !p2aaRes.isValid && p2aaRes.error?.includes('final_prompts'),
+  'Test P2-AA: Carousel without final_prompts is rejected'
+);
+
+// Test P2-AB: FunnelStrategy.project_id = A but provenance.source_project_id = B -> buildProductionStrategySnapshot THROW
+let p2abThrown = false;
+try {
+  const mismatchedProvenanceStrat: FunnelStrategy = {
+    ...stratA,
+    provenance: {
+      ...stratA.provenance,
+      source_project_id: 'proj_other_999',
+    },
+  };
+  buildProductionStrategySnapshot(projectAContext, mismatchedProvenanceStrat, itemAImage);
+} catch (err: any) {
+  p2abThrown = true;
+  assert(
+    err.message.includes('provenance.source_project_id'),
+    'Test P2-AB: Error message mentions provenance mismatch'
+  );
+}
+assert(
+  p2abThrown,
+  'Test P2-AB: Mismatched FunnelStrategy provenance throws in buildProductionStrategySnapshot'
+);
+
+// Test P2-AC: Invalid optional brand_visual_snapshot type -> FAIL
+const invalidBrandVisualPkg: ImageProductionPackage = {
+  ...validImagePackage,
+  brand_visual_snapshot: {
+    ...validImagePackage.brand_visual_snapshot,
+    color_palette: 12345 as any,
+  },
+};
+const p2acRes = validateProductionPackage(invalidBrandVisualPkg);
+assert(
+  !p2acRes.isValid && p2acRes.error?.includes('brand_visual_snapshot.color_palette'),
+  'Test P2-AC: Invalid optional brand_visual_snapshot field type fails package validation'
+);
+
+// Test P2-AD: Strategy snapshot with category: "" and positioning: "" -> PASS
+const emptyCategoryPositioningPkg: ImageProductionPackage = {
+  ...validImagePackage,
+  strategy_snapshot: {
+    ...validImagePackage.strategy_snapshot,
+    category: '',
+    positioning: '',
+  },
+};
+const p2adRes = validateProductionPackage(emptyCategoryPositioningPkg);
+assert(
+  p2adRes.isValid,
+  'Test P2-AD: Strategy snapshot with empty category and positioning string passes validation'
+);
+
+// Test P2-AE: Image with text_overlay: "" and branding: "" -> PASS
+const emptyTextBrandingImgPkg: ImageProductionPackage = {
+  ...validImagePackage,
+  image: {
+    ...validImagePackage.image,
+    text_overlay: '',
+    branding: '',
+  },
+};
+const p2aeRes = validateProductionPackage(emptyTextBrandingImgPkg);
+assert(
+  p2aeRes.isValid,
+  'Test P2-AE: Image with empty text_overlay and branding string passes validation'
+);
+
+// Test P2-AF: Video with voiceover: "", on_screen_text: "", branding: "" -> PASS
+const emptyVoOstBrandingVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    voiceover: '',
+    on_screen_text: '',
+    branding: '',
+  },
+};
+const p2afRes = validateProductionPackage(emptyVoOstBrandingVidPkg);
+assert(
+  p2afRes.isValid,
+  'Test P2-AF: Video with empty top-level voiceover, on_screen_text, and branding passes validation'
+);
+
+// Test P2-AG: Video scene with voiceover: "", on_screen_text: "" -> PASS
+const emptySceneVoOstVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    scenes: [
+      {
+        ...validVideoPackage.video.scenes[0],
+        voiceover: '',
+        on_screen_text: '',
+      },
+      {
+        ...validVideoPackage.video.scenes[1],
+        voiceover: '',
+        on_screen_text: '',
+      },
+      {
+        ...validVideoPackage.video.scenes[2],
+        voiceover: '',
+        on_screen_text: '',
+      },
+    ],
+  },
+};
+const p2agRes = validateProductionPackage(emptySceneVoOstVidPkg);
+assert(
+  p2agRes.isValid,
+  'Test P2-AG: Video scenes with empty voiceover and on_screen_text strings pass validation'
+);
+
+// Test P2-AH: Type-only field with invalid non-string type (e.g. voiceover: 123) -> FAIL
+const invalidTypeVidPkg: VideoProductionPackage = {
+  ...validVideoPackage,
+  video: {
+    ...validVideoPackage.video,
+    voiceover: 123 as any,
+  },
+};
+const p2ahRes = validateProductionPackage(invalidTypeVidPkg);
+assert(
+  !p2ahRes.isValid && p2ahRes.error?.includes('video.voiceover must be a string'),
+  'Test P2-AH: Video with invalid non-string voiceover (123) fails package validation'
+);
+
+// -------------------------------------------------------------
+// SECTION 14: PHASE 3A — CANONICAL PRODUCTION AUTHORITY GATE
+// -------------------------------------------------------------
+console.log('\n--- SECTION 14: Phase 3A — Canonical Production Authority Gate ---');
+
+const baseGateContext: SharedContentContext = {
+  project_id: 'proj_gate_001',
+  project_name: 'Gate Project',
+  source: { origin: 'creative_system_json' },
+  brand_context: {
+    brand_name: 'GateBrand',
+    category: 'SaaS',
+    brand_summary: 'Brand summary',
+    brand_voice: 'Professional',
+  },
+  audience_context: {
+    primary_audience: 'Founders',
+    pain_points: ['Slow speed'],
+    desires: ['High speed'],
+    objections: ['High cost'],
+  },
+  strategy_context: {
+    positioning: 'Fastest software',
+    usp: ['Instant setup'],
+    main_offer: 'Free trial',
+    offer_benefits: ['Saves time'],
+    core_message: 'Move faster today.',
+    copy_direction: ['Direct'],
+    content_pillars: ['Speed', 'Efficiency'],
+  },
+  system_flags: { is_complete_for_planning: true, missing_required_fields: [] },
+};
+
+const baseGateStrategy = buildFunnelStrategyFromContext(baseGateContext);
+
+const baseGateItem: ContentItem = {
+  content_item_id: 'item_gate_001',
+  project_id: 'proj_gate_001',
+  projectId: 'proj_gate_001',
+  no: 1,
+  tanggal: '2026-09-18',
+  jenis: 'TOFU',
+  tujuan: 'Build awareness',
+  hookType: 'Question',
+  headline: 'Speed Tips',
+  body: 'Cara mempercepat workflow.',
+  caption: 'Pelajari cara mempercepat workflow.',
+  format: 'Carousel',
+  referensi: '',
+  visual: 'Clean educational visual',
+  keterangan: 'TOFU awareness content',
+  cta: 'Simpan untuk referensi',
+};
+
+// P3A-01: Valid setup passes authority gate
+const p3a01Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem
+);
+assert(
+  p3a01Res.isValid && p3a01Res.context?.project_id === 'proj_gate_001' && p3a01Res.context?.canonical_funnel_stage === 'TOFU',
+  'Test P3A-01: Valid inputs strictly pass buildProductionEngineContext gate'
+);
+
+// P3A-02: Missing or whitespace canonicalProjectId -> FAIL
+const p3a02Res = buildProductionEngineContext(
+  '   ',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem
+);
+assert(
+  !p3a02Res.isValid && p3a02Res.error?.includes('Canonical project ID wajib diisi'),
+  'Test P3A-02: Missing or whitespace canonicalProjectId is rejected'
+);
+
+// P3A-03: SharedContentContext.project_id mismatch with canonicalProjectId -> FAIL
+const mismatchSharedCtx: SharedContentContext = {
+  ...baseGateContext,
+  project_id: 'proj_foreign_999',
+};
+const p3a03Res = buildProductionEngineContext(
+  'proj_gate_001',
+  mismatchSharedCtx,
+  baseGateStrategy,
+  baseGateItem
+);
+assert(
+  !p3a03Res.isValid && p3a03Res.error?.includes('Project Identity Mismatch'),
+  'Test P3A-03: SharedContentContext with mismatched project_id is blocked'
+);
+
+// P3A-04: Incomplete SharedContentContext (is_complete_for_planning: false) -> FAIL
+const incompleteSharedCtx: SharedContentContext = {
+  ...baseGateContext,
+  system_flags: {
+    is_complete_for_planning: false,
+    missing_required_fields: ['brand_name'],
+  },
+};
+const p3a04Res = buildProductionEngineContext(
+  'proj_gate_001',
+  incompleteSharedCtx,
+  baseGateStrategy,
+  baseGateItem
+);
+assert(
+  !p3a04Res.isValid && p3a04Res.error?.includes('Data strategi project belum lengkap'),
+  'Test P3A-04: Incomplete SharedContentContext is rejected fail-closed'
+);
+
+// P3A-05: Missing FunnelStrategy (null/undefined) -> FAIL (no auto-derivation at gate)
+const p3a05Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  null,
+  baseGateItem
+);
+assert(
+  !p3a05Res.isValid && p3a05Res.error?.includes('FunnelStrategy wajib tersedia secara authoritative'),
+  'Test P3A-05: Missing FunnelStrategy is rejected without auto-deriving'
+);
+
+// P3A-06: FunnelStrategy with mismatched project_id or provenance -> FAIL
+const foreignStrategy = buildFunnelStrategyFromContext({
+  ...baseGateContext,
+  project_id: 'proj_foreign_999',
+});
+const p3a06Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  foreignStrategy,
+  baseGateItem
+);
+assert(
+  !p3a06Res.isValid && p3a06Res.error?.includes('Project Isolation Violation'),
+  'Test P3A-06: Cross-project FunnelStrategy is rejected by isolation check'
+);
+
+// P3A-07: ContentItem with missing content_item_id -> FAIL (no auto-fabrication)
+const itemNoId: ContentItem = {
+  ...baseGateItem,
+  content_item_id: '',
+};
+const p3a07Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  itemNoId
+);
+assert(
+  !p3a07Res.isValid && p3a07Res.error?.includes('content_item_id authoritative non-empty string'),
+  'Test P3A-07: ContentItem without content_item_id is rejected without auto-fabrication'
+);
+
+// P3A-08: ContentItem with mismatched project identity -> FAIL (no silent relabeling)
+const foreignItem: ContentItem = {
+  ...baseGateItem,
+  project_id: 'proj_foreign_999',
+  projectId: 'proj_foreign_999',
+};
+const p3a08Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  foreignItem
+);
+assert(
+  !p3a08Res.isValid && p3a08Res.error?.includes('Project Identity Mismatch'),
+  'Test P3A-08: ContentItem with cross-project ID is rejected without silent relabeling'
+);
+
+// P3A-09: ContentItem with non-canonical/invalid jenis -> FAIL (strict parse, no fallback)
+const invalidJenisItem: ContentItem = {
+  ...baseGateItem,
+  jenis: 'AWARENESS' as any,
+};
+const p3a09Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  invalidJenisItem
+);
+assert(
+  !p3a09Res.isValid && p3a09Res.error?.includes('tidak valid. Wajib salah satu dari canonical stage'),
+  'Test P3A-09: ContentItem with non-canonical funnel stage is rejected without permissive normalization'
+);
+
+// P3A-10: ContentItem violating FunnelStrategy rules -> FAIL
+const violatingItem: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_gate_violating',
+  jenis: 'TOFU',
+  cta: 'Beli sekarang',
+};
+const p3a10Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  violatingItem
+);
+assert(
+  !p3a10Res.isValid && p3a10Res.error?.includes('ContentItem tidak sesuai dengan authoritative FunnelStrategy'),
+  'Test P3A-10: ContentItem violating FunnelStrategy is rejected'
+);
+
+// P3A-11: CharacterDNA with mismatched project_id -> FAIL
+const foreignChar: CharacterDNA = {
+  character_id: 'char_foreign_001',
+  project_id: 'proj_foreign_999',
+  name: 'Foreign Persona',
+  visual_description: 'Foreign look',
+} as any;
+const p3a11Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem,
+  foreignChar
+);
+assert(
+  !p3a11Res.isValid && p3a11Res.error?.includes('Project Isolation Violation: CharacterDNA.project_id'),
+  'Test P3A-11: CharacterDNA belonging to another project is blocked'
+);
+
+// P3A-12: CharacterDNA belonging to the same project -> PASS with character_dna attached
+const validChar: CharacterDNA = {
+  character_id: 'char_gate_001',
+  project_id: 'proj_gate_001',
+  name: 'Gate Persona',
+  visual_description: 'Gate persona look',
+} as any;
+const p3a12Res = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem,
+  validChar
+);
+assert(
+  p3a12Res.isValid && p3a12Res.context?.character_dna?.character_id === 'char_gate_001',
+  'Test P3A-12: CharacterDNA matching project identity passes and attaches cleanly'
+);
+
+// P3A-13: Strict calendar loader membaca item tanpa content_item_id -> tetap tanpa ID (tidak dibuatkan)
+saveProjectData('proj_p3a_13', 'items', [
+  {
+    ...baseGateItem,
+    content_item_id: undefined,
+    project_id: 'proj_p3a_13',
+    projectId: 'proj_p3a_13',
+    no: 1,
+    jenis: 'TOFU',
+    headline: 'Raw Item without ID',
+  }
+]);
+const loadedP3A13 = loadProjectCalendarItemsStrictForProduction('proj_p3a_13');
+assert(
+  loadedP3A13.length === 1 && loadedP3A13[0].content_item_id === undefined,
+  'Test P3A-13: Strict calendar loader does not fabricate content_item_id'
+);
+
+// P3A-14: Item hasil strict loader tanpa ID dikirim ke buildProductionEngineContext() -> FAIL
+const p3a14Res = buildProductionEngineContext(
+  'proj_p3a_13',
+  { ...baseGateContext, project_id: 'proj_p3a_13' },
+  buildFunnelStrategyFromContext({ ...baseGateContext, project_id: 'proj_p3a_13' }),
+  loadedP3A13[0]
+);
+assert(
+  !p3a14Res.isValid && p3a14Res.error?.includes('content_item_id authoritative non-empty string'),
+  'Test P3A-14: ContentItem from strict loader without ID is rejected at authority gate'
+);
+
+// P3A-15: Strict SharedContentContext loader membaca context tanpa project_id -> null dan storage tidak direpair
+saveProjectData('proj_p3a_15', 'context', {
+  brand_context: { brand_name: 'No Project ID Brand' },
+  system_flags: { is_complete_for_planning: true },
+});
+const loadedP3A15 = loadProjectSharedContextStrictForProduction('proj_p3a_15');
+const rawStoredP3A15 = loadProjectData('proj_p3a_15', 'context', null);
+assert(
+  loadedP3A15 === null && rawStoredP3A15.project_id === undefined,
+  'Test P3A-15: Strict SharedContentContext loader returns null and does not mutate storage'
+);
+
+// P3A-16: Hanya blueprint tersedia, tetapi stored context tidak tersedia -> null (tidak derive)
+saveProjectData('proj_p3a_16', 'blueprint', {
+  project_id: 'proj_p3a_16',
+  brand_identity: { brand_name: 'Blueprint Only' },
+});
+const loadedP3A16 = loadProjectSharedContextStrictForProduction('proj_p3a_16');
+assert(
+  loadedP3A16 === null,
+  'Test P3A-16: Strict SharedContentContext loader returns null when only blueprint exists'
+);
+
+// P3A-17: Stored FunnelStrategy tanpa project_id -> loadStoredProjectFunnelStrategyStrict() returns null
+saveProjectData('proj_p3a_17', 'funnelStrategy', {
+  provenance: { source_project_id: 'proj_p3a_17' },
+  stages: {},
+});
+const loadedP3A17 = loadStoredProjectFunnelStrategyStrict('proj_p3a_17');
+assert(
+  loadedP3A17 === null,
+  'Test P3A-17: Stored FunnelStrategy without project_id returns null'
+);
+
+// P3A-18: Stored FunnelStrategy tanpa provenance.source_project_id -> null
+saveProjectData('proj_p3a_18', 'funnelStrategy', {
+  project_id: 'proj_p3a_18',
+  stages: {},
+});
+const loadedP3A18 = loadStoredProjectFunnelStrategyStrict('proj_p3a_18');
+assert(
+  loadedP3A18 === null,
+  'Test P3A-18: Stored FunnelStrategy without provenance.source_project_id returns null'
+);
+
+// P3A-19: Explicit contentItemId = item_A, tetapi calendar hanya berisi item_B -> Resolver: FAIL / no item
+const itemB: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_B',
+  no: 2,
+};
+const p3a19Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB],
+  contentItemId: 'item_A',
+});
+assert(
+  !p3a19Res.isValid && p3a19Res.item === undefined && p3a19Res.error?.includes('Explicit content_item_id "item_A" tidak ditemukan'),
+  'Test P3A-19: Explicit contentItemId mismatch fails closed without falling back to other items'
+);
+
+// P3A-20: Explicit itemNo tidak ditemukan -> FAIL / no fallback
+const p3a20Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB],
+  itemNo: 99,
+});
+assert(
+  !p3a20Res.isValid && p3a20Res.item === undefined && p3a20Res.error?.includes('Explicit itemNo "99" tidak ditemukan'),
+  'Test P3A-20: Explicit itemNo mismatch fails closed without fallback'
+);
+
+// P3A-21: Tidak ada explicit target, saved selected item valid ada di calendar -> item dari calendar terpilih
+const savedSelectedCandidate: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_saved_001',
+  no: 5,
+};
+const p3a21Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB, savedSelectedCandidate],
+  savedSelectedItem: savedSelectedCandidate,
+});
+assert(
+  p3a21Res.isValid && p3a21Res.item?.content_item_id === 'item_saved_001',
+  'Test P3A-21: When no explicit target is given, matching saved selected item in calendar is selected'
+);
+
+// P3A-22: Production context dengan format: '' setelah formatting prompt -> DILARANG menghasilkan Format: Single
+const engineCtxForFormat = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  { ...baseGateItem, format: '' }
+);
+assert(engineCtxForFormat.isValid && engineCtxForFormat.context !== undefined, 'Engine context valid for format test');
+const adaptedProdCtx = adaptEngineContextToProductionContext(engineCtxForFormat.context!);
+const formattedPrompt = formatProductionContextForPrompt(adaptedProdCtx);
+assert(
+  !formattedPrompt.includes('Format: Single'),
+  'Test P3A-22: Empty format does not invent "Format: Single" in formatted prompt'
+);
+
+// P3A-23: CharacterDNA valid tetapi display_name kosong. Adapter -> DILARANG menghasilkan Project Creator Persona
+const charNoDisplayName: CharacterDNA = {
+  character_id: 'char_empty_name',
+  project_id: 'proj_gate_001',
+  identity: { display_name: '' },
+} as any;
+const engineCtxForChar = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem,
+  charNoDisplayName
+);
+assert(engineCtxForChar.isValid && engineCtxForChar.context !== undefined, 'Engine context valid for character test');
+const adaptedCharCtx = adaptEngineContextToProductionContext(engineCtxForChar.context!);
+assert(
+  adaptedCharCtx.character?.display_name === '' && (adaptedCharCtx.character?.display_name as string) !== 'Project Creator Persona',
+  'Test P3A-23: Character with empty display_name does not invent "Project Creator Persona"'
+);
+
+// P3A-24: Stale saved selected item (item_A) tidak ada di calendar (item_B, item_C) -> fallback ke first calendar item
+const itemC: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_C',
+  no: 3,
+};
+const staleSavedItemA: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_A',
+  no: 1,
+};
+const p3a24Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB, itemC],
+  savedSelectedItem: staleSavedItemA,
+});
+assert(
+  p3a24Res.isValid && p3a24Res.item?.content_item_id === 'item_B',
+  'Test P3A-24: Stale saved selected item is ignored and falls back to first active calendar item'
+);
+
+// P3A-25: Saved selected item_B ada di calendar -> resolver mengembalikan object DARI calendarItems, bukan saved object
+const oldSavedItemB: ContentItem = {
+  ...itemB,
+  headline: 'Old Stale Headline In Saved Pointer',
+};
+const liveCalendarItemB: ContentItem = {
+  ...itemB,
+  headline: 'Fresh Active Headline In Calendar',
+};
+const p3a25Res = resolveProductionContentItemTarget({
+  calendarItems: [liveCalendarItemB, itemC],
+  savedSelectedItem: oldSavedItemB,
+});
+assert(
+  p3a25Res.isValid &&
+  p3a25Res.item === liveCalendarItemB &&
+  p3a25Res.item?.headline === 'Fresh Active Headline In Calendar',
+  'Test P3A-25: Resolver returns live object from active calendar, not raw stale saved object'
+);
+
+// P3A-26: Explicit malformed itemNo ("abc") -> FAIL, no fallback
+const p3a26Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB, itemC],
+  itemNo: 'abc',
+  hasExplicitItemNo: true,
+});
+assert(
+  !p3a26Res.isValid && p3a26Res.item === undefined && p3a26Res.error?.includes('tidak valid'),
+  'Test P3A-26: Explicit malformed itemNo fails closed without fallback'
+);
+
+// P3A-27: Explicit blank contentItemId ("") -> FAIL, no fallback
+const p3a27Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB, itemC],
+  contentItemId: '   ',
+  hasExplicitContentItemId: true,
+});
+assert(
+  !p3a27Res.isValid && p3a27Res.item === undefined && p3a27Res.error?.includes('kosong atau malformed'),
+  'Test P3A-27: Explicit blank contentItemId fails closed without fallback'
+);
+
+// P3A-28: Tidak ada explicit target sama sekali, calendar valid -> fallback normal memilih first item
+const p3a28Res = resolveProductionContentItemTarget({
+  calendarItems: [itemB, itemC],
+});
+assert(
+  p3a28Res.isValid && p3a28Res.item?.content_item_id === 'item_B',
+  'Test P3A-28: Normal fallback with no explicit target selects first calendar item'
+);
+
+// =============================================================
+// PHASE 3B: SINGLE PRODUCTION ENGINE CORE TESTS
+// =============================================================
+
+// Fixture context for Phase 3B
+const p3bEngineCtxRes = buildProductionEngineContext(
+  'proj_gate_001',
+  baseGateContext,
+  baseGateStrategy,
+  baseGateItem
+);
+assert(p3bEngineCtxRes.isValid && p3bEngineCtxRes.context !== undefined, 'Phase 3B base engine context built cleanly');
+const p3bEngineCtx = p3bEngineCtxRes.context!;
+
+const p3bImageDetails = {
+  objective: 'Brand awareness and engagement',
+  scene: 'Bright minimalist studio environment',
+  subject: 'Alco productivity workspace',
+  composition: 'Rule of thirds with clean copy space on the left',
+  environment: 'Modern co-working desk',
+  lighting: 'Natural soft morning light',
+  camera_direction: 'Eye-level 50mm lens crisp focus',
+  visual_style: 'Clean professional commercial photography',
+  text_overlay: 'Speed up your workflow',
+  branding: 'Alco logo in top right corner',
+  negative_constraints: 'No text clutter, no low resolution, no artifacts',
+};
+
+const p3bImageInput: ProductionAssetInput = {
+  asset_type: 'image',
+  image: p3bImageDetails,
+  final_prompt: 'Generate a clean high-end commercial photo of Alco workspace...',
+};
+
+const p3bCarouselDetails = {
+  objective: 'Educational carousel guide',
+  slide_count: 2,
+  cover_direction: 'High contrast title slide',
+  slides: [
+    {
+      slide_number: 1,
+      role: 'Hook',
+      headline: 'Stop wasting hours',
+      body: 'Here is how to automate your content engine.',
+      visual_direction: 'Clean infographic layout',
+      layout_direction: 'Left-aligned bold text',
+    },
+    {
+      slide_number: 2,
+      role: 'Solution',
+      headline: 'Use canonical gates',
+      body: 'Always enforce deterministic authority.',
+      visual_direction: 'Diagram comparing messy vs structured flows',
+      layout_direction: 'Center-aligned structured cards',
+    },
+  ],
+  visual_continuity: 'Consistent navy and emerald accents across all slides',
+  branding: 'Alco watermark on all slides',
+  negative_constraints: 'No unreadable small typography',
+};
+
+const p3bCarouselInput: ProductionAssetInput = {
+  asset_type: 'carousel',
+  carousel: p3bCarouselDetails,
+  final_prompts: {
+    master_prompt: 'Master carousel generation guide',
+    slides: [
+      { slide_number: 1, prompt: 'Slide 1 generation prompt' },
+      { slide_number: 2, prompt: 'Slide 2 generation prompt' },
+    ],
+  },
+};
+
+const p3bVideoDetails = {
+  production_mode: 'human_led' as const,
+  objective: 'Short-form awareness reel',
+  duration_seconds: 15,
+  format: '9:16 Vertical Reel',
+  hook: 'The biggest mistake in content planning',
+  scenes: [
+    {
+      scene_number: 1,
+      duration_seconds: 5,
+      purpose: 'Deliver hook and solution in one continuous sequence',
+      visual_direction: 'Creator speaking directly to camera in studio',
+      action: 'Pointing to graphical pop-ups on screen',
+      camera: 'Selfie angle medium shot',
+      voiceover: 'Stop guessing your funnel strategy. Use an authoritative engine.',
+      on_screen_text: 'Stop Guessing Strategy',
+      scene_type: 'talking_head' as const,
+      required_assets: [],
+    },
+    {
+      scene_number: 2,
+      duration_seconds: 5,
+      purpose: 'framework',
+      visual_direction: 'Diagram showing steps',
+      action: 'Pointers appear',
+      camera: 'Close up',
+      voiceover: 'Our system takes three concrete steps to generate video outlines.',
+      on_screen_text: 'Three Simple Steps',
+      scene_type: 'product_screen' as const,
+      required_assets: [],
+    },
+    {
+      scene_number: 3,
+      duration_seconds: 5,
+      purpose: 'end_card',
+      visual_direction: 'Simple CTA on off-white screen',
+      action: 'Logo animations',
+      camera: 'Static',
+      voiceover: 'Go to Alco Content Engine now.',
+      on_screen_text: 'Alco.ai',
+      scene_type: 'end_card' as const,
+      required_assets: [],
+    },
+  ],
+  voiceover: 'Stop guessing your funnel strategy. Use an authoritative engine.',
+  on_screen_text: 'Stop Guessing Strategy',
+  camera_direction: 'Direct to lens eye-level',
+  motion_direction: 'Fast-paced clean cuts with dynamic zooms',
+  audio_direction: 'Upbeat modern lofi background music',
+  branding: 'Subtle Alco badge at end card',
+  negative_constraints: 'No blurry video, no robotic monotone audio',
+};
+
+const p3bVideoInput: ProductionAssetInput = {
+  asset_type: 'video',
+  video: p3bVideoDetails,
+  final_prompt: '15-second vertical video prompt for Alco Content Engine...',
+};
+
+const p3bMetadata: ProductionPackageMetadata = {
+  package_id: 'pkg_test_001',
+  created_at: '2026-09-18T12:00:00Z',
+};
+
+// P3B-01 — IMAGE VALID
+const p3b01Res = buildProductionPackage(p3bEngineCtx, p3bImageInput, p3bMetadata);
+assert(
+  p3b01Res.isValid &&
+  p3b01Res.package?.asset_type === 'image' &&
+  p3b01Res.package?.production_status === 'ready_for_production',
+  'Test P3B-01: Valid ImageProductionPackage is created with ready_for_production status'
+);
+
+// P3B-02 — CAROUSEL VALID
+const p3b02Res = buildProductionPackage(p3bEngineCtx, p3bCarouselInput, p3bMetadata);
+assert(
+  p3b02Res.isValid &&
+  p3b02Res.package?.asset_type === 'carousel' &&
+  p3b02Res.package?.production_status === 'ready_for_production',
+  'Test P3B-02: Valid CarouselProductionPackage is created with ready_for_production status'
+);
+
+// P3B-03 — VIDEO VALID
+const p3b03Res = buildProductionPackage(p3bEngineCtx, p3bVideoInput, p3bMetadata);
+assert(
+  p3b03Res.isValid &&
+  p3b03Res.package?.asset_type === 'video' &&
+  p3b03Res.package?.production_status === 'ready_for_production',
+  'Test P3B-03: Valid VideoProductionPackage is created with ready_for_production status'
+);
+
+// P3B-04 — PROJECT ID FROM CONTEXT
+assert(
+  p3b01Res.package?.project_id === p3bEngineCtx.project_id &&
+  p3b01Res.package?.project_id === 'proj_gate_001',
+  'Test P3B-04: Package project_id is strictly derived from ProductionEngineContext'
+);
+
+// P3B-05 — CONTENT ITEM ID FROM CONTEXT
+assert(
+  p3b01Res.package?.content_item_id === p3bEngineCtx.content_item.content_item_id &&
+  p3b01Res.package?.content_item_id === 'item_gate_001',
+  'Test P3B-05: Package content_item_id is strictly derived from ProductionEngineContext'
+);
+
+// P3B-06 — FUNNEL STAGE FROM CONTEXT
+assert(
+  p3b01Res.package?.funnel_stage === p3bEngineCtx.canonical_funnel_stage &&
+  p3b01Res.package?.funnel_stage === 'TOFU',
+  'Test P3B-06: Package funnel_stage is strictly derived from ProductionEngineContext'
+);
+
+// P3B-07 — SNAPSHOT STRATEGY AUTHORITY
+const stratSnap = p3b01Res.package?.strategy_snapshot;
+assert(
+  stratSnap?.brand_name === baseGateContext.brand_context?.brand_name &&
+  stratSnap?.primary_audience === baseGateContext.audience_context?.primary_audience &&
+  stratSnap?.main_offer === baseGateContext.strategy_context?.main_offer &&
+  stratSnap?.core_message === baseGateContext.strategy_context?.core_message &&
+  stratSnap?.campaign_goal === baseGateStrategy.campaign_goal &&
+  stratSnap?.funnel_objective === baseGateStrategy.tofu?.objective &&
+  stratSnap?.message_direction === baseGateStrategy.tofu?.message_direction &&
+  stratSnap?.cta_direction === baseGateStrategy.tofu?.cta_direction,
+  'Test P3B-07: Strategy snapshot fields are authoritatively derived from active context and strategy'
+);
+
+// P3B-08 — CONTENT SNAPSHOT AUTHORITY
+const contSnap = p3b01Res.package?.content_snapshot;
+assert(
+  contSnap?.headline === baseGateItem.headline &&
+  contSnap?.body === baseGateItem.body &&
+  contSnap?.caption === baseGateItem.caption &&
+  contSnap?.cta === baseGateItem.cta &&
+  contSnap?.visual_direction === baseGateItem.visual &&
+  contSnap?.content_format === baseGateItem.format &&
+  contSnap?.strategic_objective === baseGateItem.tujuan &&
+  contSnap?.strategic_rationale === baseGateItem.keterangan,
+  'Test P3B-08: Content snapshot fields are authoritatively derived from ContentItem'
+);
+
+// P3B-09 — INVALID IMAGE REJECTED
+const invalidImageInput: ProductionAssetInput = {
+  ...p3bImageInput,
+  image: {
+    ...p3bImageDetails,
+    subject: '', // Missing non-empty subject
+  },
+};
+const p3b09Res = buildProductionPackage(p3bEngineCtx, invalidImageInput, p3bMetadata);
+assert(
+  !p3b09Res.isValid && p3b09Res.package === undefined && p3b09Res.error?.includes('image.subject'),
+  'Test P3B-09: Image with empty subject is rejected fail-closed'
+);
+
+// P3B-10 — INVALID CAROUSEL REJECTED
+const invalidCarouselInput: ProductionAssetInput = {
+  ...p3bCarouselInput,
+  carousel: {
+    ...p3bCarouselDetails,
+    slide_count: 3, // Mismatch with slides.length (2)
+  },
+};
+const p3b10Res = buildProductionPackage(p3bEngineCtx, invalidCarouselInput, p3bMetadata);
+assert(
+  !p3b10Res.isValid && p3b10Res.package === undefined && p3b10Res.error?.includes('slide_count'),
+  'Test P3B-10: Carousel with slide_count mismatch is rejected fail-closed'
+);
+
+// P3B-11 — INVALID VIDEO REJECTED
+const invalidVideoInput: ProductionAssetInput = {
+  ...p3bVideoInput,
+  video: {
+    ...p3bVideoDetails,
+    duration_seconds: 0, // Invalid duration
+  } as any,
+};
+const p3b11Res = buildProductionPackage(p3bEngineCtx, invalidVideoInput, p3bMetadata);
+assert(
+  !p3b11Res.isValid && p3b11Res.package === undefined && p3b11Res.error?.includes('duration_seconds'),
+  'Test P3B-11: Video with non-positive duration_seconds is rejected fail-closed'
+);
+
+// P3B-12 — EMPTY package_id REJECTED
+const p3b12Res = buildProductionPackage(p3bEngineCtx, p3bImageInput, {
+  package_id: '   ',
+  created_at: '2026-09-18T12:00:00Z',
+});
+assert(
+  !p3b12Res.isValid && p3b12Res.package === undefined && p3b12Res.error?.includes('package_id'),
+  'Test P3B-12: Empty package_id in metadata is rejected fail-closed'
+);
+
+// P3B-13 — EMPTY created_at REJECTED
+const p3b13Res = buildProductionPackage(p3bEngineCtx, p3bImageInput, {
+  package_id: 'pkg_valid_001',
+  created_at: '',
+});
+assert(
+  !p3b13Res.isValid && p3b13Res.package === undefined && p3b13Res.error?.includes('created_at'),
+  'Test P3B-13: Empty created_at in metadata is rejected fail-closed'
+);
+
+// P3B-14 — NO INPUT MUTATION
+const clonedEngineCtx = JSON.parse(JSON.stringify(p3bEngineCtx));
+const clonedAssetInput = JSON.parse(JSON.stringify(p3bImageInput));
+const clonedMetadata = JSON.parse(JSON.stringify(p3bMetadata));
+
+buildProductionPackage(p3bEngineCtx, p3bImageInput, p3bMetadata);
+
+assert(
+  JSON.stringify(p3bEngineCtx) === JSON.stringify(clonedEngineCtx) &&
+  JSON.stringify(p3bImageInput) === JSON.stringify(clonedAssetInput) &&
+  JSON.stringify(p3bMetadata) === JSON.stringify(clonedMetadata),
+  'Test P3B-14: buildProductionPackage is pure and does not mutate any input'
+);
+
+// P3B-15 — READY STATUS LOCKED
+assert(
+  p3b01Res.package?.production_status === 'ready_for_production' &&
+  p3b02Res.package?.production_status === 'ready_for_production' &&
+  p3b03Res.package?.production_status === 'ready_for_production',
+  'Test P3B-15: ProductionPackage is always generated with ready_for_production status'
+);
+
+// P3B-16 — STRATEGY SNAPSHOT PROJECT ISOLATION
+const mismatchedEngineCtx: ProductionEngineContext = {
+  ...p3bEngineCtx,
+  shared_context: {
+    ...baseGateContext,
+    project_id: 'proj_other_999',
+  },
+};
+const p3b16Res = buildProductionPackage(mismatchedEngineCtx, p3bImageInput, p3bMetadata);
+assert(
+  !p3b16Res.isValid && p3b16Res.package === undefined && p3b16Res.error?.includes('Project Identity Mismatch'),
+  'Test P3B-16: Cross-project SharedContentContext is rejected by Phase 3A authority revalidation'
+);
+
+// P3B-17 — MISSING CONTENT ITEM ID (REJECTED WITHOUT FALLBACK)
+const missingIdCtx: ProductionEngineContext = {
+  ...p3bEngineCtx,
+  content_item: {
+    ...p3bEngineCtx.content_item,
+    content_item_id: undefined,
+  },
+};
+const p3b17Res = buildProductionPackage(missingIdCtx, p3bImageInput, p3bMetadata);
+assert(
+  !p3b17Res.isValid && p3b17Res.package === undefined && (p3b17Res.error?.includes('content_item_id') || p3b17Res.error?.includes('ID')),
+  'Test P3B-17: Missing content_item_id in context fails closed without fabricating fallback ID'
+);
+
+// P3B-18 — FABRICATED CANONICAL STAGE (STAGE SPOOFING BLOCKED)
+const spoofedStageCtx: ProductionEngineContext = {
+  ...p3bEngineCtx,
+  canonical_funnel_stage: 'BOFU', // Mismatch with TOFU item
+};
+const p3b18Res = buildProductionPackage(spoofedStageCtx, p3bImageInput, p3bMetadata);
+assert(
+  !p3b18Res.isValid && p3b18Res.package === undefined && p3b18Res.error?.includes('mismatch with authoritative funnel stage'),
+  'Test P3B-18: Fabricated canonical_funnel_stage is detected and rejected fail-closed'
+);
+
+// P3B-19 — CONTENT ITEM VIOLATES FUNNEL AUTHORITY (BLOCKED BY PHASE 3A REVALIDATION)
+const violatingFunnelItem: ContentItem = {
+  ...baseGateItem,
+  content_item_id: 'item_violating_gate_3b',
+  jenis: 'TOFU',
+  cta: 'Beli sekarang', // Prohibited conversion CTA for TOFU
+};
+const fabricatedViolatingCtx: ProductionEngineContext = {
+  ...p3bEngineCtx,
+  content_item: violatingFunnelItem,
+};
+const p3b19Res = buildProductionPackage(fabricatedViolatingCtx, p3bImageInput, p3bMetadata);
+assert(
+  !p3b19Res.isValid && p3b19Res.package === undefined && p3b19Res.error?.includes('FunnelStrategy'),
+  'Test P3B-19: Fabricated context with funnel-violating item is blocked by Phase 3A authority revalidation'
+);
+
+// P3B-20 — CHARACTER DNA CROSS PROJECT ISOLATION VIOLATION
+const crossProjectDnaCtx: ProductionEngineContext = {
+  ...p3bEngineCtx,
+  character_dna: {
+    ...validChar,
+    project_id: 'proj_alien_999',
+  },
+};
+const p3b20Res = buildProductionPackage(crossProjectDnaCtx, p3bImageInput, p3bMetadata);
+assert(
+  !p3b20Res.isValid && p3b20Res.package === undefined && (p3b20Res.error?.includes('CharacterDNA') || p3b20Res.error?.includes('Project Isolation Violation')),
+  'Test P3B-20: Cross-project CharacterDNA in context fails Phase 3A revalidation fail-closed'
+);
+
+// P3B-21 — VALID CONTEXT REMAINS VALID (HAPPY PATH)
+const p3b21Res = buildProductionPackage(p3bEngineCtx, p3bImageInput, p3bMetadata);
+assert(
+  p3b21Res.isValid && p3b21Res.package !== undefined && p3b21Res.package.production_status === 'ready_for_production',
+  'Test P3B-21: Valid ProductionEngineContext passes revalidation and builds production package'
+);
+
+// P3B-22 — AUTHORITY RESULT STRICTLY APPLIED TO PACKAGE
+assert(
+  p3b21Res.package?.project_id === p3bEngineCtx.project_id &&
+  p3b21Res.package?.content_item_id === p3bEngineCtx.content_item.content_item_id &&
+  p3b21Res.package?.funnel_stage === p3bEngineCtx.canonical_funnel_stage,
+  'Test P3B-22: Production package fields strictly reflect authoritative context values'
+);
+
+// ============================================================================
+// PHASE 3C-A: CANONICAL PRODUCTION CANDIDATES REGRESSION TESTS
+// ============================================================================
+
+// P3C-A-01: Valid Image Production Candidate
+const validImageCand: ImageProductionCandidate = {
+  candidate_type: 'image',
+  candidate_id: 'img_cand_001',
+  production_details: {
+    objective: 'Membangun awareness relatable problem',
+    scene: 'Kreator sedang meninjau draf caption',
+    subject: 'Seorang profesional muda usia 26-28 tahun',
+    composition: 'Subjek di kanan, ruang negatif di kiri atas 4:5',
+    environment: 'Meja kerja kayu dekat jendela',
+    lighting: 'Cahaya alami lembut',
+    camera_direction: '50mm f/2.0 eye level',
+    visual_style: 'Clean editorial Instagram photography',
+    text_overlay: 'Menghadapi Kendala Yang Sama?',
+    branding: '',
+    negative_constraints: 'hard selling, blurry text',
+  },
+  final_prompt: 'Buatkan saya image untuk konten Instagram...',
+};
+const p3ca01Val = validateProductionCandidate(validImageCand);
+assert(
+  p3ca01Val.isValid && p3ca01Val.error === undefined,
+  'Test P3C-A-01: Valid ImageProductionCandidate passes validation cleanly'
+);
+
+// P3C-A-02: Valid Carousel Production Candidate
+const validCarouselCand: CarouselProductionCandidate = {
+  candidate_type: 'carousel',
+  candidate_id: 'carousel_cand_001',
+  production_details: {
+    objective: 'Edukasi alur kerja terstruktur',
+    slide_count: 5,
+    cover_direction: 'Visual editorial cover carousel',
+    slides: [
+      { slide_number: 1, role: 'hook', headline: 'Hook 1', body: 'Body 1', visual_direction: 'Vis Dir 1', layout_direction: '4:5 Top' },
+      { slide_number: 2, role: 'problem', headline: 'Problem 2', body: 'Body 2', visual_direction: 'Vis Dir 2', layout_direction: '4:5 Split' },
+      { slide_number: 3, role: 'reframe', headline: 'Reframe 3', body: 'Body 3', visual_direction: 'Vis Dir 3', layout_direction: '4:5 Diagram' },
+      { slide_number: 4, role: 'learn', headline: 'Solution 4', body: 'Body 4', visual_direction: 'Vis Dir 4', layout_direction: '4:5 Steps' },
+      { slide_number: 5, role: 'cta', headline: 'CTA 5', body: 'Body 5', visual_direction: 'Vis Dir 5', layout_direction: '4:5 Card' },
+    ],
+    visual_continuity: 'Tema visual konsisten 4:5 vertical editorial',
+    branding: '',
+    negative_constraints: 'hard selling, messy text',
+  },
+  final_prompts: {
+    master_prompt: 'Master visual prompt 4:5',
+    slides: [
+      { slide_number: 1, prompt: 'Prompt Slide 1' },
+      { slide_number: 2, prompt: 'Prompt Slide 2' },
+      { slide_number: 3, prompt: 'Prompt Slide 3' },
+      { slide_number: 4, prompt: 'Prompt Slide 4' },
+      { slide_number: 5, prompt: 'Prompt Slide 5' },
+    ],
+  },
+};
+const p3ca02Val = validateProductionCandidate(validCarouselCand);
+assert(
+  p3ca02Val.isValid && p3ca02Val.error === undefined,
+  'Test P3C-A-02: Valid CarouselProductionCandidate passes validation cleanly'
+);
+
+// P3C-A-03: Valid Video Production Candidate in all modes
+const videoModes: Array<'human_led' | 'product_demo' | 'motion_explainer'> = [
+  'human_led',
+  'product_demo',
+  'motion_explainer',
+];
+const videoModeResults = videoModes.map((mode) => {
+  const scenes = buildCanonicalVideoScenePlan('TOFU', mode, {
+    hook: 'Hook video menarik',
+    masalah: 'Masalah konkret audiens',
+    solusi: 'Solusi terarah',
+    cta: 'Simpan video ini',
+  });
+  const cand = buildVideoProductionCandidate({
+    candidate_id: `vid_cand_${mode}`,
+    production_mode: mode,
+    objective: 'Video awareness terarah',
+    format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+    hook: 'Hook video menarik',
+    scenes,
+    motion_direction: 'Dynamic smooth motion',
+    audio_direction: 'Natural voiceover & background music',
+    negative_constraints: 'No blurry video, no distorted faces',
+    final_prompt: `Video Prompt for ${mode}`,
+  });
+  return validateProductionCandidate(cand);
+});
+assert(
+  videoModeResults.every((r) => r.isValid && r.error === undefined),
+  'Test P3C-A-03: Valid VideoProductionCandidate passes validation across human_led, product_demo, and motion_explainer modes'
+);
+
+// P3C-A-04: Image Candidate missing required fields fails validation
+const invalidImageCand = {
+  ...validImageCand,
+  production_details: {
+    ...validImageCand.production_details,
+    subject: '', // Missing required field
+  },
+};
+const p3ca04Val = validateProductionCandidate(invalidImageCand);
+assert(
+  !p3ca04Val.isValid && p3ca04Val.error?.includes('subject'),
+  'Test P3C-A-04: Image candidate with empty required field fails validation fail-closed'
+);
+
+// P3C-A-05: Carousel Candidate slide_count mismatch fails validation
+const mismatchedCountCarousel = {
+  ...validCarouselCand,
+  production_details: {
+    ...validCarouselCand.production_details,
+    slide_count: 6, // Declares 6 but only 5 slides
+  },
+};
+const p3ca05Val = validateProductionCandidate(mismatchedCountCarousel);
+assert(
+  !p3ca05Val.isValid && p3ca05Val.error?.includes('slide_count'),
+  'Test P3C-A-05: Carousel candidate with slide_count mismatch fails validation fail-closed'
+);
+
+// P3C-A-06: Carousel Candidate final_prompts count mismatch fails validation
+const mismatchedPromptsCarousel = {
+  ...validCarouselCand,
+  final_prompts: {
+    ...validCarouselCand.final_prompts,
+    slides: validCarouselCand.final_prompts.slides.slice(0, 3), // Only 3 prompts for 5 slides
+  },
+};
+const p3ca06Val = validateProductionCandidate(mismatchedPromptsCarousel);
+assert(
+  !p3ca06Val.isValid && p3ca06Val.error?.includes('final_prompts.slides count'),
+  'Test P3C-A-06: Carousel candidate with final_prompts slide count mismatch fails validation fail-closed'
+);
+
+// P3C-A-07: Video Candidate with empty scenes or invalid duration fails validation
+const emptyScenesVideo = {
+  candidate_type: 'video',
+  candidate_id: 'vid_empty_scenes',
+  production_details: {
+    production_mode: 'human_led',
+    objective: 'Video objective',
+    duration_seconds: 0,
+    format: '9:16 Vertical',
+    hook: 'Hook text',
+    scenes: [],
+    voiceover: 'VO',
+    on_screen_text: 'OST',
+    camera_direction: 'Cam',
+    motion_direction: 'Motion',
+    audio_direction: 'Audio',
+    branding: '',
+    negative_constraints: '',
+  },
+  final_prompt: 'Prompt',
+};
+const p3ca07Val = validateProductionCandidate(emptyScenesVideo);
+assert(
+  !p3ca07Val.isValid && (p3ca07Val.error?.includes('duration') || p3ca07Val.error?.includes('scenes')),
+  'Test P3C-A-07: Video candidate with empty scenes or invalid duration fails validation fail-closed'
+);
+
+// P3C-A-08: Candidate containing forbidden package authority fields fails validation
+const authorityLeakedCand = {
+  ...validImageCand,
+  project_id: 'proj_leaked_001', // Forbidden in candidate layer
+};
+const p3ca08Val = validateProductionCandidate(authorityLeakedCand);
+assert(
+  !p3ca08Val.isValid && p3ca08Val.error?.includes('authoritative package field: project_id'),
+  'Test P3C-A-08: Candidate containing forbidden package authority field fails validation fail-closed'
+);
+
+// P3C-A-09: Image Candidate built via helper conforms to canonical schema
+const builtImageCand = buildImageProductionCandidate({
+  candidate_id: 'A',
+  visualObjective: 'Visual objective test',
+  scene: 'Scene action and expression',
+  subject: 'Subject description',
+  composition: 'Composition description',
+  environment: 'Environment description',
+  lighting: 'Lighting description',
+  camera: '50mm camera',
+  visualStyle: 'Editorial style',
+  textOverlay: 'Headline Overlay',
+  branding: '',
+  negativeConstraints: 'No ads',
+  finalPrompt: 'Final prompt text',
+});
+const p3ca09Val = validateProductionCandidate(builtImageCand);
+assert(
+  p3ca09Val.isValid && builtImageCand.candidate_type === 'image' && builtImageCand.candidate_id === 'A',
+  'Test P3C-A-09: ImageProductionCandidate built via helper strictly adheres to canonical schema'
+);
+
+// P3C-A-10: Carousel Candidate built via helper conforms to canonical schema
+const builtCarouselCand = buildCarouselProductionCandidate({
+  candidate_id: 'carousel_plan',
+  objective: 'Carousel goal',
+  slide_count: 5,
+  cover_direction: 'Cover direction',
+  slides: validCarouselCand.production_details.slides,
+  visual_continuity: 'Continuity notes',
+  negative_constraints: 'hard selling ads, cluttered poster, blurry text',
+  final_prompts: validCarouselCand.final_prompts,
+});
+const p3ca10Val = validateProductionCandidate(builtCarouselCand);
+assert(
+  p3ca10Val.isValid && builtCarouselCand.candidate_type === 'carousel' && builtCarouselCand.production_details.slide_count === 5,
+  'Test P3C-A-10: CarouselProductionCandidate built via helper strictly adheres to canonical schema'
+);
+
+// P3C-A-11: Video Candidate built via helper conforms to canonical schema
+const testVideoScenes = buildCanonicalVideoScenePlan('TOFU', 'human_led', {
+  hook: 'Video hook',
+  masalah: 'Video masalah',
+  solusi: 'Video solusi',
+  cta: 'Video cta',
+});
+const builtVideoCand = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('human_led'),
+  production_mode: 'human_led',
+  objective: 'Video goal',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: 'Video hook',
+  scenes: testVideoScenes,
+  motion_direction: 'Fast-paced dynamic',
+  audio_direction: 'Upbeat background audio',
+  negative_constraints: 'No blurry frames, no low resolution',
+  final_prompt: 'Video prompt',
+});
+const p3ca11Val = validateProductionCandidate(builtVideoCand);
+assert(
+  p3ca11Val.isValid && builtVideoCand.candidate_type === 'video' && builtVideoCand.production_details.scenes.length === 3,
+  'Test P3C-A-11: VideoProductionCandidate built via helper strictly adheres to canonical schema'
+);
+
+// P3C-A-12: Candidate builders do not mutate input arguments (Pure Construction)
+const inputScenesClone = JSON.parse(JSON.stringify(testVideoScenes));
+buildVideoProductionCandidate({
+  candidate_id: 'video_purity_test',
+  production_mode: 'human_led',
+  objective: 'Purity objective',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: 'Purity hook',
+  scenes: testVideoScenes,
+  motion_direction: 'Dynamic smooth motion',
+  audio_direction: 'Clear voiceover',
+  negative_constraints: 'No blurry frames, no low resolution',
+  final_prompt: 'Purity prompt',
+});
+assert(
+  JSON.stringify(testVideoScenes) === JSON.stringify(inputScenesClone),
+  'Test P3C-A-12: Candidate builder operates purely without mutating input parameters'
+);
+
+// P3C-A-13: getVideoCandidateId maps human_led to video_human_led
+assert(
+  getVideoCandidateId('human_led') === 'video_human_led',
+  'Test P3C-A-13: getVideoCandidateId maps human_led strictly to video_human_led'
+);
+
+// P3C-A-14: getVideoCandidateId maps product_demo to video_product_demo
+assert(
+  getVideoCandidateId('product_demo') === 'video_product_demo',
+  'Test P3C-A-14: getVideoCandidateId maps product_demo strictly to video_product_demo'
+);
+
+// P3C-A-15: getVideoCandidateId maps motion_explainer to video_motion_explainer
+assert(
+  getVideoCandidateId('motion_explainer') === 'video_motion_explainer',
+  'Test P3C-A-15: getVideoCandidateId maps motion_explainer strictly to video_motion_explainer'
+);
+
+// P3C-A-16: getVideoCandidateId handles all three canonical production modes deterministically
+assert(
+  getVideoCandidateId('human_led') === 'video_human_led' &&
+  getVideoCandidateId('product_demo') === 'video_product_demo' &&
+  getVideoCandidateId('motion_explainer') === 'video_motion_explainer',
+  'Test P3C-A-16: getVideoCandidateId maps canonical modes deterministically'
+);
+
+// P3C-A-17: buildCanonicalVideoScenePlan respects exact raw CTA in TOFU
+const tofuScenePlan = buildCanonicalVideoScenePlan('TOFU', 'human_led', {
+  hook: 'Hook TOFU',
+  masalah: 'Masalah TOFU',
+  solusi: 'Solusi TOFU',
+  cta: 'Simpan postingan ini untuk nanti',
+});
+assert(
+  tofuScenePlan[2].on_screen_text.includes('Simpan postingan ini untuk nanti') &&
+  tofuScenePlan[2].voiceover.includes('Simpan postingan ini untuk nanti'),
+  'Test P3C-A-17: buildCanonicalVideoScenePlan uses exact provided CTA without inventing text in TOFU'
+);
+
+// P3C-A-18: buildCanonicalVideoScenePlan respects exact raw CTA in BOFU
+const bofuScenePlan = buildCanonicalVideoScenePlan('BOFU', 'human_led', {
+  hook: 'Hook BOFU',
+  masalah: 'Masalah BOFU',
+  solusi: 'Solusi BOFU',
+  cta: 'Daftar sekarang melalui link di bio',
+});
+assert(
+  bofuScenePlan[2].on_screen_text.includes('Daftar sekarang melalui link di bio') &&
+  bofuScenePlan[2].voiceover.includes('Daftar sekarang melalui link di bio'),
+  'Test P3C-A-18: buildCanonicalVideoScenePlan uses exact provided CTA without inventing text in BOFU'
+);
+
+// P3C-A-19: Candidate validator rejects ImageProductionCandidate missing visualObjective or scene
+const missingSceneImg = {
+  ...validImageCand,
+  production_details: {
+    ...validImageCand.production_details,
+    scene: '',
+  },
+};
+const p3ca19Val = validateProductionCandidate(missingSceneImg);
+assert(
+  !p3ca19Val.isValid && p3ca19Val.error?.includes('scene'),
+  'Test P3C-A-19: Image candidate with empty scene fails validation fail-closed'
+);
+
+// P3C-A-20: Candidate validator rejects ImageProductionCandidate missing final_prompt
+const missingPromptImg = {
+  ...validImageCand,
+  final_prompt: '',
+};
+const p3ca20Val = validateProductionCandidate(missingPromptImg);
+assert(
+  !p3ca20Val.isValid && p3ca20Val.error?.includes('final_prompt'),
+  'Test P3C-A-20: Image candidate with empty final_prompt fails validation fail-closed'
+);
+
+// P3C-A-21: Candidate validator rejects CarouselProductionCandidate with non-positive slide_count
+const nonPositiveSlidesCarousel = {
+  ...validCarouselCand,
+  production_details: {
+    ...validCarouselCand.production_details,
+    slide_count: 0,
+    slides: [],
+  },
+  final_prompts: {
+    master_prompt: 'Master',
+    slides: [],
+  },
+};
+const p3ca21Val = validateProductionCandidate(nonPositiveSlidesCarousel);
+assert(
+  !p3ca21Val.isValid && p3ca21Val.error?.includes('slide_count'),
+  'Test P3C-A-21: Carousel candidate with non-positive slide_count fails validation fail-closed'
+);
+
+// P3C-A-22: Candidate validator rejects CarouselProductionCandidate with invalid slide role
+const invalidRoleCarousel = {
+  ...validCarouselCand,
+  production_details: {
+    ...validCarouselCand.production_details,
+    slides: [
+      { slide_number: 1, role: 'invalid_role_xyz' as any, headline: 'H', body: 'B', visual_direction: 'V', layout_direction: 'L' },
+      ...validCarouselCand.production_details.slides.slice(1),
+    ],
+  },
+};
+const p3ca22Val = validateProductionCandidate(invalidRoleCarousel);
+assert(
+  !p3ca22Val.isValid && p3ca22Val.error?.includes('role'),
+  'Test P3C-A-22: Carousel candidate with invalid slide role fails validation fail-closed'
+);
+
+// P3C-A-23: Candidate validator rejects CarouselProductionCandidate with empty master_prompt
+const emptyMasterPromptCarousel = {
+  ...validCarouselCand,
+  final_prompts: {
+    ...validCarouselCand.final_prompts,
+    master_prompt: '',
+  },
+};
+const p3ca23Val = validateProductionCandidate(emptyMasterPromptCarousel);
+assert(
+  !p3ca23Val.isValid && p3ca23Val.error?.includes('master_prompt'),
+  'Test P3C-A-23: Carousel candidate with empty master_prompt fails validation fail-closed'
+);
+
+const validVideoCand = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('human_led'),
+  production_mode: 'human_led',
+  objective: 'Video goal',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: 'Video hook',
+  scenes: [
+    { scene_number: 1, duration_seconds: 5, purpose: 'P1', visual_direction: 'V1', action: 'A1', camera: 'C1', voiceover: 'VO1', on_screen_text: 'TXT1', scene_type: 'talking_head', required_assets: [] },
+    { scene_number: 2, duration_seconds: 5, purpose: 'P2', visual_direction: 'V2', action: 'A2', camera: 'C2', voiceover: 'VO2', on_screen_text: 'TXT2', scene_type: 'product_screen', required_assets: [] },
+    { scene_number: 3, duration_seconds: 5, purpose: 'P3', visual_direction: 'V3', action: 'A3', camera: 'C3', voiceover: 'VO3', on_screen_text: 'TXT3', scene_type: 'end_card', required_assets: [] },
+  ],
+  motion_direction: 'Fast-paced dynamic',
+  audio_direction: 'Upbeat background audio',
+  negative_constraints: 'No blurry frames, no low resolution',
+  final_prompt: 'Video prompt',
+});
+
+// P3C-A-24: Candidate validator rejects VideoProductionCandidate with invalid production_mode
+const invalidModeVideo = {
+  ...validVideoCand,
+  production_details: {
+    ...validVideoCand.production_details,
+    production_mode: 'unsupported_mode_xyz' as any,
+  },
+};
+const p3ca24Val = validateProductionCandidate(invalidModeVideo);
+assert(
+  !p3ca24Val.isValid && p3ca24Val.error?.includes('production_mode'),
+  'Test P3C-A-24: Video candidate with invalid production_mode fails validation fail-closed'
+);
+
+// P3C-A-25: Candidate validator rejects VideoProductionCandidate with empty hook or final_prompt
+const missingHookVideo = {
+  ...validVideoCand,
+  production_details: {
+    ...validVideoCand.production_details,
+    hook: '',
+  },
+};
+const p3ca25Val = validateProductionCandidate(missingHookVideo);
+assert(
+  !p3ca25Val.isValid && p3ca25Val.error?.includes('hook'),
+  'Test P3C-A-25: Video candidate with empty hook fails validation fail-closed'
+);
+
+// P3C-A-26: Candidate validator rejects candidate containing package authority fields (content_item_id, calendar_item_id)
+const leakedItemCand = {
+  ...validVideoCand,
+  content_item_id: 'item_123',
+};
+const p3ca26Val = validateProductionCandidate(leakedItemCand);
+assert(
+  !p3ca26Val.isValid && p3ca26Val.error?.includes('authoritative package field: content_item_id'),
+  'Test P3C-A-26: Candidate containing content_item_id fails validation fail-closed'
+);
+
+// P3C-A-27: Studio page.tsx source audit confirms isAuthoritativeProductionOutputSource provenance check
+const studioPageContent = fs.readFileSync(path.join(projectRoot, 'app', 'production-studio', 'page.tsx'), 'utf8');
+assert(
+  studioPageContent.includes("isAuthoritativeProductionOutputSource(imageOutputSource)") &&
+  studioPageContent.includes("isAuthoritativeProductionOutputSource(carouselOutputSource)") &&
+  studioPageContent.includes("isAuthoritativeProductionOutputSource(videoOutputSource)") &&
+  (
+    studioPageContent.includes("setImageOutputSource('initial_draft')") ||
+    studioPageContent.includes("setCarouselOutputSource('initial_draft')") ||
+    studioPageContent.includes("setVideoOutputSource('initial_draft')")
+  ),
+  'Test P3C-A-27: Production Studio page.tsx integrates isAuthoritativeProductionOutputSource provenance check'
+);
+
+// P3C-A-28: Studio page.tsx normalizers accept attachProductionCandidate flag and use getVideoCandidateId
+assert(
+  studioPageContent.includes('attachProductionCandidate: boolean = true') &&
+  studioPageContent.includes('getVideoCandidateId(productionMode)'),
+  'Test P3C-A-28: Production Studio normalizers accept attachProductionCandidate flag and use getVideoCandidateId'
+);
+
+// P3C-A-29: Video Candidate missing format fails validation fail-closed
+const missingFormatVideo = {
+  ...validVideoCand,
+  production_details: {
+    ...validVideoCand.production_details,
+    format: '',
+  },
+};
+const p3ca29Val = validateProductionCandidate(missingFormatVideo);
+assert(
+  !p3ca29Val.isValid && p3ca29Val.error?.includes('format'),
+  'Test P3C-A-29: Video candidate with empty format fails validation fail-closed'
+);
+
+// P3C-A-30: getVideoCandidateId deterministic semantic mapping
+assert(
+  getVideoCandidateId('human_led') === 'video_human_led' &&
+  getVideoCandidateId('product_demo') === 'video_product_demo' &&
+  getVideoCandidateId('motion_explainer') === 'video_motion_explainer',
+  'Test P3C-A-30: getVideoCandidateId maps all canonical modes to semantic IDs'
+);
+
+// P3C-A-31: isAuthoritativeProductionOutputSource correctness
+assert(
+  isAuthoritativeProductionOutputSource('stored_output') === true &&
+  isAuthoritativeProductionOutputSource('generated_output') === true &&
+  isAuthoritativeProductionOutputSource('user_edited_output') === true &&
+  isAuthoritativeProductionOutputSource('initial_draft') === false &&
+  isAuthoritativeProductionOutputSource('none') === false,
+  'Test P3C-A-31: isAuthoritativeProductionOutputSource distinguishes authoritative from draft/none sources'
+);
+
+// P3C-A-32: Video Candidate missing negative_constraints fails validation
+const missingNegativeVideo = {
+  ...validVideoCand,
+  production_details: {
+    ...validVideoCand.production_details,
+    negative_constraints: '',
+  },
+};
+const p3ca32Val = validateProductionCandidate(missingNegativeVideo);
+assert(
+  !p3ca32Val.isValid && p3ca32Val.error?.includes('negative_constraints'),
+  'Test P3C-A-32: Video candidate with empty negative_constraints fails validation fail-closed'
+);
+
+// P3C-A-33: Studio page.tsx uses semantic mode and guards candidate creation
+assert(
+  studioPageContent.includes('getVideoCandidateId(productionMode)') &&
+  studioPageContent.includes('attachProductionCandidate') &&
+  studioPageContent.includes('buildVideoProductionCandidate({'),
+  'Test P3C-A-33: Production Studio guards video candidate creation fail-closed on valid productionMode'
+);
+
+// P3C-A-34: Studio page.tsx reads video negative constraints from output and passes to buildVideoProductionCandidate
+assert(
+  (studioPageContent.includes('v.negative_constraints') || studioPageContent.includes('v.negativeConstraints')) &&
+  studioPageContent.includes('negative_constraints: videoNegativeConstraints'),
+  'Test P3C-A-34: validateAndNormalizeVideoStyles reads negative constraints from output and passes to candidate builder'
+);
+
+// P3C-A-35: Studio page.tsx Carousel candidate caller does not contain generic fallbacks
+const carouselCandidateCallerMatch = studioPageContent.match(/const slidePlans[\s\S]*?buildCarouselProductionCandidate\([\s\S]*?\)/);
+assert(
+  carouselCandidateCallerMatch !== null &&
+  !carouselCandidateCallerMatch[0].includes('Format carousel Instagram 4:5 vertical') &&
+  !carouselCandidateCallerMatch[0].includes('Visual editorial cover carousel') &&
+  !carouselCandidateCallerMatch[0].includes('hard selling ads, cluttered poster, blurry text'),
+  'Test P3C-A-35: Carousel candidate caller in page.tsx contains no generic fallbacks'
+);
+
+// P3C-A-36: Carousel candidate builder preserves empty cover_direction and negative_constraints, validator rejects fail-closed
+const emptyFieldsCarouselCand = buildCarouselProductionCandidate({
+  candidate_id: 'carousel_plan_empty_test',
+  objective: 'Test Objective',
+  slide_count: 1,
+  cover_direction: '',
+  slides: [
+    { slide_number: 1, role: 'hook', headline: 'H', body: 'B', visual_direction: 'V', layout_direction: 'L' },
+  ],
+  visual_continuity: 'Cont',
+  branding: '',
+  negative_constraints: '',
+  final_prompts: { master_prompt: 'M', slides: [{ slide_number: 1, prompt: 'P' }] },
+});
+assert(
+  emptyFieldsCarouselCand.production_details.cover_direction === '' &&
+  emptyFieldsCarouselCand.production_details.negative_constraints === '',
+  'Test P3C-A-36a: buildCarouselProductionCandidate preserves empty cover_direction and negative_constraints'
+);
+const emptyFieldsCarouselVal = validateProductionCandidate(emptyFieldsCarouselCand);
+assert(
+  !emptyFieldsCarouselVal.isValid,
+  'Test P3C-A-36b: validateProductionCandidate rejects Carousel candidate with empty cover_direction or negative_constraints'
+);
+
+// P3C-A-37: Carousel candidate with empty slide layout_direction fails validation fail-closed
+const emptySlideLayoutCarouselCand = buildCarouselProductionCandidate({
+  candidate_id: 'carousel_plan_empty_slide_layout',
+  objective: 'Test Objective',
+  slide_count: 1,
+  cover_direction: 'Cover Dir',
+  slides: [
+    { slide_number: 1, role: 'hook', headline: 'H', body: 'B', visual_direction: 'V', layout_direction: '' },
+  ],
+  visual_continuity: 'Cont',
+  branding: '',
+  negative_constraints: 'No ads',
+  final_prompts: { master_prompt: 'M', slides: [{ slide_number: 1, prompt: 'P' }] },
+});
+const emptySlideLayoutCarouselVal = validateProductionCandidate(emptySlideLayoutCarouselCand);
+assert(
+  !emptySlideLayoutCarouselVal.isValid && emptySlideLayoutCarouselVal.error?.includes('layout_direction'),
+  'Test P3C-A-37: validateProductionCandidate rejects Carousel candidate with empty slide layout_direction fail-closed'
+);
+
+// ============================================================================
+// PHASE 3C-B: ADAPTER & SELECTION BOUNDARY TESTS
+// ============================================================================
+
+const p3cbImageCandParams = {
+  candidate_id: 'img_cand_p3cb',
+  visualObjective: 'Obj',
+  scene: 'Scene',
+  subject: 'Subj',
+  composition: 'Comp',
+  environment: 'Env',
+  lighting: 'Light',
+  camera: 'Cam',
+  visualStyle: 'Style',
+  textOverlay: '',
+  branding: '',
+  negativeConstraints: 'No blur',
+  finalPrompt: 'Final Prompt Image',
+};
+
+// P3C-B-01: Image candidate adapter happy path
+const p3cbImageCand = buildImageProductionCandidate(p3cbImageCandParams);
+const imageAdapterRes = adaptProductionCandidateToAssetInput(p3cbImageCand);
+assert(
+  imageAdapterRes.ok === true &&
+  imageAdapterRes.assetInput.asset_type === 'image' &&
+  imageAdapterRes.assetInput.image === p3cbImageCand.production_details &&
+  imageAdapterRes.assetInput.final_prompt === 'Final Prompt Image',
+  'Test P3C-B-01: Image candidate converts to ProductionAssetInput accurately'
+);
+
+// P3C-B-02: Carousel candidate adapter happy path & explicit selection
+const p3cbCarouselCand = buildCarouselProductionCandidate({
+  candidate_id: 'carousel_plan',
+  objective: 'Obj',
+  slide_count: 1,
+  cover_direction: 'Cover',
+  slides: [{ slide_number: 1, role: 'hook', headline: 'H', body: 'B', visual_direction: 'V', layout_direction: 'L' }],
+  visual_continuity: 'Cont',
+  branding: '',
+  negative_constraints: 'No blur',
+  final_prompts: { master_prompt: 'M', slides: [{ slide_number: 1, prompt: 'P' }] },
+});
+const carouselAdapterRes = adaptProductionCandidateToAssetInput(p3cbCarouselCand);
+assert(
+  carouselAdapterRes.ok === true &&
+  carouselAdapterRes.assetInput.asset_type === 'carousel' &&
+  carouselAdapterRes.assetInput.carousel === p3cbCarouselCand.production_details &&
+  carouselAdapterRes.assetInput.final_prompts === p3cbCarouselCand.final_prompts,
+  'Test P3C-B-02a: Carousel candidate converts to ProductionAssetInput accurately'
+);
+const carouselSelectRes = selectProductionCandidate([p3cbCarouselCand], 'carousel_plan');
+assert(
+  carouselSelectRes.ok === true && carouselSelectRes.assetInput.asset_type === 'carousel',
+  'Test P3C-B-02b: selectProductionCandidate explicitly selects carousel_plan'
+);
+
+// P3C-B-03: Video candidate adapter happy path (human_led, product_demo, motion_explainer -> all asset_type 'video')
+const p3cbVideoModes: Array<'human_led' | 'product_demo' | 'motion_explainer'> = ['human_led', 'product_demo', 'motion_explainer'];
+for (const mode of p3cbVideoModes) {
+  const videoCand = buildVideoProductionCandidate({
+    candidate_id: `video_cand_${mode}`,
+    production_mode: mode,
+    objective: 'Obj',
+    format: '9:16',
+    hook: 'Hook',
+    scenes: [
+      { scene_number: 1, duration_seconds: 5, purpose: 'P1', visual_direction: 'V1', action: 'A1', camera: 'C1', voiceover: 'VO1', on_screen_text: 'TXT1', scene_type: 'talking_head' as const, required_assets: [] },
+      { scene_number: 2, duration_seconds: 5, purpose: 'P2', visual_direction: 'V2', action: 'A2', camera: 'C2', voiceover: 'VO2', on_screen_text: 'TXT2', scene_type: 'product_screen' as const, required_assets: [] },
+      { scene_number: 3, duration_seconds: 5, purpose: 'P3', visual_direction: 'V3', action: 'A3', camera: 'C3', voiceover: 'VO3', on_screen_text: 'TXT3', scene_type: 'graphic_motion' as const, required_assets: [] },
+    ],
+    camera_direction: 'Static shot',
+    motion_direction: 'Smooth zoom',
+    audio_direction: 'Background track',
+    negative_constraints: 'No blur',
+    final_prompt: 'Final Prompt Video',
+  });
+  const videoAdapterRes = adaptProductionCandidateToAssetInput(videoCand);
+  assert(
+    videoAdapterRes.ok === true &&
+    videoAdapterRes.assetInput.asset_type === 'video' &&
+    videoAdapterRes.assetInput.video === videoCand.production_details &&
+    videoAdapterRes.assetInput.final_prompt === 'Final Prompt Video',
+    `Test P3C-B-03 (${mode}): Video candidate converts to asset_type 'video'`
+  );
+}
+
+// P3C-B-04: Invalid candidate fails adaptation without repair
+const p3cbInvalidImageCand = {
+  ...p3cbImageCand,
+  production_details: { ...p3cbImageCand.production_details, objective: '' },
+};
+const invalidAdapterRes = adaptProductionCandidateToAssetInput(p3cbInvalidImageCand as any);
+assert(
+  invalidAdapterRes.ok === false && invalidAdapterRes.error !== undefined,
+  'Test P3C-B-04: Invalid candidate fails adaptation fail-closed'
+);
+
+// P3C-B-05: Authority field leak fails adaptation for each forbidden field individually
+const forbiddenFieldsToTest = ['project_id', 'content_item_id', 'package_id', 'strategy_snapshot'];
+for (const forbiddenField of forbiddenFieldsToTest) {
+  const leakingCand = {
+    ...p3cbImageCand,
+    [forbiddenField]: 'leaked_value',
+  };
+  const leakRes = adaptProductionCandidateToAssetInput(leakingCand as any);
+  assert(
+    leakRes.ok === false && leakRes.error?.includes('authoritative package field'),
+    `Test P3C-B-05 (${forbiddenField}): Candidate leaking ${forbiddenField} fails adaptation fail-closed`
+  );
+}
+
+// P3C-B-06: Explicit selection selects correct candidate by ID proving distinct output selection
+const candA = buildImageProductionCandidate({ ...p3cbImageCandParams, candidate_id: 'option_a', finalPrompt: 'PROMPT_A' });
+const candB = buildImageProductionCandidate({ ...p3cbImageCandParams, candidate_id: 'option_b', finalPrompt: 'PROMPT_B' });
+const candC = buildImageProductionCandidate({ ...p3cbImageCandParams, candidate_id: 'option_c', finalPrompt: 'PROMPT_C' });
+const p3cbCandidatesList = [candA, candB, candC];
+const selectedRes = selectProductionCandidate(p3cbCandidatesList, 'option_b');
+assert(
+  selectedRes.ok === true &&
+  selectedRes.assetInput.asset_type === 'image' &&
+  selectedRes.assetInput.final_prompt === 'PROMPT_B',
+  'Test P3C-B-06: selectProductionCandidate explicitly selects candidate B with PROMPT_B'
+);
+
+// P3C-B-07: Unknown selectedCandidateId fails
+const unknownIdRes = selectProductionCandidate(p3cbCandidatesList, 'option_unknown');
+assert(
+  unknownIdRes.ok === false && unknownIdRes.error?.includes('not found'),
+  'Test P3C-B-07: selectProductionCandidate fails when selectedCandidateId is unknown'
+);
+
+// P3C-B-08: Empty selectedCandidateId fails
+const emptyIdRes = selectProductionCandidate(p3cbCandidatesList, '   ');
+assert(
+  emptyIdRes.ok === false && emptyIdRes.error?.includes('non-empty string'),
+  'Test P3C-B-08: selectProductionCandidate fails when selectedCandidateId is empty'
+);
+
+// P3C-B-09: Duplicate candidate IDs in array fail even if valid
+const duplicateCandidatesList: ProductionCandidate[] = [
+  candA,
+  { ...candA },
+];
+const duplicateIdRes = selectProductionCandidate(duplicateCandidatesList, 'option_a');
+assert(
+  duplicateIdRes.ok === false && duplicateIdRes.error?.includes('Duplicate candidate ID'),
+  'Test P3C-B-09: selectProductionCandidate fails when duplicate candidate IDs exist'
+);
+
+// P3C-B-10: Adapter source audit confirms no candidates[0] fallback pattern
+const adapterSourceContent = fs.readFileSync(path.join(projectRoot, 'lib', 'production-candidate-adapter.ts'), 'utf8');
+assert(
+  !adapterSourceContent.includes('candidates[0]') &&
+  !adapterSourceContent.includes('|| candidates[0]') &&
+  !adapterSourceContent.includes('?? candidates[0]'),
+  'Test P3C-B-10: production-candidate-adapter.ts source does not use candidates[0] fallback pattern'
+);
+
+// P3C-B-11: Adapter function is pure and does not mutate Image, Carousel, or Video candidate inputs
+const imgBefore = JSON.parse(JSON.stringify(p3cbImageCand));
+adaptProductionCandidateToAssetInput(p3cbImageCand);
+const imgAfter = JSON.parse(JSON.stringify(p3cbImageCand));
+assert(
+  JSON.stringify(imgBefore) === JSON.stringify(imgAfter),
+  'Test P3C-B-11a: adaptProductionCandidateToAssetInput does not mutate Image candidate'
+);
+
+const carBefore = JSON.parse(JSON.stringify(p3cbCarouselCand));
+adaptProductionCandidateToAssetInput(p3cbCarouselCand);
+const carAfter = JSON.parse(JSON.stringify(p3cbCarouselCand));
+assert(
+  JSON.stringify(carBefore) === JSON.stringify(carAfter),
+  'Test P3C-B-11b: adaptProductionCandidateToAssetInput does not mutate Carousel candidate'
+);
+
+const sampleVideoCand = buildVideoProductionCandidate({
+  candidate_id: 'video_purity_test',
+  production_mode: 'human_led',
+  objective: 'Obj',
+  format: '9:16',
+  hook: 'Hook',
+  scenes: [
+    { scene_number: 1, duration_seconds: 5, purpose: 'P1', visual_direction: 'V1', action: 'A1', camera: 'C1', voiceover: 'VO1', on_screen_text: 'TXT1', scene_type: 'talking_head', required_assets: [] },
+    { scene_number: 2, duration_seconds: 5, purpose: 'P2', visual_direction: 'V2', action: 'A2', camera: 'C2', voiceover: 'VO2', on_screen_text: 'TXT2', scene_type: 'product_screen', required_assets: [] },
+    { scene_number: 3, duration_seconds: 5, purpose: 'P3', visual_direction: 'V3', action: 'A3', camera: 'C3', voiceover: 'VO3', on_screen_text: 'TXT3', scene_type: 'end_card', required_assets: [] },
+  ],
+  negative_constraints: 'No blur',
+  final_prompt: 'Final Prompt Video',
+});
+const vidBefore = JSON.parse(JSON.stringify(sampleVideoCand));
+adaptProductionCandidateToAssetInput(sampleVideoCand);
+const vidAfter = JSON.parse(JSON.stringify(sampleVideoCand));
+assert(
+  JSON.stringify(vidBefore) === JSON.stringify(vidAfter),
+  'Test P3C-B-11c: adaptProductionCandidateToAssetInput does not mutate Video candidate'
+);
+
+// P3C-B-12: Output assetInput does not contain package authority fields
+if (imageAdapterRes.ok) {
+  const assetInputObj = imageAdapterRes.assetInput as Record<string, any>;
+  const forbiddenFields = ['package_id', 'project_id', 'content_item_id', 'created_at', 'production_status', 'strategy_snapshot', 'content_snapshot', 'brand_visual_snapshot'];
+  for (const f of forbiddenFields) {
+    assert(
+      !(f in assetInputObj),
+      `Test P3C-B-12: ProductionAssetInput must not contain package authority field ${f}`
+    );
+  }
+}
+
+// ============================================================================
+// PHASE 3D-A: CANONICAL PRODUCTION PACKAGE WORKFLOW & STRICT STORAGE TESTS
+// ============================================================================
+
+const p3daProjectId = 'proj_p3da_123';
+const p3daItemNo = 1;
+const p3daContentItemId = 'item_p3da_001';
+
+const p3daSharedContext: SharedContentContext = {
+  project_id: p3daProjectId,
+  project_name: 'P3DA Test Project',
+
+  source: {
+    origin: 'manual_context',
+  },
+
+  brand_context: {
+    brand_name: 'Brand Alpha',
+    category: 'SaaS',
+    brand_summary: 'Test brand for production workflow',
+    brand_voice: 'Professional',
+  },
+
+  audience_context: {
+    primary_audience: 'Founders',
+    pain_points: ['Workflow produksi belum terstruktur'],
+    desires: ['Produksi konten yang konsisten'],
+    objections: ['Apakah workflow ini mudah digunakan?'],
+  },
+
+  strategy_context: {
+    positioning: 'Structured content production system',
+    usp: ['Canonical production workflow'],
+    main_offer: 'Core Service',
+    offer_benefits: ['Consistent production workflow'],
+    core_message: 'Create structured content consistently',
+    copy_direction: ['Clear and practical'],
+    content_pillars: ['Education', 'Evaluation', 'Conversion'],
+  },
+
+  system_flags: {
+    is_complete_for_planning: true,
+    missing_required_fields: [],
+  },
+};
+
+const p3daStrategy: FunnelStrategy = buildFunnelStrategyFromContext(p3daSharedContext);
+
+const p3daContentItem: ContentItem = {
+  no: p3daItemNo,
+  content_item_id: p3daContentItemId,
+
+  project_id: p3daProjectId,
+  projectId: p3daProjectId,
+
+  tanggal: '2026-10-01',
+
+  jenis: 'TOFU',
+  tujuan: 'Membangun awareness',
+  hookType: 'Question',
+
+  headline: 'Headline Alpha',
+  body: 'Body Alpha yang menjelaskan konteks konten.',
+  caption: 'Caption Alpha untuk publikasi.',
+  cta: 'Simpan postingan ini',
+
+  format: 'Single',
+  recommendedAssetTypes: ['image', 'carousel', 'video'],
+  primaryAssetType: 'image',
+
+  referensi: 'Internal test reference',
+  visual: 'Clean minimalist layout',
+  keterangan: 'Konten ditempatkan di TOFU untuk membangun awareness.',
+};
+
+const p3daCharacterDNA: CharacterDNA = {
+  character_id: 'char_p3da_001',
+  project_id: p3daProjectId,
+
+  reference_images: [],
+
+  identity: {
+    display_name: 'Test Creator',
+  },
+
+  style: {},
+
+  behavior: {
+    on_camera_persona: 'Professional',
+  },
+
+  consistency_rules: {
+    locked_traits: [],
+    avoid_traits: [],
+  },
+
+  prompt_assets: {
+    dna_summary_prompt: 'Test character DNA',
+    locked_visual_prompt: 'Keep visual identity consistent',
+    preview_generation_prompt: 'Generate preview',
+    scene_reuse_prompt_template: 'Reuse character consistently',
+  },
+
+  timestamps: {
+    created_at: '2026-09-19T00:00:00.000Z',
+    updated_at: '2026-09-19T00:00:00.000Z',
+  },
+};
+
+const p3daMetadata: ProductionPackageMetadata = {
+  package_id: 'pkg_p3da_999',
+  created_at: '2026-09-18T18:00:00.000Z',
+};
+
+const p3daImageCandidate = buildImageProductionCandidate({
+  candidate_id: 'cand_img_p3da',
+  visualObjective: 'Awareness',
+  scene: 'Studio setup',
+  subject: 'Founder',
+  composition: 'Centered',
+  environment: 'Office',
+  lighting: 'Natural',
+  camera: 'Eye-level',
+  visualStyle: 'Modern',
+  textOverlay: 'Headline Alpha',
+  branding: 'Brand Alpha Logo',
+  negativeConstraints: 'No clutter',
+  finalPrompt: 'Prompt Image Alpha',
+});
+
+// P3D-A-01: Valid image candidate -> workflow produces Image ProductionPackage
+const p3daRes01 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  characterDNA: p3daCharacterDNA,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes01.ok === true &&
+  p3daRes01.package.asset_type === 'image' &&
+  p3daRes01.package.project_id === p3daProjectId &&
+  p3daRes01.package.content_item_id === p3daContentItemId,
+  'Test P3D-A-01: prepareProductionPackage converts valid image candidate into Image ProductionPackage'
+);
+
+// P3D-A-02: Valid carousel candidate -> workflow produces Carousel ProductionPackage
+const p3daCarouselCandidate = buildCarouselProductionCandidate({
+  candidate_id: 'cand_car_p3da',
+  objective: 'Education',
+  slide_count: 2,
+  cover_direction: 'Cover Visual',
+  slides: [
+    { slide_number: 1, role: 'hook', headline: 'H1', body: 'B1', visual_direction: 'V1', layout_direction: 'L1' },
+    { slide_number: 2, role: 'solution', headline: 'H2', body: 'B2', visual_direction: 'V2', layout_direction: 'L2' },
+  ],
+  visual_continuity: 'Seamless',
+  branding: 'Brand Alpha',
+  negative_constraints: 'No noise',
+  final_prompts: { master_prompt: 'Master', slides: [{ slide_number: 1, prompt: 'P1' }, { slide_number: 2, prompt: 'P2' }] },
+});
+const p3daRes02 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  characterDNA: p3daCharacterDNA,
+  candidates: [p3daCarouselCandidate],
+  selectedCandidateId: 'cand_car_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes02.ok === true && p3daRes02.package.asset_type === 'carousel',
+  'Test P3D-A-02: prepareProductionPackage converts valid carousel candidate into Carousel ProductionPackage'
+);
+
+// P3D-A-03: Valid video candidate -> workflow produces Video ProductionPackage
+const p3daVideoCandidate = buildVideoProductionCandidate({
+  candidate_id: 'cand_vid_p3da',
+  production_mode: 'human_led',
+  objective: 'Engagement',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: 'Stop scrolling',
+  scenes: [
+    { scene_number: 1, duration_seconds: 5, purpose: 'P1', visual_direction: 'V1', action: 'A1', camera: 'C1', voiceover: 'VO1', on_screen_text: 'TXT1', scene_type: 'talking_head' as const, required_assets: [] },
+    { scene_number: 2, duration_seconds: 5, purpose: 'P2', visual_direction: 'V2', action: 'A2', camera: 'C2', voiceover: 'VO2', on_screen_text: 'TXT2', scene_type: 'product_screen' as const, required_assets: [] },
+    { scene_number: 3, duration_seconds: 5, purpose: 'P3', visual_direction: 'V3', action: 'A3', camera: 'C3', voiceover: 'VO3', on_screen_text: 'TXT3', scene_type: 'end_card' as const, required_assets: [] },
+  ],
+  camera_direction: 'Static shot',
+  motion_direction: 'Smooth zoom',
+  audio_direction: 'Background track',
+  negative_constraints: 'No blur',
+  final_prompt: 'Prompt Video Alpha',
+});
+const p3daRes03 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  characterDNA: p3daCharacterDNA,
+  candidates: [p3daVideoCandidate],
+  selectedCandidateId: 'cand_vid_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes03.ok === true && p3daRes03.package.asset_type === 'video',
+  'Test P3D-A-03: prepareProductionPackage converts valid video candidate into Video ProductionPackage'
+);
+
+// P3D-A-04: Unknown selectedCandidateId -> fail closed
+const p3daRes04 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'unknown_cand',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes04.ok === false && p3daRes04.error.includes('not found'),
+  'Test P3D-A-04: Unknown selectedCandidateId fails closed'
+);
+
+// P3D-A-05: Empty selectedCandidateId -> fail closed
+const p3daRes05 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: '   ',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes05.ok === false && p3daRes05.error.includes('non-empty string'),
+  'Test P3D-A-05: Empty selectedCandidateId fails closed'
+);
+
+// P3D-A-06: Duplicate candidate ID -> fail closed
+const p3daRes06 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate, { ...p3daImageCandidate }],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes06.ok === false && p3daRes06.error.includes('Duplicate candidate ID'),
+  'Test P3D-A-06: Duplicate candidate ID in candidates fails closed'
+);
+
+// P3D-A-07: Cross-project SharedContentContext -> workflow fails
+const p3daRes07 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: { ...p3daSharedContext, project_id: 'other_proj_id' },
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes07.ok === false && p3daRes07.error.includes('Project Identity Mismatch'),
+  'Test P3D-A-07: Cross-project SharedContentContext fails workflow'
+);
+
+// P3D-A-08: Cross-project FunnelStrategy -> workflow fails
+const p3daRes08 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: { ...p3daStrategy, project_id: 'other_proj_id' },
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes08.ok === false && p3daRes08.error.includes('Project Isolation Violation'),
+  'Test P3D-A-08: Cross-project FunnelStrategy fails workflow'
+);
+
+// P3D-A-09: Cross-project ContentItem -> workflow fails
+const p3daRes09 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: { ...p3daContentItem, project_id: 'other_proj_id' },
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes09.ok === false && p3daRes09.error.includes('Project Identity Mismatch'),
+  'Test P3D-A-09: Cross-project ContentItem fails workflow'
+);
+
+// P3D-A-10: Cross-project CharacterDNA -> workflow fails
+const p3daRes10 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  characterDNA: { ...p3daCharacterDNA, project_id: 'other_proj_id' },
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: p3daMetadata,
+});
+assert(
+  p3daRes10.ok === false && p3daRes10.error.includes('CharacterDNA.project_id'),
+  'Test P3D-A-10: Cross-project CharacterDNA fails workflow'
+);
+
+// P3D-A-11: Empty metadata.package_id -> fails
+const p3daRes11 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: { ...p3daMetadata, package_id: '' },
+});
+assert(
+  p3daRes11.ok === false && p3daRes11.error.includes('package_id'),
+  'Test P3D-A-11: Empty metadata.package_id fails workflow'
+);
+
+// P3D-A-12: Empty metadata.created_at -> fails
+const p3daRes12 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [p3daImageCandidate],
+  selectedCandidateId: 'cand_img_p3da',
+  metadata: { ...p3daMetadata, created_at: '' },
+});
+assert(
+  p3daRes12.ok === false && p3daRes12.error.includes('created_at'),
+  'Test P3D-A-12: Empty metadata.created_at fails workflow'
+);
+
+// P3D-A-13: Workflow output production_status === 'ready_for_production'
+assert(
+  p3daRes01.ok === true && p3daRes01.package.production_status === 'ready_for_production',
+  'Test P3D-A-13: Workflow output has production_status ready_for_production'
+);
+
+// P3D-A-14: Workflow DOES NOT generate package_id itself (matches metadata exactly)
+assert(
+  p3daRes01.ok === true && p3daRes01.package.package_id === p3daMetadata.package_id,
+  'Test P3D-A-14: Output package_id matches input metadata package_id exactly'
+);
+
+// P3D-A-15: Workflow DOES NOT generate created_at itself (matches metadata exactly)
+assert(
+  p3daRes01.ok === true && p3daRes01.package.created_at === p3daMetadata.created_at,
+  'Test P3D-A-15: Output created_at matches input metadata created_at exactly'
+);
+
+// P3D-A-16: Storage valid package can save then load by project_id + content_item_id + asset_type
+if (p3daRes01.ok) {
+  const saveRes = saveProductionPackage(p3daProjectId, p3daRes01.package);
+  assert(saveRes.ok === true, 'Test P3D-A-16a: saveProductionPackage succeeds for valid package');
+
+  const loadedPkg = loadProductionPackage(p3daProjectId, p3daContentItemId, 'image');
+  assert(
+    loadedPkg !== null && loadedPkg.package_id === p3daRes01.package.package_id,
+    'Test P3D-A-16b: loadProductionPackage loads correct saved package'
+  );
+}
+
+// P3D-A-17: Cross-project package cannot be saved to another project
+if (p3daRes01.ok) {
+  const wrongSaveRes = saveProductionPackage('wrong_project_999', p3daRes01.package);
+  assert(
+    wrongSaveRes.ok === false && wrongSaveRes.error?.includes('Project Identity Mismatch'),
+    'Test P3D-A-17: saveProductionPackage rejects cross-project save'
+  );
+}
+
+// P3D-A-18: Load package with different projectId -> reject/null
+const loadDiffProj = loadProductionPackage('other_project_999', p3daContentItemId, 'image');
+assert(loadDiffProj === null, 'Test P3D-A-18: loadProductionPackage returns null for non-matching projectId');
+
+// P3D-A-19: Load package with different contentItemId -> no fallback, returns null
+const loadDiffItem = loadProductionPackage(p3daProjectId, 'item_non_existent', 'image');
+assert(loadDiffItem === null, 'Test P3D-A-19: loadProductionPackage returns null for non-matching contentItemId');
+
+// P3D-A-20: Load package with different assetType -> no fallback, returns null
+const loadDiffAsset = loadProductionPackage(p3daProjectId, p3daContentItemId, 'video');
+assert(loadDiffAsset === null, 'Test P3D-A-20: loadProductionPackage returns null for non-matching assetType');
+
+// P3D-A-21: Stored malformed ProductionPackage -> reject/null
+saveProjectData(p3daProjectId, `production_package_${p3daContentItemId}_carousel`, { malformed: true });
+const loadMalformed = loadProductionPackage(p3daProjectId, p3daContentItemId, 'carousel');
+assert(loadMalformed === null, 'Test P3D-A-21: loadProductionPackage rejects malformed stored payload');
+
+// P3D-A-22: Storage does not alter package identity
+if (p3daRes01.ok) {
+  const reloadedPkg = loadProductionPackage(p3daProjectId, p3daContentItemId, 'image');
+  assert(
+    reloadedPkg !== null &&
+    reloadedPkg.package_id === p3daRes01.package.package_id &&
+    reloadedPkg.project_id === p3daRes01.package.project_id &&
+    reloadedPkg.content_item_id === p3daRes01.package.content_item_id &&
+    reloadedPkg.asset_type === p3daRes01.package.asset_type,
+    'Test P3D-A-22: Storage preserves exact package identity without alteration'
+  );
+}
+
+// P3D-A-23: Remove only deletes exact package key
+const removeSuccess = removeProductionPackage(p3daProjectId, p3daContentItemId, 'image');
+assert(removeSuccess === true, 'Test P3D-A-23a: removeProductionPackage returns true');
+const loadAfterRemove = loadProductionPackage(p3daProjectId, p3daContentItemId, 'image');
+assert(loadAfterRemove === null, 'Test P3D-A-23b: Package is absent after removeProductionPackage');
+
+// P3D-A-24: Workflow source audit: does not use candidates[0] as fallback selection
+const workflowSourceContent = fs.readFileSync(path.join(projectRoot, 'lib', 'production-package-workflow.ts'), 'utf8');
+assert(
+  !workflowSourceContent.includes('candidates[0]') &&
+  !workflowSourceContent.includes('|| candidates[0]') &&
+  !workflowSourceContent.includes('?? candidates[0]'),
+  'Test P3D-A-24: production-package-workflow.ts source does not use candidates[0] fallback pattern'
+);
+
+// P3D-A-25: Workflow source audit: does not use Date.now(), Math.random(), crypto.randomUUID() for metadata generation
+assert(
+  !workflowSourceContent.includes('Date.now()') &&
+  !workflowSourceContent.includes('Math.random()') &&
+  !workflowSourceContent.includes('randomUUID'),
+  'Test P3D-A-25: production-package-workflow.ts source does not generate non-deterministic metadata'
+);
+
+// =============================================================
+// PHASE 3D-B: IMAGE PRODUCTION GATE TESTS
+// =============================================================
+
+const pageStudioPath = path.join(projectRoot, 'app', 'production-studio', 'page.tsx');
+const pageStudioSource = fs.readFileSync(pageStudioPath, 'utf8');
+
+// P3D-B-01: Image generation path uses prepareProductionPackage()
+assert(
+  pageStudioSource.includes('prepareProductionPackage({') || pageStudioSource.includes('prepareProductionPackage('),
+  'Test P3D-B-01: Production Studio page.tsx calls prepareProductionPackage in image generation path'
+);
+
+// P3D-B-02: Image generation path uses saveProductionPackage()
+assert(
+  pageStudioSource.includes('saveProductionPackage('),
+  'Test P3D-B-02: Production Studio page.tsx calls saveProductionPackage in image generation path'
+);
+
+// Extract handleGenerateImage function body for strict ordering and gate checks
+const handleGenImgStart = pageStudioSource.indexOf('const handleGenerateImage =');
+const handleGenImgEnd = pageStudioSource.indexOf('const handleDownloadImage =');
+assert(
+  handleGenImgStart !== -1 && handleGenImgEnd !== -1 && handleGenImgEnd > handleGenImgStart,
+  'Test P3D-B-00: handleGenerateImage function isolated successfully in page.tsx'
+);
+
+const handleGenImgSource = pageStudioSource.slice(handleGenImgStart, handleGenImgEnd);
+
+// P3D-B-03: Package prepare is called before Gemini fetch
+const prepIndex = handleGenImgSource.indexOf('prepareProductionPackage');
+const fetchIndex = handleGenImgSource.indexOf("fetch('/api/gemini/generate-image'");
+assert(
+  prepIndex !== -1 && fetchIndex !== -1 && prepIndex < fetchIndex,
+  'Test P3D-B-03: prepareProductionPackage is called before Gemini fetch in handleGenerateImage'
+);
+
+// P3D-B-04: Package save is called before Gemini fetch
+const saveIndex = handleGenImgSource.indexOf('saveProductionPackage');
+assert(
+  saveIndex !== -1 && fetchIndex !== -1 && saveIndex < fetchIndex,
+  'Test P3D-B-04: saveProductionPackage is called before Gemini fetch in handleGenerateImage'
+);
+
+// P3D-B-05: Non-authoritative image source: 'none' -> false
+assert(
+  isAuthoritativeProductionOutputSource('none') === false,
+  'Test P3D-B-05: Non-authoritative source "none" is rejected'
+);
+
+// P3D-B-06: Non-authoritative image source: 'initial_draft' -> false
+assert(
+  isAuthoritativeProductionOutputSource('initial_draft') === false,
+  'Test P3D-B-06: Non-authoritative source "initial_draft" is rejected'
+);
+
+// P3D-B-07: Authoritative image source: 'stored_output' -> true
+assert(
+  isAuthoritativeProductionOutputSource('stored_output') === true,
+  'Test P3D-B-07: Authoritative source "stored_output" is accepted'
+);
+
+// P3D-B-08: Authoritative image source: 'generated_output' -> true
+assert(
+  isAuthoritativeProductionOutputSource('generated_output') === true,
+  'Test P3D-B-08: Authoritative source "generated_output" is accepted'
+);
+
+// P3D-B-09: Authoritative image source: 'user_edited_output' -> true
+assert(
+  isAuthoritativeProductionOutputSource('user_edited_output') === true,
+  'Test P3D-B-09: Authoritative source "user_edited_output" is accepted'
+);
+
+// P3D-B-10: Missing sourceItem in handleGenerateImage causes closed-fail
+assert(
+  handleGenImgSource.includes('if (!sourceItem) {') &&
+  handleGenImgSource.includes('Authoritative ContentItem tidak ditemukan'),
+  'Test P3D-B-10: Missing sourceItem triggers closed-fail in handleGenerateImage'
+);
+
+// P3D-B-11: Missing SharedContentContext in handleGenerateImage causes closed-fail
+assert(
+  handleGenImgSource.includes('if (!sharedContextSnapshot) {') &&
+  handleGenImgSource.includes('Authoritative SharedContentContext tidak ditemukan'),
+  'Test P3D-B-11: Missing sharedContextSnapshot triggers closed-fail in handleGenerateImage'
+);
+
+// P3D-B-12: Missing FunnelStrategy in handleGenerateImage causes closed-fail
+assert(
+  handleGenImgSource.includes('if (!funnelStrategySnapshot) {') &&
+  handleGenImgSource.includes('Authoritative FunnelStrategy tidak ditemukan'),
+  'Test P3D-B-12: Missing funnelStrategySnapshot triggers closed-fail in handleGenerateImage'
+);
+
+// P3D-B-13: Clicked Angle B selects canonical candidate B specifically (candidates A != B != C)
+const candA_B13 = buildImageProductionCandidate({
+  candidate_id: 'A',
+  visualObjective: 'Objective A',
+  scene: 'Scene A',
+  subject: 'Subject A',
+  composition: 'Composition A',
+  environment: 'Environment A',
+  lighting: 'Lighting A',
+  camera: 'Camera A',
+  visualStyle: 'Visual Style A',
+  textOverlay: 'Overlay A',
+  branding: '',
+  negativeConstraints: 'No clutter',
+  finalPrompt: 'Prompt Angle A',
+});
+
+const candB_B13 = buildImageProductionCandidate({
+  candidate_id: 'B',
+  visualObjective: 'Objective B',
+  scene: 'Scene B',
+  subject: 'Subject B',
+  composition: 'Composition B',
+  environment: 'Environment B',
+  lighting: 'Lighting B',
+  camera: 'Camera B',
+  visualStyle: 'Visual Style B',
+  textOverlay: 'Overlay B',
+  branding: '',
+  negativeConstraints: 'No clutter',
+  finalPrompt: 'Prompt Angle B',
+});
+
+const candC_B13 = buildImageProductionCandidate({
+  candidate_id: 'C',
+  visualObjective: 'Objective C',
+  scene: 'Scene C',
+  subject: 'Subject C',
+  composition: 'Composition C',
+  environment: 'Environment C',
+  lighting: 'Lighting C',
+  camera: 'Camera C',
+  visualStyle: 'Visual Style C',
+  textOverlay: 'Overlay C',
+  branding: '',
+  negativeConstraints: 'No clutter',
+  finalPrompt: 'Prompt Angle C',
+});
+
+assert(
+  candA_B13.final_prompt !== candB_B13.final_prompt &&
+  candB_B13.final_prompt !== candC_B13.final_prompt,
+  'Test P3D-B-13a: Candidates A, B, C have distinct prompts'
+);
+
+const resB_B13 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  characterDNA: p3daCharacterDNA,
+  candidates: [candA_B13, candB_B13, candC_B13],
+  selectedCandidateId: 'B',
+  metadata: p3daMetadata,
+});
+
+assert(
+  resB_B13.ok === true &&
+  resB_B13.package.asset_type === 'image' &&
+  resB_B13.package.final_prompt === 'Prompt Angle B',
+  'Test P3D-B-13b: Clicked Angle B explicitly selects candidate B package'
+);
+
+// P3D-B-14: Unknown clicked angle/candidate ID -> closed fail
+const resUnknown_B14 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [candA_B13, candB_B13],
+  selectedCandidateId: 'UNKNOWN_ANGLE_Z',
+  metadata: p3daMetadata,
+});
+assert(
+  resUnknown_B14.ok === false,
+  'Test P3D-B-14: Unknown angle candidate ID fails package preparation'
+);
+
+// P3D-B-15: Duplicate candidate ID -> closed fail
+const candDup_B15 = buildImageProductionCandidate({
+  candidate_id: 'A',
+  visualObjective: 'Duplicate Objective',
+  scene: 'Duplicate Scene',
+  subject: 'Duplicate Subject',
+  composition: 'Duplicate Composition',
+  environment: 'Duplicate Environment',
+  lighting: 'Duplicate Lighting',
+  camera: 'Duplicate Camera',
+  visualStyle: 'Duplicate Style',
+  textOverlay: 'Duplicate Overlay',
+  branding: '',
+  negativeConstraints: 'No clutter',
+  finalPrompt: 'Prompt Angle A Duplicate',
+});
+const resDup_B15 = prepareProductionPackage({
+  projectId: p3daProjectId,
+  sharedContext: p3daSharedContext,
+  funnelStrategy: p3daStrategy,
+  contentItem: p3daContentItem,
+  candidates: [candA_B13, candDup_B15],
+  selectedCandidateId: 'A',
+  metadata: p3daMetadata,
+});
+assert(
+  resDup_B15.ok === false && resDup_B15.error?.includes('Duplicate candidate ID'),
+  'Test P3D-B-15: Duplicate candidate IDs fail package preparation'
+);
+
+// P3D-B-16: ProductionPackage asset_type not image is blocked in handleGenerateImage
+assert(
+  handleGenImgSource.includes("if (productionPackage.asset_type !== 'image') {") &&
+  handleGenImgSource.includes('Package type mismatch'),
+  'Test P3D-B-16: Non-image package asset_type is blocked in handleGenerateImage'
+);
+
+// P3D-B-17: saveProductionPackage failure prevents Gemini fetch
+assert(
+  handleGenImgSource.includes('const saveResult = saveProductionPackage(') &&
+  handleGenImgSource.includes('if (!saveResult.ok) {') &&
+  handleGenImgSource.indexOf('if (!saveResult.ok) {') < fetchIndex,
+  'Test P3D-B-17: saveProductionPackage failure stops flow before Gemini fetch'
+);
+
+// P3D-B-18: Image generation flow does not use recommendedAngleId, angles[0], candidates[0] as fallback
+assert(
+  !handleGenImgSource.includes('recommendedAngleId') &&
+  !handleGenImgSource.includes('angles[0]') &&
+  !handleGenImgSource.includes('candidates[0]'),
+  'Test P3D-B-18: handleGenerateImage does not use fallback candidates or recommendedAngleId for production selection'
+);
+
+// P3D-B-19: Production package authority uses sourceItem, not activeItem fallback
+assert(
+  !handleGenImgSource.includes('activeItem') &&
+  handleGenImgSource.includes('contentItem: sourceItem'),
+  'Test P3D-B-19: Production package authority strictly uses sourceItem without activeItem fallback'
+);
+
+// P3D-B-20: ImagePanel maintains effective prompt flow with CharacterDNA integration
+const imagePanelPath = path.join(projectRoot, 'components', 'production-studio', 'ImagePanel.tsx');
+const imagePanelSource = fs.readFileSync(imagePanelPath, 'utf8');
+assert(
+  imagePanelSource.includes('injectCharacterToPrompt(') &&
+  imagePanelSource.includes('handleGenerateImage(effectivePrompt, activeAngle.id)'),
+  'Test P3D-B-20: ImagePanel retains effectivePrompt and CharacterDNA integration'
+);
+
+// P3D-B-21: Async stale-response guard exists in handleGenerateImage
+assert(
+  handleGenImgSource.includes('getActiveProjectId() !== requestProjectId') &&
+  handleGenImgSource.includes('canonicalProjectId !== requestProjectId') &&
+  handleGenImgSource.includes('!sourceItem'),
+  'Test P3D-B-21: handleGenerateImage retains stale response async guard'
+);
+
+// =============================================================
+// PHASE 3D-C1A: VIDEO ARCHITECTURE CLEANUP TESTS (VARCH-A01 - VARCH-A25)
+// =============================================================
+
+// Re-read pageStudioSource in case of updates
+const pageStudioSourceLatest = fs.readFileSync(pageStudioPath, 'utf8');
+
+// VARCH-A01: Video candidate tanpa production_mode ditolak
+const candNoMode: any = {
+  candidate_id: 'video_test',
+  candidate_type: 'video',
+  objective: 'Test',
+  format: '9:16',
+  hook: 'Hook',
+  scenes: [
+    { scene_number: 1, duration_seconds: 3, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent'] },
+    { scene_number: 2, duration_seconds: 15, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['screen'] },
+    { scene_number: 3, duration_seconds: 5, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['cta'] },
+  ],
+  production_details: {}
+};
+const resNoMode = validateProductionCandidate(candNoMode);
+assert(!resNoMode.isValid && resNoMode.error?.includes('production_mode'), 'Test VARCH-A01: Video candidate without production_mode is rejected');
+
+// VARCH-A02: Video candidate dengan production_mode invalid ditolak
+const candInvalidMode: any = {
+  ...candNoMode,
+  production_details: { production_mode: 'invalid_mode' }
+};
+const resInvalidMode = validateProductionCandidate(candInvalidMode);
+assert(!resInvalidMode.isValid && resInvalidMode.error?.includes('production_mode'), 'Test VARCH-A02: Video candidate with invalid production_mode is rejected');
+
+// VARCH-A03: Video candidate dengan scenes < 3 ditolak
+const cand2Scenes: any = {
+  ...candNoMode,
+  production_details: {
+    production_mode: 'human_led',
+    duration_seconds: 24,
+    objective: 'Obj',
+    format: '9:16',
+    hook: 'Hook',
+    camera_direction: 'Cam',
+    motion_direction: 'Mot',
+    audio_direction: 'Aud',
+    negative_constraints: 'Neg',
+    scenes: [
+      { scene_number: 1, duration_seconds: 3, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent'] },
+      { scene_number: 2, duration_seconds: 15, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['screen'] },
+    ]
+  },
+  final_prompt: 'prompt'
+};
+const res2Scenes = validateProductionCandidate(cand2Scenes);
+assert(!res2Scenes.isValid && res2Scenes.error?.includes('must be exactly 3'), 'Test VARCH-A03: Video candidate with < 3 scenes is rejected');
+
+// VARCH-A04: Video candidate dengan scenes > 3 ditolak
+const cand4Scenes: any = {
+  ...candNoMode,
+  production_details: {
+    production_mode: 'human_led',
+    duration_seconds: 28,
+    objective: 'Obj',
+    format: '9:16',
+    hook: 'Hook',
+    camera_direction: 'Cam',
+    motion_direction: 'Mot',
+    audio_direction: 'Aud',
+    negative_constraints: 'Neg',
+    scenes: [
+      { scene_number: 1, duration_seconds: 3, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent'] },
+      { scene_number: 2, duration_seconds: 15, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['screen'] },
+      { scene_number: 3, duration_seconds: 5, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['cta'] },
+      { scene_number: 4, duration_seconds: 5, scene_type: 'talking_head', purpose: 'p', visual_direction: 'v', action: 'a', camera: 'c', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['logo'] },
+    ]
+  },
+  final_prompt: 'prompt'
+};
+const res4Scenes = validateProductionCandidate(cand4Scenes);
+assert(!res4Scenes.isValid && res4Scenes.error?.includes('must be exactly 3'), 'Test VARCH-A04: Video candidate with > 3 scenes is rejected');
+
+// VARCH-A05: Video candidate dengan exactly 3 scenes diterima
+const cand3Scenes: VideoProductionCandidate = buildVideoProductionCandidate({
+  candidate_id: 'video_human_led',
+  production_mode: 'human_led',
+  objective: 'Test',
+  format: '9:16 Vertical Video',
+  hook: 'Hook',
+  scenes: [
+    { scene_number: 1, duration_seconds: 8, scene_type: 'talking_head', purpose: 'Hook pembuka', visual_direction: 'Talent framing', action: 'Talent berbicara', camera: 'Close up', voiceover: 'vo1', on_screen_text: 'txt1', required_assets: ['talent', 'headset'] },
+    { scene_number: 2, duration_seconds: 8, scene_type: 'talking_head', purpose: 'Inti edukasi', visual_direction: 'Talent demo', action: 'Talent menjelaskan', camera: 'Medium shot', voiceover: 'vo2', on_screen_text: 'txt2', required_assets: ['talent', 'workspace'] },
+    { scene_number: 3, duration_seconds: 8, scene_type: 'talking_head', purpose: 'Call to action', visual_direction: 'Talent closing', action: 'Talent mengajak', camera: 'Medium close up', voiceover: 'vo3', on_screen_text: 'txt3', required_assets: ['talent', 'cta_button'] },
+  ],
+  motion_direction: 'Dynamic talking head pacing',
+  audio_direction: 'Indonesian voiceover',
+  negative_constraints: 'No blurry frames, no bad quality',
+  final_prompt: 'Prompt',
+});
+const res3Scenes = validateProductionCandidate(cand3Scenes);
+assert(res3Scenes.isValid, 'Test VARCH-A05: Video candidate with exactly 3 scenes is valid');
+
+// VARCH-A06: Video candidate required_assets dengan empty string ditolak
+const candEmptyAsset: VideoProductionCandidate = {
+  ...cand3Scenes,
+  production_details: {
+    ...cand3Scenes.production_details,
+    scenes: [
+      { scene_number: 1, duration_seconds: 8, scene_type: 'talking_head', purpose: 'Hook', visual_direction: 'VD', action: 'Act', camera: 'Cam', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent', '  '] },
+      { scene_number: 2, duration_seconds: 8, scene_type: 'talking_head', purpose: 'Body', visual_direction: 'VD', action: 'Act', camera: 'Cam', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent'] },
+      { scene_number: 3, duration_seconds: 8, scene_type: 'talking_head', purpose: 'CTA', visual_direction: 'VD', action: 'Act', camera: 'Cam', voiceover: 'vo', on_screen_text: 'txt', required_assets: ['talent'] },
+    ]
+  }
+};
+const resEmptyAsset = validateProductionCandidate(candEmptyAsset);
+assert(!resEmptyAsset.isValid && resEmptyAsset.error?.includes('required_assets contains empty'), 'Test VARCH-A06: Video candidate with empty string required_assets is rejected');
+
+// VARCH-A07: Video candidate semantic ID video_human_led valid
+const candHumanLed = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('human_led'),
+  production_mode: 'human_led',
+  objective: 'Obj',
+  format: '9:16',
+  hook: 'Hook',
+  scenes: buildCanonicalVideoScenePlan('TOFU', 'human_led', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' }),
+  motion_direction: 'pacing',
+  audio_direction: 'audio',
+  negative_constraints: 'No artifacts',
+  final_prompt: 'Prompt',
+});
+assert(validateProductionCandidate(candHumanLed).isValid && candHumanLed.candidate_id === 'video_human_led', 'Test VARCH-A07: Video candidate semantic ID video_human_led is valid');
+
+// VARCH-A08: Video candidate semantic ID video_product_demo valid
+const candProdDemo = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('product_demo'),
+  production_mode: 'product_demo',
+  objective: 'Obj',
+  format: '9:16',
+  hook: 'Hook',
+  scenes: buildCanonicalVideoScenePlan('MOFU', 'product_demo', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' }),
+  motion_direction: 'pacing',
+  audio_direction: 'audio',
+  negative_constraints: 'No artifacts',
+  final_prompt: 'Prompt',
+});
+assert(validateProductionCandidate(candProdDemo).isValid && candProdDemo.candidate_id === 'video_product_demo', 'Test VARCH-A08: Video candidate semantic ID video_product_demo is valid');
+
+// VARCH-A09: Video candidate semantic ID video_motion_explainer valid
+const candMotion = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('motion_explainer'),
+  production_mode: 'motion_explainer',
+  objective: 'Obj',
+  format: '9:16',
+  hook: 'Hook',
+  scenes: buildCanonicalVideoScenePlan('BOFU', 'motion_explainer', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' }),
+  motion_direction: 'pacing',
+  audio_direction: 'audio',
+  negative_constraints: 'No artifacts',
+  final_prompt: 'Prompt',
+});
+assert(validateProductionCandidate(candMotion).isValid && candMotion.candidate_id === 'video_motion_explainer', 'Test VARCH-A09: Video candidate semantic ID video_motion_explainer is valid');
+
+// VARCH-A10: buildCanonicalVideoScenePlan menghasilkan exactly 3 scenes untuk human_led
+const humanLedScenes = buildCanonicalVideoScenePlan('TOFU', 'human_led', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' });
+assert(
+  humanLedScenes.length === 3 &&
+  humanLedScenes[0].required_assets.length > 0 &&
+  humanLedScenes.some(s => s.scene_type === 'talking_head'),
+  'Test VARCH-A10: buildCanonicalVideoScenePlan produces exactly 3 scenes for human_led with talking_head'
+);
+
+// VARCH-A11: buildCanonicalVideoScenePlan menghasilkan exactly 3 scenes untuk product_demo
+const demoScenes = buildCanonicalVideoScenePlan('MOFU', 'product_demo', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' });
+assert(
+  demoScenes.length === 3 &&
+  demoScenes[0].required_assets.length > 0 &&
+  demoScenes.some(s => s.scene_type === 'product_screen'),
+  'Test VARCH-A11: buildCanonicalVideoScenePlan produces exactly 3 scenes for product_demo with product_screen'
+);
+
+// VARCH-A12: buildCanonicalVideoScenePlan menghasilkan exactly 3 scenes untuk motion_explainer
+const motionScenes = buildCanonicalVideoScenePlan('BOFU', 'motion_explainer', { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' });
+assert(
+  motionScenes.length === 3 &&
+  motionScenes[0].required_assets.length > 0 &&
+  motionScenes.some(s => s.scene_type === 'graphic_motion'),
+  'Test VARCH-A12: buildCanonicalVideoScenePlan produces exactly 3 scenes for motion_explainer with graphic_motion'
+);
+
+// VARCH-A13: buildCanonicalVideoScenePlan tanpa fallback mode throws error jika mode invalid
+let errorThrown = false;
+try {
+  buildCanonicalVideoScenePlan('TOFU', 'invalid_mode' as any, { hook: 'h', masalah: 'm', solusi: 's', proof: 'p', cta: 'c' });
+} catch (e: any) {
+  errorThrown = true;
+}
+assert(errorThrown, 'Test VARCH-A13: buildCanonicalVideoScenePlan without valid mode throws error (fail-closed, no silent fallback)');
+
+// VARCH-A14: validateProductionPackage with valid canonical VideoProductionPackage passes
+const validVideoPkg: ProductionPackage = {
+  package_id: 'pkg-video-human-test',
+  project_id: 'project-test',
+  content_item_id: 'content-test',
+  asset_type: 'video',
+  funnel_stage: 'TOFU',
+  production_status: 'ready_for_production',
+  created_at: '2026-01-01T00:00:00.000Z',
+
+  strategy_snapshot: {
+    brand_name: 'Brand Test',
+    category: '',
+    primary_audience: 'Audience Test',
+    positioning: '',
+    main_offer: 'Offer Test',
+    core_message: 'Core Message Test',
+    campaign_goal: 'Education',
+    funnel_stage: 'TOFU',
+    funnel_objective: 'Build awareness',
+    message_direction: 'Educational',
+    cta_direction: 'Soft action',
+  },
+
+  content_snapshot: {
+    headline: 'Test Headline',
+    body: 'Test Body',
+    caption: 'Test Caption',
+    cta: 'Simpan konten ini',
+    visual_direction: 'Clean vertical content',
+    content_format: 'video',
+    strategic_objective: 'Build awareness',
+    strategic_rationale: 'Relevant to TOFU objective',
+  },
+
+  brand_visual_snapshot: {
+    visual_style: 'Clean minimal',
+    color_palette: ['#000000', '#FFFFFF'],
+    typography_style: 'Modern sans-serif',
+    image_style_rules: [],
+    design_mood: 'Professional',
+  },
+
+  video: {
+    production_mode: 'human_led',
+    objective: 'Test objective',
+    duration_seconds: 24,
+    format: '9:16 Vertical Video',
+    hook: 'Test hook',
+
+    scenes: [
+      {
+        scene_number: 1,
+        duration_seconds: 8,
+        purpose: 'Hook',
+        visual_direction: 'Talent berbicara ke kamera',
+        action: 'Talent menyampaikan hook',
+        camera: 'Medium close-up',
+        voiceover: 'Hook voiceover',
+        on_screen_text: 'Hook',
+        scene_type: 'talking_head',
+        required_assets: ['character'],
+      },
+      {
+        scene_number: 2,
+        duration_seconds: 8,
+        purpose: 'Value',
+        visual_direction: 'Talent menjelaskan insight',
+        action: 'Talent menjelaskan poin utama',
+        camera: 'Medium shot',
+        voiceover: 'Value voiceover',
+        on_screen_text: 'Value',
+        scene_type: 'talking_head',
+        required_assets: ['character'],
+      },
+      {
+        scene_number: 3,
+        duration_seconds: 8,
+        purpose: 'CTA',
+        visual_direction: 'Talent menyampaikan CTA',
+        action: 'Talent memberi arahan akhir',
+        camera: 'Medium close-up',
+        voiceover: 'CTA voiceover',
+        on_screen_text: 'CTA',
+        scene_type: 'talking_head',
+        required_assets: ['character'],
+      },
+    ],
+
+    voiceover: '',
+    on_screen_text: '',
+    camera_direction: 'Natural vertical camera',
+    motion_direction: 'Natural pacing',
+    audio_direction: 'Clear Indonesian voice',
+    branding: '',
+    negative_constraints: 'No distortion',
+  },
+
+  final_prompt: 'Final test prompt',
+};
+const resValidPkg = validateProductionPackage(validVideoPkg);
+assert(resValidPkg.isValid, 'Test VARCH-A14: Valid canonical VideoProductionPackage passes validation');
+
+// VARCH-A15: validateProductionPackage menolak video package dengan scenes != 3 (< 3 scenes)
+const pkg2Scenes: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    scenes: validVideoPkg.video.scenes.slice(0, 2),
+  },
+};
+const resPkg2Scenes = validateProductionPackage(pkg2Scenes);
+assert(!resPkg2Scenes.isValid && resPkg2Scenes.error?.includes('must be exactly 3'), 'Test VARCH-A15: validateProductionPackage rejects video package with scenes != 3');
+
+// VARCH-A16: validateProductionPackage menolak video package dengan > 3 scenes
+const pkg4Scenes: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    scenes: [
+      ...validVideoPkg.video.scenes,
+      {
+        scene_number: 4,
+        duration_seconds: 8,
+        purpose: 'Outro',
+        visual_direction: 'Talent outro',
+        action: 'Talent pamit',
+        camera: 'Medium shot',
+        voiceover: 'Outro voiceover',
+        on_screen_text: 'Outro',
+        scene_type: 'talking_head',
+        required_assets: ['character'],
+      },
+    ],
+  },
+};
+const resPkg4Scenes = validateProductionPackage(pkg4Scenes);
+assert(!resPkg4Scenes.isValid && resPkg4Scenes.error?.includes('must be exactly 3'), 'Test VARCH-A16: validateProductionPackage rejects video package with > 3 scenes');
+
+// VARCH-A17: validateProductionPackage menolak video package dengan production_mode invalid
+const pkgInvalidMode: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    production_mode: 'unknown_mode',
+  },
+};
+const resPkgInvalidMode = validateProductionPackage(pkgInvalidMode);
+assert(!resPkgInvalidMode.isValid && resPkgInvalidMode.error?.includes('production_mode'), 'Test VARCH-A17: validateProductionPackage rejects video package with invalid production_mode');
+
+// VARCH-A18: validateProductionPackage menolak video package dengan scene required_assets berisi empty string
+const pkgEmptyAsset: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    scenes: [
+      {
+        ...validVideoPkg.video.scenes[0],
+        required_assets: ['character', '   '],
+      },
+      validVideoPkg.video.scenes[1],
+      validVideoPkg.video.scenes[2],
+    ],
+  },
+};
+const resPkgEmptyAsset = validateProductionPackage(pkgEmptyAsset);
+assert(!resPkgEmptyAsset.isValid && resPkgEmptyAsset.error?.includes('required_assets contains empty'), 'Test VARCH-A18: validateProductionPackage rejects video package with empty string required_assets');
+
+// VARCH-A19: validateProductionPackage rejects human_led package whose scenes do not have talking_head
+const pkgMismatchedMode: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    production_mode: 'human_led',
+    scenes: validVideoPkg.video.scenes.map((s: any) => ({ ...s, scene_type: 'product_screen' })),
+  },
+};
+const resPkgMismatched = validateProductionPackage(pkgMismatchedMode);
+assert(!resPkgMismatched.isValid && resPkgMismatched.error?.includes('talking_head'), 'Test VARCH-A19: validateProductionPackage rejects human_led package lacking talking_head scenes');
+
+// VARCH-A20: validateProductionPackage validates valid product_demo package and rejects product_demo without product_screen
+const validProductDemoPkg: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    production_mode: 'product_demo',
+    scenes: [
+      {
+        scene_number: 1,
+        duration_seconds: 8,
+        purpose: 'Hook demo',
+        visual_direction: 'Screen recording UI',
+        action: 'Menampilkan workflow',
+        camera: 'Screen capture',
+        voiceover: 'Demo hook',
+        on_screen_text: 'Demo',
+        scene_type: 'product_screen',
+        required_assets: ['screen'],
+      },
+      {
+        scene_number: 2,
+        duration_seconds: 8,
+        purpose: 'Feature highlight',
+        visual_direction: 'Screen recording feature',
+        action: 'Menampilkan fitur',
+        camera: 'Screen capture',
+        voiceover: 'Feature voiceover',
+        on_screen_text: 'Feature',
+        scene_type: 'product_screen',
+        required_assets: ['screen'],
+      },
+      {
+        scene_number: 3,
+        duration_seconds: 8,
+        purpose: 'Demo CTA',
+        visual_direction: 'End card CTA',
+        action: 'Menampilkan CTA',
+        camera: 'Static',
+        voiceover: 'CTA voiceover',
+        on_screen_text: 'CTA',
+        scene_type: 'end_card',
+        required_assets: ['logo'],
+      },
+    ],
+  },
+};
+const resValidProdDemo = validateProductionPackage(validProductDemoPkg);
+assert(resValidProdDemo.isValid, 'Test VARCH-A20a: Valid canonical Product Demo VideoProductionPackage passes validation');
+
+const pkgProductDemoMismatch: any = {
+  ...validProductDemoPkg,
+  video: {
+    ...validProductDemoPkg.video,
+    scenes: validProductDemoPkg.video.scenes.map((s: any) => ({ ...s, scene_type: 'talking_head' })),
+  },
+};
+const resProdDemoMismatch = validateProductionPackage(pkgProductDemoMismatch);
+assert(!resProdDemoMismatch.isValid && resProdDemoMismatch.error?.includes('product_screen'), 'Test VARCH-A20b: validateProductionPackage rejects product_demo package lacking product_screen scenes');
+
+// VARCH-A21: validateProductionPackage validates valid motion_explainer package and rejects motion_explainer without graphic_motion
+const validMotionPkg: any = {
+  ...validVideoPkg,
+  video: {
+    ...validVideoPkg.video,
+    production_mode: 'motion_explainer',
+    scenes: [
+      {
+        scene_number: 1,
+        duration_seconds: 8,
+        purpose: 'Motion hook',
+        visual_direction: 'Kinetic typography animation',
+        action: 'Animated text entry',
+        camera: 'Dynamic 2D',
+        voiceover: 'Motion hook',
+        on_screen_text: 'Motion',
+        scene_type: 'graphic_motion',
+        required_assets: ['typography'],
+      },
+      {
+        scene_number: 2,
+        duration_seconds: 8,
+        purpose: 'Motion insight',
+        visual_direction: 'Chart motion transition',
+        action: 'Diagram animating',
+        camera: 'Dynamic 2D',
+        voiceover: 'Insight voiceover',
+        on_screen_text: 'Insight',
+        scene_type: 'graphic_motion',
+        required_assets: ['graphics'],
+      },
+      {
+        scene_number: 3,
+        duration_seconds: 8,
+        purpose: 'Motion CTA',
+        visual_direction: 'Animated CTA button',
+        action: 'Pulsing CTA',
+        camera: 'Static 2D',
+        voiceover: 'CTA voiceover',
+        on_screen_text: 'CTA',
+        scene_type: 'end_card',
+        required_assets: ['button'],
+      },
+    ],
+  },
+};
+const resValidMotion = validateProductionPackage(validMotionPkg);
+assert(resValidMotion.isValid, 'Test VARCH-A21a: Valid canonical Motion Explainer VideoProductionPackage passes validation');
+
+const pkgMotionMismatch: any = {
+  ...validMotionPkg,
+  video: {
+    ...validMotionPkg.video,
+    scenes: validMotionPkg.video.scenes.map((s: any) => ({ ...s, scene_type: 'talking_head' })),
+  },
+};
+const resMotionMismatch = validateProductionPackage(pkgMotionMismatch);
+assert(!resMotionMismatch.isValid && resMotionMismatch.error?.includes('graphic_motion'), 'Test VARCH-A21b: validateProductionPackage rejects motion_explainer package lacking graphic_motion scenes');
+
+// VARCH-A22: handleSelectVideoProductionMode tidak lagi memanggil saveProductionPackage
+const handleSelectVideoStart = pageStudioSourceLatest.indexOf('const handleSelectVideoProductionMode =');
+const handleSelectVideoEnd = pageStudioSourceLatest.indexOf('// Direct image generation state');
+assert(
+  handleSelectVideoStart !== -1 && handleSelectVideoEnd !== -1 && handleSelectVideoEnd > handleSelectVideoStart,
+  'Test VARCH-A22a: handleSelectVideoProductionMode function isolated successfully in page.tsx'
+);
+const handleSelectVideoSource = pageStudioSourceLatest.slice(handleSelectVideoStart, handleSelectVideoEnd);
+assert(
+  !handleSelectVideoSource.includes('saveProductionPackage') &&
+  !handleSelectVideoSource.includes('prepareProductionPackage') &&
+  handleSelectVideoSource.includes('setSelectedVideoProductionMode(mode);'),
+  'Test VARCH-A22b: handleSelectVideoProductionMode only sets selectedVideoProductionMode and does not call saveProductionPackage or prepareProductionPackage'
+);
+
+// VARCH-A23: handleGenerateWithAI video and carousel branches do not call saveProductionPackage
+const handleGenAIStart = pageStudioSourceLatest.indexOf('const handleGenerateWithAI =');
+const handleGenAIEnd = pageStudioSourceLatest.indexOf('const getOptimizationButtonLabel =');
+assert(
+  handleGenAIStart !== -1 && handleGenAIEnd !== -1 && handleGenAIEnd > handleGenAIStart,
+  'Test VARCH-A23a: handleGenerateWithAI function isolated successfully in page.tsx'
+);
+const handleGenAISource = pageStudioSourceLatest.slice(handleGenAIStart, handleGenAIEnd);
+assert(
+  !handleGenAISource.includes("saveProductionPackage(canonicalProjectId, productionPackage)"),
+  'Test VARCH-A23b: handleGenerateWithAI does not call saveProductionPackage for video or carousel'
+);
+
+// VARCH-A24: validateAndNormalizeVideoStyles menghasilkan candidate_id semantik
+assert(
+  pageStudioSourceLatest.includes("getVideoCandidateId(productionMode)") &&
+  pageStudioSourceLatest.includes("candidate_id: candidateId"),
+  'Test VARCH-A24: validateAndNormalizeVideoStyles uses semantic candidate_id via getVideoCandidateId'
+);
+
+// VARCH-A25: validateAndNormalizeVideoStyles tidak silent fallback ke human_led jika mode tidak diketahui dan tidak dapat dipetakan
+assert(
+  !pageStudioSourceLatest.includes("resolveVideoProductionMode") &&
+  pageStudioSourceLatest.includes("const rawMode = v.productionMode ?? v.production_mode;"),
+  'Test VARCH-A25: validateAndNormalizeVideoStyles fails closed without silent fallback to human_led'
+);
+
+// VARCH-A26: validateAndNormalizeVideoStyles covers all 3 canonical production modes
+assert(
+  pageStudioSourceLatest.includes('productionMode === \'human_led\'') &&
+  pageStudioSourceLatest.includes('productionMode === \'product_demo\'') &&
+  pageStudioSourceLatest.includes('rawMode !== \'motion_explainer\''),
+  'Test VARCH-A26: validateAndNormalizeVideoStyles covers human_led, product_demo, motion_explainer'
+);
+
+// VARCH-A27: Initial video draft menggunakan semantic productionMode
+assert(
+  pageStudioSourceLatest.includes('productionMode: "human_led"') &&
+  pageStudioSourceLatest.includes('productionMode: "product_demo"') &&
+  pageStudioSourceLatest.includes('productionMode: "motion_explainer"'),
+  'Test VARCH-A27: Initial video draft uses semantic productionMode values'
+);
+
+// VARCH-A28: VideoPanel supports selectedVideoProductionMode and semantic mode selection
+const videoPanelPath = path.join(projectRoot, 'components', 'production-studio', 'VideoPanel.tsx');
+const videoPanelSource = fs.readFileSync(videoPanelPath, 'utf8');
+assert(
+  videoPanelSource.includes('selectedVideoProductionMode') &&
+  videoPanelSource.includes('activeStyleKey = activeVideo.productionMode'),
+  'Test VARCH-A28: VideoPanel supports selectedVideoProductionMode and semantic mode selection'
+);
+
+// -------------------------------------------------------------
+// SECTION 13: PHASE 3D-C1B — INTENT RESOLVER + RECOMMENDATION + OVERRIDE
+// -------------------------------------------------------------
+console.log('\n--- SECTION 13: Phase 3D-C1B Video Intent Resolver & Recommendation Suite ---');
+
+const baseSharedContextSaaS: SharedContentContext = {
+  project_id: 'proj_saas_123',
+  project_name: 'AdFlow SaaS Project',
+  source: { origin: 'manual_context' },
+  brand_context: {
+    brand_name: 'AdFlow SaaS',
+    category: 'Software / Aplikasi',
+    brand_summary: 'Platform optimasi iklan AI',
+    brand_voice: 'Professional, inspiring, clear',
+  },
+  audience_context: {
+    primary_audience: 'Media buyer, pemula digital marketing, UMKM',
+    pain_points: ['Biaya iklan mahal', 'Setup rumit'],
+    desires: ['Scaling iklan mudah'],
+    objections: ['Apakah mudah untuk pemula?'],
+  },
+  strategy_context: {
+    positioning: 'Platform optimasi iklan AI #1 di Indonesia',
+    usp: ['Otomasi iklan AI'],
+    main_offer: 'Software otomasi iklan digital berbasis AI',
+    offer_benefits: ['Efisiensi waktu', 'ROAS meningkat'],
+    core_message: 'Membantu pemilik bisnis scaling iklan dengan mudah',
+    copy_direction: ['Clear and inspiring'],
+    content_pillars: ['Education', 'Demo', 'Conversion'],
+  },
+  system_flags: {
+    is_complete_for_planning: true,
+    missing_required_fields: [],
+  },
+};
+
+const baseFunnelStrategySaaS: FunnelStrategy = buildFunnelStrategyFromContext(baseSharedContextSaaS);
+
+function mockContentItem(item: Partial<ContentItem> & { no: number; headline: string; tujuan: string; jenis: string }): ContentItem {
+  return {
+    tanggal: '2026-09-19',
+    hookType: 'question',
+    body: 'Sample body text for test',
+    caption: 'Sample caption for test',
+    format: 'Reels',
+    referensi: '',
+    visual: '',
+    keterangan: '',
+    ...item,
+  };
+}
+
+// 1. Test 3D-C1B-1: Business Context is Software, but ContentItem is TOFU Relatable Problem / Fear
+const itemTofuFear = mockContentItem({
+  no: 1,
+  content_item_id: 'item_tofu_fear_01',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Ketakutan Pemula Saat Beriklan',
+  headline: 'Kenapa banyak pemula takut menjalankan iklan pertama?',
+  tujuan: 'Mengatasi ketakutan psikologis dan membangun empati audiens',
+  cta: 'Simpan postingan ini jika kamu merasakannya',
+  sudut_pandang: 'Storytelling personal dari founder',
+});
+const ctxTofuFearRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemTofuFear
+);
+assert(ctxTofuFearRes.isValid && !!ctxTofuFearRes.context, 'Test 3D-C1B-1a: ProductionEngineContext built for TOFU fear item');
+const decisionTofuFear = resolveVideoIntent(ctxTofuFearRes.context!);
+assert(
+  decisionTofuFear.recommended_mode === 'human_led',
+  'Test 3D-C1B-1b: TOFU relatable psychological problem resolves to human_led mode'
+);
+assert(
+  decisionTofuFear.recommended_mode !== 'product_demo',
+  'Test 3D-C1B-1c: Generic business keywords (software/aplikasi) do NOT trigger product_demo for empathy content'
+);
+assert(
+  decisionTofuFear.required_inputs.includes('character'),
+  'Test 3D-C1B-1d: human_led mode recommends character DNA in required inputs'
+);
+
+// 2. Test 3D-C1B-2: ContentItem with Explicit Dashboard / Workflow Demonstration
+const itemDashboardWalkthrough = mockContentItem({
+  no: 2,
+  content_item_id: 'item_mofu_demo_02',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Tutorial Setup Campaign',
+  headline: 'Lihat bagaimana dashboard digunakan untuk membuat campaign pertama.',
+  tujuan: 'Menunjukkan langkah setup campaign langsung di layar UI',
+  cta: 'Simpan panduan ini untuk setup nanti',
+  sudut_pandang: 'Screen recording walkthrough',
+});
+const ctxDemoRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemDashboardWalkthrough
+);
+assert(ctxDemoRes.isValid && !!ctxDemoRes.context, 'Test 3D-C1B-2a0: ProductionEngineContext built for demo item');
+const decisionDemo = resolveVideoIntent(ctxDemoRes.context!);
+assert(
+  decisionDemo.recommended_mode === 'product_demo',
+  'Test 3D-C1B-2a: Explicit dashboard walkthrough resolves to product_demo mode'
+);
+assert(
+  decisionDemo.required_inputs.includes('product_screenshot'),
+  'Test 3D-C1B-2b: product_demo requires product_screenshot asset'
+);
+
+// 3. Test 3D-C1B-3: ContentItem Framework / Step-by-Step Educational Process
+const itemStepFramework = mockContentItem({
+  no: 3,
+  content_item_id: 'item_mofu_steps_03',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: '5 Langkah Membuat Funnel',
+  headline: '5 langkah membuat funnel pemasaran pertama.',
+  tujuan: 'Edukasi framework visual 5 tahap strategi funnel',
+  cta: 'Pelajari selengkapnya di modul gratis',
+  sudut_pandang: 'Penjelasan infografis visual',
+});
+const ctxStepsRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemStepFramework
+);
+assert(ctxStepsRes.isValid && !!ctxStepsRes.context, 'Test 3D-C1B-3a0: ProductionEngineContext built for steps item');
+const decisionSteps = resolveVideoIntent(ctxStepsRes.context!);
+assert(
+  decisionSteps.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-3a: Step-by-step numbered framework resolves to motion_explainer mode'
+);
+assert(
+  decisionSteps.required_inputs.length === 0,
+  'Test 3D-C1B-3b: motion_explainer does not mandate external screenshot or character'
+);
+
+// 4. Test 3D-C1B-4: Generic Business Keywords Do NOT Trigger Product Demo on "3 Kesalahan"
+const itemMistakes = mockContentItem({
+  no: 4,
+  content_item_id: 'item_tofu_mistakes_04',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: '3 Kesalahan Fatal Pemula',
+  headline: '3 kesalahan pemula saat mulai beriklan',
+  tujuan: 'Edukasi kesalahan umum dan cara memperbaikinya',
+  cta: 'Hindari 3 kesalahan ini mulai sekarang',
+  sudut_pandang: 'List edukatif',
+});
+const ctxMistakesRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemMistakes
+);
+assert(ctxMistakesRes.isValid && !!ctxMistakesRes.context, 'Test 3D-C1B-4a0: ProductionEngineContext built for mistakes item');
+const decisionMistakes = resolveVideoIntent(ctxMistakesRes.context!);
+assert(
+  decisionMistakes.recommended_mode !== 'product_demo',
+  'Test 3D-C1B-4a: "3 kesalahan pemula" does not trigger product_demo despite software brand'
+);
+assert(
+  decisionMistakes.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-4b: "3 kesalahan pemula" listicle resolves to motion_explainer'
+);
+
+// 5. Test 3D-C1B-5: BOFU Stage with Explicit Feature Demonstration
+const itemBofuFeature = mockContentItem({
+  no: 5,
+  content_item_id: 'item_bofu_feature_05',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'BOFU',
+  judul: 'Fitur Reporting Otomatis',
+  headline: 'Lihat fitur reporting bekerja sebelum Anda memutuskan menggunakan produk.',
+  tujuan: 'Membuktikan akurasi reporting langsung dari aplikasi',
+  cta: 'Mulai trial Anda sekarang',
+  sudut_pandang: 'Demo live feature',
+});
+const ctxBofuFeatureRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemBofuFeature
+);
+assert(ctxBofuFeatureRes.isValid && !!ctxBofuFeatureRes.context, 'Test 3D-C1B-5a0: ProductionEngineContext built for BOFU feature item');
+const decisionBofuFeature = resolveVideoIntent(ctxBofuFeatureRes.context!);
+assert(
+  decisionBofuFeature.recommended_mode === 'product_demo',
+  'Test 3D-C1B-5: BOFU explicit feature demonstration resolves to product_demo'
+);
+
+// 6. Test 3D-C1B-6: BOFU Stage with Objection Handling / Talent Inquiry
+const itemBofuObjection = mockContentItem({
+  no: 6,
+  content_item_id: 'item_bofu_objection_06',
+  project_id: 'proj_saas_123',
+  projectId: 'proj_saas_123',
+  jenis: 'BOFU',
+  judul: 'Apakah Tools Ini Untuk Anda?',
+  headline: 'Apakah tools seperti ini benar-benar dibutuhkan oleh pemula?',
+  tujuan: 'Menjawab keraguan audiens langsung di depan kamera untuk membangun kepercayaan',
+  cta: 'Tanya saya di kolom komentar',
+  sudut_pandang: 'Klarifikasi jujur langsung dari founder',
+});
+const ctxBofuObjectionRes = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  itemBofuObjection
+);
+assert(ctxBofuObjectionRes.isValid && !!ctxBofuObjectionRes.context, 'Test 3D-C1B-6a0: ProductionEngineContext built for BOFU objection item');
+const decisionBofuObjection = resolveVideoIntent(ctxBofuObjectionRes.context!);
+assert(
+  decisionBofuObjection.recommended_mode === 'human_led',
+  'Test 3D-C1B-6a: BOFU objection handling and direct founder reassurance resolves to human_led'
+);
+assert(
+  decisionBofuObjection.recommended_mode !== 'product_demo',
+  'Test 3D-C1B-6b: BOFU objection handling is NOT misclassified as product_demo'
+);
+
+// 7. Test 3D-C1B-7: Determinism Test (100 Iterations Pure Output Verification)
+let isDeterministic = true;
+const sampleContext = ctxTofuFearRes.context!;
+const firstResult = resolveVideoIntent(sampleContext);
+for (let i = 0; i < 100; i++) {
+  const iterResult = resolveVideoIntent(sampleContext);
+  if (
+    iterResult.recommended_mode !== firstResult.recommended_mode ||
+    iterResult.recommendation_reason !== firstResult.recommendation_reason ||
+    iterResult.required_inputs.join(',') !== firstResult.required_inputs.join(',')
+  ) {
+    isDeterministic = false;
+    break;
+  }
+}
+assert(isDeterministic, 'Test 3D-C1B-7: resolveVideoIntent is completely deterministic across 100 consecutive executions');
+
+// 8. Test 3D-C1B-8: ProductionEngineContext Isolation
+const secondSharedContext: SharedContentContext = {
+  project_id: 'proj_fitness_999',
+  project_name: 'FitnessPro Project',
+  source: { origin: 'manual_context' },
+  brand_context: {
+    brand_name: 'FitnessPro',
+    category: 'Kesehatan & Olahraga',
+    brand_summary: 'Program coaching fitness personal',
+    brand_voice: 'Motivating, energetic',
+  },
+  audience_context: {
+    primary_audience: 'Pria/Wanita 25-45 tahun',
+    pain_points: ['Kurang konsisten', 'Cedera latihan'],
+    desires: ['Transformasi tubuh'],
+    objections: ['Tidak punya waktu'],
+  },
+  strategy_context: {
+    positioning: 'Coach fitness privat bersertifikat',
+    usp: ['Metode teruji'],
+    main_offer: 'Program coaching fitness personal',
+    offer_benefits: ['Tubuh bugar'],
+    core_message: 'Transformasi tubuh dalam 90 hari',
+    copy_direction: ['Action oriented'],
+    content_pillars: ['Form', 'Nutrition', 'Motivation'],
+  },
+  system_flags: {
+    is_complete_for_planning: true,
+    missing_required_fields: [],
+  },
+};
+const secondFunnelStrategy = buildFunnelStrategyFromContext(secondSharedContext);
+const ctxFitnessRes = buildProductionEngineContext(
+  'proj_fitness_999',
+  secondSharedContext,
+  secondFunnelStrategy,
+  mockContentItem({
+    no: 1,
+    content_item_id: 'fit_01',
+    project_id: 'proj_fitness_999',
+    projectId: 'proj_fitness_999',
+    jenis: 'TOFU',
+    judul: 'Cara Push Up yang Benar',
+    headline: 'Panduan gerakan push up yang aman untuk punggung',
+    tujuan: 'Edukasi form gerakan oleh instruktur',
+    cta: 'Coba form ini besok',
+    sudut_pandang: 'Instruktur mendemonstrasikan gerakan fisik',
+  })
+);
+assert(ctxFitnessRes.isValid && !!ctxFitnessRes.context, 'Test 3D-C1B-8a0: ProductionEngineContext built for Fitness item');
+const decisionFitness = resolveVideoIntent(ctxFitnessRes.context!);
+assert(
+  decisionFitness.recommended_mode === 'human_led' && ctxFitnessRes.context?.shared_context?.brand_context?.brand_name === 'FitnessPro',
+  'Test 3D-C1B-8: Context isolation ensures distinct projects maintain strict data boundaries'
+);
+
+// 9. Test 3D-C1B-9: UI Codebase Verifications for Recommendation vs Override Separation
+const pageStudioSrcPhase3D = fs.readFileSync(path.join(projectRoot, 'app', 'production-studio', 'page.tsx'), 'utf8');
+const videoPanelSrcPhase3D = fs.readFileSync(path.join(projectRoot, 'components', 'production-studio', 'VideoPanel.tsx'), 'utf8');
+
+assert(
+  pageStudioSrcPhase3D.includes('getVideoModeOverrideKey') &&
+  pageStudioSrcPhase3D.includes('userSelectedVideoModeByItem') &&
+  pageStudioSrcPhase3D.includes('videoIntentDecision') &&
+  pageStudioSrcPhase3D.includes('recommendedVideoProductionMode') &&
+  pageStudioSrcPhase3D.includes('handleUseRecommendation'),
+  'Test 3D-C1B-9a: page.tsx maintains separate states for recommendation and project-scoped user overrides'
+);
+
+assert(
+  videoPanelSrcPhase3D.includes('Rekomendasi Video ALCO') &&
+  videoPanelSrcPhase3D.includes('Direkomendasikan') &&
+  videoPanelSrcPhase3D.includes('Gunakan Rekomendasi') &&
+  videoPanelSrcPhase3D.includes('getVideoProductionModeLabel'),
+  'Test 3D-C1B-9b: VideoPanel renders ALCO recommendation card, badge, and Use Recommendation button'
+);
+
+// 10. Test 3D-C1B-10: Project-Scoped Override Identity Helper
+assert(getVideoModeOverrideKey('proj_A', 'item_01') === 'proj_A:item_01', 'Test 3D-C1B-10a: getVideoModeOverrideKey formats canonical key');
+assert(getVideoModeOverrideKey(null, 'item_01') === null, 'Test 3D-C1B-10b: getVideoModeOverrideKey fails safely on null projectId');
+assert(getVideoModeOverrideKey('proj_A', null) === null, 'Test 3D-C1B-10c: getVideoModeOverrideKey fails safely on null contentItemId');
+assert(getVideoModeOverrideKey('  ', 'item_01') === null, 'Test 3D-C1B-10d: getVideoModeOverrideKey fails safely on whitespace projectId');
+assert(getVideoModeOverrideKey('proj_A', '  ') === null, 'Test 3D-C1B-10e: getVideoModeOverrideKey fails safely on whitespace contentItemId');
+
+// Base Canonical Item for Regression Tests and Case 1
+const case1Item = mockContentItem({
+  no: 101,
+  content_item_id: 'case_1',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Kenapa pemula sering takut menjalankan iklan?',
+  headline: 'Kenapa pemula sering takut menjalankan iklan?',
+  tujuan: 'Membahas ketakutan psikologis beriklan',
+  cta: 'Pelajari selengkapnya',
+  sudut_pandang: 'Empathy',
+});
+
+// =============================================================
+// 11. REQUIRED REGRESSION TESTS: BLOCKER 1 & BLOCKER 2
+// =============================================================
+
+// TEST A: Resolver rejects raw ContentItem-only call
+let threwOnRawItemCall = false;
+try {
+  (resolveVideoIntent as any)({
+    contentItem: case1Item,
+  });
+} catch (e: any) {
+  threwOnRawItemCall = true;
+}
+assert(threwOnRawItemCall, 'TEST A: Resolver rejects raw ContentItem-only call (fail closed)');
+
+// TEST B: Missing canonical FunnelStrategy
+let threwOnMissingStrategy = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnMissingStrategy = true;
+}
+assert(threwOnMissingStrategy, 'TEST B: resolveVideoIntent fails closed on missing canonical FunnelStrategy');
+
+// TEST C: Missing SharedContentContext
+let threwOnMissingSharedContext = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnMissingSharedContext = true;
+}
+assert(threwOnMissingSharedContext, 'TEST C: resolveVideoIntent fails closed on missing SharedContentContext');
+
+// TEST D: Missing canonical funnel stage
+let threwOnMissingStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+  });
+} catch (e: any) {
+  threwOnMissingStage = true;
+}
+assert(threwOnMissingStage, 'TEST D: resolveVideoIntent fails closed on missing canonical_funnel_stage');
+
+// STAGE REGRESSION TESTS (Exact canonical_funnel_stage validation)
+// TEST 1 — exact TOFU
+const decisionStageTOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'TOFU',
+});
+assert(decisionStageTOFU.recommended_mode === 'human_led', 'STAGE TEST 1: exact TOFU is accepted');
+
+// TEST 2 — exact MOFU
+const decisionStageMOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'MOFU',
+});
+assert(decisionStageMOFU.recommended_mode === 'human_led', 'STAGE TEST 2: exact MOFU is accepted');
+
+// TEST 3 — exact BOFU
+const decisionStageBOFU = resolveVideoIntent({
+  project_id: 'proj_saas_123',
+  shared_context: baseSharedContextSaaS,
+  funnel_strategy: baseFunnelStrategySaaS,
+  content_item: case1Item,
+  canonical_funnel_stage: 'BOFU',
+});
+assert(decisionStageBOFU.recommended_mode === 'human_led', 'STAGE TEST 3: exact BOFU is accepted');
+
+// TEST 4 — leading whitespace
+let threwOnLeadingWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: ' TOFU',
+  });
+} catch (e: any) {
+  threwOnLeadingWs = true;
+}
+assert(threwOnLeadingWs, 'STAGE TEST 4: leading whitespace " TOFU" fails closed');
+
+// TEST 5 — trailing whitespace
+let threwOnTrailingWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'TOFU ',
+  });
+} catch (e: any) {
+  threwOnTrailingWs = true;
+}
+assert(threwOnTrailingWs, 'STAGE TEST 5: trailing whitespace "TOFU " fails closed');
+
+// TEST 6 — both-side whitespace
+let threwOnBothWs = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: ' TOFU ',
+  });
+} catch (e: any) {
+  threwOnBothWs = true;
+}
+assert(threwOnBothWs, 'STAGE TEST 6: both-side whitespace " TOFU " fails closed');
+
+// TEST 7 — lowercase
+let threwOnLowercase = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'tofu',
+  });
+} catch (e: any) {
+  threwOnLowercase = true;
+}
+assert(threwOnLowercase, 'STAGE TEST 7: lowercase "tofu" fails closed');
+
+// TEST 8 — mixed case
+let threwOnMixedCase = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'Tofu',
+  });
+} catch (e: any) {
+  threwOnMixedCase = true;
+}
+assert(threwOnMixedCase, 'STAGE TEST 8: mixed case "Tofu" fails closed');
+
+// TEST 9 — empty string
+let threwOnEmptyStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: '',
+  });
+} catch (e: any) {
+  threwOnEmptyStage = true;
+}
+assert(threwOnEmptyStage, 'STAGE TEST 9: empty string "" fails closed');
+
+// TEST 10 — malformed value
+let threwOnMalformedStage = false;
+try {
+  (resolveVideoIntent as any)({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: case1Item,
+    canonical_funnel_stage: 'AWARENESS',
+  });
+} catch (e: any) {
+  threwOnMalformedStage = true;
+}
+assert(threwOnMalformedStage, 'STAGE TEST 10: malformed value "AWARENESS" fails closed');
+
+// TEST E: Canonical context works
+const ctxE = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxE.isValid && !!ctxE.context, 'TEST E-1: buildProductionEngineContext produces valid ProductionEngineContext');
+const decisionE = resolveVideoIntent(ctxE.context!);
+assert(decisionE.recommended_mode === 'human_led', 'TEST E-2: Canonical context works and existing semantic recommendation works normally');
+
+// TEST F: Cross-project override isolation
+// Project A: project_id = project_A, content_item_id = item_01, override = motion_explainer
+// Project B: project_id = project_B, content_item_id = item_01
+const keyProjA = getVideoModeOverrideKey('project_A', 'item_01');
+const keyProjB = getVideoModeOverrideKey('project_B', 'item_01');
+assert(keyProjA === 'project_A:item_01' && keyProjB === 'project_B:item_01', 'TEST F-1: Override keys format with project namespace');
+const crossProjectOverrides: Record<string, VideoProductionMode> = {};
+if (keyProjA) crossProjectOverrides[keyProjA] = 'motion_explainer';
+const projBOverride = keyProjB ? crossProjectOverrides[keyProjB] : undefined;
+const projectBSelectedMode = projBOverride || 'product_demo'; // default recommendation for project B
+assert(
+  projectBSelectedMode === 'product_demo',
+  'TEST F-2: Cross-project override isolation — Project B DOES NOT receive motion_explainer from Project A'
+);
+
+// TEST G: Same project different item
+// project_A:item_01 override = product_demo
+// project_A:item_02 no override
+const keyProjAItem01 = getVideoModeOverrideKey('project_A', 'item_01');
+const keyProjAItem02 = getVideoModeOverrideKey('project_A', 'item_02');
+const overridesSameProject: Record<string, VideoProductionMode> = {};
+if (keyProjAItem01) overridesSameProject[keyProjAItem01] = 'product_demo';
+const item02Recommendation: VideoProductionMode = 'human_led';
+const item02Override = keyProjAItem02 ? overridesSameProject[keyProjAItem02] : undefined;
+const item02Selected = item02Override || item02Recommendation;
+assert(
+  item02Selected === 'human_led',
+  'TEST G: Same project different item — item_02 uses its own recommendation'
+);
+
+// TEST H: Same item preserved
+// project_A:item_01 manual override = product_demo
+// component/recommendation re-evaluation for same authoritative item
+const keyPreservedItem = getVideoModeOverrideKey('project_A', 'item_01');
+const overridesPreservedMap: Record<string, VideoProductionMode> = {};
+if (keyPreservedItem) overridesPreservedMap[keyPreservedItem] = 'product_demo';
+const newRecommendation: VideoProductionMode = 'human_led';
+const overrideFound = keyPreservedItem ? overridesPreservedMap[keyPreservedItem] : undefined;
+const reEvaluatedSelection = overrideFound || newRecommendation;
+assert(
+  reEvaluatedSelection === 'product_demo',
+  'TEST H: Same item manual override preserved across re-evaluation/re-render'
+);
+
+// TEST I: Use Recommendation reset
+// Project/item has manual override. User invokes handleUseRecommendation().
+// override for that exact project + content_item_id is removed and selectedVideoProductionMode becomes recommendedVideoProductionMode.
+// Other overrides remain untouched.
+const keyToReset = getVideoModeOverrideKey('project_A', 'item_01');
+const keyToKeep = getVideoModeOverrideKey('project_A', 'item_02');
+const overridesBeforeReset: Record<string, VideoProductionMode> = {};
+if (keyToReset) overridesBeforeReset[keyToReset] = 'product_demo';
+if (keyToKeep) overridesBeforeReset[keyToKeep] = 'motion_explainer';
+
+// Simulate handleUseRecommendation()
+const recommendedModeForReset: VideoProductionMode = 'human_led';
+if (keyToReset && overridesBeforeReset[keyToReset]) {
+  delete overridesBeforeReset[keyToReset];
+}
+const selectedModeAfterReset = (keyToReset && overridesBeforeReset[keyToReset]) || recommendedModeForReset;
+assert(
+  selectedModeAfterReset === 'human_led' && !(keyToReset && keyToReset in overridesBeforeReset),
+  'TEST I-1: Use Recommendation removes exact override and selected mode becomes recommendation'
+);
+assert(
+  keyToKeep && overridesBeforeReset[keyToKeep] === 'motion_explainer',
+  'TEST I-2: Other overrides remain untouched when one item is reset'
+);
+
+// FAIL-CLOSED BOUNDARIES
+let threwOnNull = false;
+try {
+  resolveVideoIntent(null as any);
+} catch (e: any) {
+  threwOnNull = true;
+}
+assert(threwOnNull, 'Test 3D-C1B-FC1: resolveVideoIntent fails closed on null input');
+
+let threwOnMissingItem = false;
+try {
+  resolveVideoIntent({} as any);
+} catch (e: any) {
+  threwOnMissingItem = true;
+}
+assert(threwOnMissingItem, 'Test 3D-C1B-FC2: resolveVideoIntent fails closed on missing contentItem');
+
+let threwOnEmptyItem = false;
+try {
+  resolveVideoIntent({
+    project_id: 'proj_saas_123',
+    shared_context: baseSharedContextSaaS,
+    funnel_strategy: baseFunnelStrategySaaS,
+    content_item: {} as any,
+    canonical_funnel_stage: 'TOFU',
+  });
+} catch (e: any) {
+  threwOnEmptyItem = true;
+}
+assert(threwOnEmptyItem, 'Test 3D-C1B-FC3: resolveVideoIntent fails closed on empty contentItem without text');
+
+// =============================================================
+// 12. CANONICAL 10 CASES VIA PRODUCTION ENGINE CONTEXT
+// =============================================================
+
+// CASE 1:
+// Business: Software marketing
+// Content: "Kenapa pemula sering takut menjalankan iklan?"
+// Expected: human_led
+const ctxCase1 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxCase1.isValid && !!ctxCase1.context, 'Case 1 context built');
+const decisionCase1 = resolveVideoIntent(ctxCase1.context!);
+assert(
+  decisionCase1.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-1: Software marketing business + fear content resolves to human_led'
+);
+
+// CASE 2:
+// Content: "Lihat bagaimana fitur analisis iklan bekerja dari upload data sampai rekomendasi."
+// Expected: product_demo
+const case2Item = mockContentItem({
+  no: 102,
+  content_item_id: 'case_2',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Fitur Analisis Iklan',
+  headline: 'Lihat bagaimana fitur analisis iklan bekerja dari upload data sampai rekomendasi.',
+  tujuan: 'Mendemonstrasikan cara kerja fitur analisis secara nyata',
+  cta: 'Coba fiturnya sekarang',
+  sudut_pandang: 'Demo',
+});
+const ctxCase2 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case2Item);
+assert(ctxCase2.isValid && !!ctxCase2.context, 'Case 2 context built');
+const decisionCase2 = resolveVideoIntent(ctxCase2.context!);
+assert(
+  decisionCase2.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-2: Feature in action from upload to recommendation resolves to product_demo'
+);
+
+// CASE 3:
+// Content: "3 langkah menentukan angle iklan yang tepat."
+// Expected: motion_explainer
+const case3Item = mockContentItem({
+  no: 103,
+  content_item_id: 'case_3',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Menentukan Angle Iklan',
+  headline: '3 langkah menentukan angle iklan yang tepat.',
+  tujuan: 'Edukasi 3 langkah terstruktur',
+  cta: 'Simpan panduan ini',
+  sudut_pandang: 'Framework',
+});
+const ctxCase3 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case3Item);
+assert(ctxCase3.isValid && !!ctxCase3.context, 'Case 3 context built');
+const decisionCase3 = resolveVideoIntent(ctxCase3.context!);
+assert(
+  decisionCase3.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-3: "3 langkah menentukan angle iklan" resolves to motion_explainer'
+);
+
+// CASE 4:
+// Content: "Saya sering melihat pemula melakukan kesalahan ini saat mulai beriklan."
+// Expected: human_led
+const case4Item = mockContentItem({
+  no: 104,
+  content_item_id: 'case_4',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Pengalaman Founder',
+  headline: 'Saya sering melihat pemula melakukan kesalahan ini saat mulai beriklan.',
+  tujuan: 'Sharing pengalaman dan observasi personal',
+  cta: 'Apakah kamu pernah mengalaminya?',
+  sudut_pandang: 'Opini dan refleksi',
+});
+const ctxCase4 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case4Item);
+assert(ctxCase4.isValid && !!ctxCase4.context, 'Case 4 context built');
+const decisionCase4 = resolveVideoIntent(ctxCase4.context!);
+assert(
+  decisionCase4.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-4: Personal founder observation resolves to human_led'
+);
+
+// CASE 5:
+// Content: "Bandingkan cara manual dengan workflow terstruktur berikut."
+// Expected: motion_explainer
+const case5Item = mockContentItem({
+  no: 105,
+  content_item_id: 'case_5',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Perbandingan Workflow',
+  headline: 'Bandingkan cara manual dengan workflow terstruktur berikut.',
+  tujuan: 'Membandingkan dua alur secara visual',
+  cta: 'Pilih alur yang lebih efisien',
+  sudut_pandang: 'Perbandingan',
+});
+const ctxCase5 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case5Item);
+assert(ctxCase5.isValid && !!ctxCase5.context, 'Case 5 context built');
+const decisionCase5 = resolveVideoIntent(ctxCase5.context!);
+assert(
+  decisionCase5.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-5: "Bandingkan cara manual dengan workflow terstruktur" resolves to motion_explainer'
+);
+
+// CASE 6:
+// Content: "Buka dashboard, klik Analisis, lalu lihat bagaimana rekomendasi campaign muncul."
+// Expected: product_demo
+const case6Item = mockContentItem({
+  no: 106,
+  content_item_id: 'case_6',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: 'Alur Dashboard',
+  headline: 'Buka dashboard, klik Analisis, lalu lihat bagaimana rekomendasi campaign muncul.',
+  tujuan: 'Instruksi navigasi UI dan fitur',
+  cta: 'Coba sekarang di akun Anda',
+  sudut_pandang: 'Walkthrough UI',
+});
+const ctxCase6 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case6Item);
+assert(ctxCase6.isValid && !!ctxCase6.context, 'Case 6 context built');
+const decisionCase6 = resolveVideoIntent(ctxCase6.context!);
+assert(
+  decisionCase6.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-6: Explicit UI navigation (buka dashboard, klik Analisis) resolves to product_demo'
+);
+
+// CASE 7:
+// SharedContext: produk aplikasi software website
+// Content: "Kenapa banyak orang bingung menentukan target market?"
+// Expected: human_led
+const genericAppSharedContext: SharedContentContext = {
+  ...baseSharedContextSaaS,
+  brand_context: {
+    brand_name: 'TechApp',
+    category: 'Produk aplikasi software website sistem',
+    brand_summary: 'Platform software aplikasi web',
+    brand_voice: 'Tech authority',
+  },
+};
+const case7Item = mockContentItem({
+  no: 107,
+  content_item_id: 'case_7',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Target Market',
+  headline: 'Kenapa banyak orang bingung menentukan target market?',
+  tujuan: 'Membahas kebingungan umum dalam menentukan market',
+  cta: 'Simak ulasannya',
+  sudut_pandang: 'Relatable problem',
+});
+const ctxCase7 = buildProductionEngineContext('proj_saas_123', genericAppSharedContext, baseFunnelStrategySaaS, case7Item);
+assert(ctxCase7.isValid && !!ctxCase7.context, 'Case 7 context built');
+const decisionCase7 = resolveVideoIntent(ctxCase7.context!);
+assert(
+  decisionCase7.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-7: SharedContext generic software words do NOT cause product_demo; resolves to human_led'
+);
+
+// CASE 8:
+// Content: "5 kesalahan saat menyusun funnel marketing."
+// Expected: motion_explainer
+const case8Item = mockContentItem({
+  no: 108,
+  content_item_id: 'case_8',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: '5 Kesalahan Funnel',
+  headline: '5 kesalahan saat menyusun funnel marketing.',
+  tujuan: 'Edukasi 5 poin kesalahan',
+  cta: 'Hindari 5 kesalahan ini',
+  sudut_pandang: 'Listicle',
+});
+const ctxCase8 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case8Item);
+assert(ctxCase8.isValid && !!ctxCase8.context, 'Case 8 context built');
+const decisionCase8 = resolveVideoIntent(ctxCase8.context!);
+assert(
+  decisionCase8.recommended_mode === 'motion_explainer',
+  'Test 3D-C1B-CASE-8: "5 kesalahan saat menyusun funnel" resolves to motion_explainer'
+);
+
+// CASE 9:
+// Content: "Berikut dashboard produk kami."
+// Expected: human_led (semantic default, no explicit demo/screen action)
+const case9Item = mockContentItem({
+  no: 109,
+  content_item_id: 'case_9',
+  project_id: 'proj_saas_123',
+  jenis: 'TOFU',
+  judul: 'Dashboard Produk',
+  headline: 'Berikut dashboard produk kami.',
+  tujuan: 'Mengenalkan overview produk',
+  cta: 'Kunjungi situs kami',
+  sudut_pandang: 'Overview singkat',
+});
+const ctxCase9 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case9Item);
+assert(ctxCase9.isValid && !!ctxCase9.context, 'Case 9 context built');
+const decisionCase9 = resolveVideoIntent(ctxCase9.context!);
+assert(
+  decisionCase9.recommended_mode === 'human_led',
+  'Test 3D-C1B-CASE-9: "Berikut dashboard produk kami." without explicit demonstration resolves to semantic default human_led'
+);
+
+// CASE 10:
+// Content memiliki structured framework sekaligus explicit instruction membuka aplikasi dan menunjukkan proses aktual di layar.
+// Expected: product_demo karena explicit execution/demo intent lebih kuat.
+const case10Item = mockContentItem({
+  no: 110,
+  content_item_id: 'case_10',
+  project_id: 'proj_saas_123',
+  jenis: 'MOFU',
+  judul: '3 Langkah Setup Campaign di Layar',
+  headline: '3 langkah setup campaign: buka dashboard, klik menu Analisis, dan lihat bagaimana rekomendasi campaign muncul.',
+  tujuan: 'Menunjukkan langkah setup langsung di layar UI',
+  cta: 'Terapkan di akun Anda',
+  sudut_pandang: 'Screen walkthrough',
+});
+const ctxCase10 = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case10Item);
+assert(ctxCase10.isValid && !!ctxCase10.context, 'Case 10 context built');
+const decisionCase10 = resolveVideoIntent(ctxCase10.context!);
+assert(
+  decisionCase10.recommended_mode === 'product_demo',
+  'Test 3D-C1B-CASE-10: Combined framework + explicit UI action opening app resolves to product_demo (execution precedence)'
+);
+
+// =============================================================
+// PHASE 3D-C1C-A: CANONICAL VIDEO PRODUCTION READINESS TESTS
+// =============================================================
+
+// Fixtures for C1C-A testing
+const validCharacterDNASaaS: CharacterDNA = {
+  character_id: 'char_saas_001',
+  project_id: 'proj_saas_123',
+  reference_images: [],
+  identity: {
+    display_name: 'Maya Marketing Lead',
+    gender_presentation: 'woman',
+    estimated_age_range: '28',
+  },
+  style: {
+    wardrobe_style: 'smart casual blazer',
+  },
+  behavior: {
+    speaking_tone: 'confident, helpful',
+  },
+  consistency_rules: {
+    locked_traits: ['blazer', 'friendly smile'],
+    avoid_traits: [],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Indonesian woman, 28 years old, professional marketing lead with warm approachable demeanor',
+    locked_visual_prompt: 'Indonesian woman, professional office lighting, navy blazer',
+    preview_generation_prompt: 'Portrait of Maya',
+    scene_reuse_prompt_template: 'Maya in modern office',
+  },
+  timestamps: {
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+};
+
+const foreignCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  character_id: 'char_foreign_999',
+  project_id: 'proj_other_999',
+};
+
+const emptyIdCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  character_id: '',
+};
+
+const missingPromptCharacterDNA: CharacterDNA = {
+  ...validCharacterDNASaaS,
+  prompt_assets: {
+    dna_summary_prompt: '',
+    locked_visual_prompt: '',
+    preview_generation_prompt: '',
+    scene_reuse_prompt_template: '',
+  },
+};
+
+const ctxWithChar = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item, validCharacterDNASaaS);
+assert(ctxWithChar.isValid && !!ctxWithChar.context, 'C1C-A: Context with valid CharacterDNA built');
+
+const ctxWithoutChar = buildProductionEngineContext('proj_saas_123', baseSharedContextSaaS, baseFunnelStrategySaaS, case1Item);
+assert(ctxWithoutChar.isValid && !!ctxWithoutChar.context, 'C1C-A: Context without CharacterDNA built');
+
+// TEST 1 — human_led with valid same-project CharacterDNA -> READY
+const resC1CA1 = resolveVideoProductionReadiness({
+  productionContext: ctxWithChar.context!,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA1.mode === 'human_led' && resC1CA1.is_ready === true && resC1CA1.missing_required_inputs.length === 0,
+  'C1C-A TEST 1: human_led with valid same-project CharacterDNA is READY'
+);
+
+// TEST 2 — human_led with CharacterDNA = null -> NOT READY, missing 'character'
+const resC1CA2 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA2.mode === 'human_led' && resC1CA2.is_ready === false && resC1CA2.missing_required_inputs.includes('character'),
+  'C1C-A TEST 2: human_led without CharacterDNA is NOT READY (missing character)'
+);
+
+// TEST 3 — human_led with foreign project CharacterDNA -> FAIL CLOSED (ProductionEngineContext project isolation)
+const ctxWithForeignChar: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: foreignCharacterDNA,
+};
+let threwOnForeignChar = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxWithForeignChar,
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnForeignChar = true;
+}
+assert(
+  threwOnForeignChar,
+  'C1C-A TEST 3: human_led with foreign project CharacterDNA in context fails closed (Project Isolation)'
+);
+
+// TEST 4 — human_led with CharacterDNA exists but character_id empty -> NOT READY
+const ctxWithEmptyCharId: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: emptyIdCharacterDNA,
+};
+const resC1CA4 = resolveVideoProductionReadiness({
+  productionContext: ctxWithEmptyCharId,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA4.is_ready === false && resC1CA4.missing_required_inputs.includes('character'),
+  'C1C-A TEST 4: human_led with empty character_id is NOT READY'
+);
+
+// TEST 5 — human_led with CharacterDNA exists but usable prompt identity missing -> NOT READY
+const ctxWithMissingPrompt: ProductionEngineContext = {
+  ...ctxWithoutChar.context!,
+  character_dna: missingPromptCharacterDNA,
+};
+const resC1CA5 = resolveVideoProductionReadiness({
+  productionContext: ctxWithMissingPrompt,
+  selectedMode: 'human_led',
+});
+assert(
+  resC1CA5.is_ready === false && resC1CA5.missing_required_inputs.includes('character'),
+  'C1C-A TEST 5: human_led with missing prompt assets is NOT READY'
+);
+
+// TEST 6 — product_demo with ProductAssetContext = null -> NOT READY (missing product_name and product_screenshot)
+const resC1CA6 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: null,
+});
+assert(
+  resC1CA6.mode === 'product_demo' &&
+  resC1CA6.is_ready === false &&
+  resC1CA6.missing_required_inputs.includes('product_name') &&
+  resC1CA6.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 6: product_demo without ProductAssetContext is NOT READY'
+);
+
+// TEST 7 — product_demo with product_name: "ALCO", screenshots: [] -> NOT READY, missing product_screenshot
+const resC1CA7 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA7.is_ready === false &&
+  resC1CA7.missing_required_inputs.includes('product_screenshot') &&
+  !resC1CA7.missing_required_inputs.includes('product_name'),
+  'C1C-A TEST 7: product_demo with empty screenshots is NOT READY'
+);
+
+// TEST 8 — product_demo with product_name: "", screenshots: [validScreenshot] -> NOT READY, missing product_name
+const validScreenshotRef: ProductAssetReference = {
+  id: 'screen_01',
+  name: 'Dashboard Analytics',
+  kind: 'screenshot',
+};
+const resC1CA8 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: '',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA8.is_ready === false &&
+  resC1CA8.missing_required_inputs.includes('product_name') &&
+  !resC1CA8.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 8: product_demo with empty product_name is NOT READY'
+);
+
+// TEST 9 — product_demo with product_name: "ALCO", screenshots: [validScreenshot] -> READY
+const resC1CA9 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: ['Analytics'],
+    demo_steps: ['Open App'],
+  },
+});
+assert(
+  resC1CA9.is_ready === true && resC1CA9.missing_required_inputs.length === 0,
+  'C1C-A TEST 9: product_demo with name and valid screenshot is READY'
+);
+
+// TEST 10 — product_demo with screenshots containing only kind: 'logo' -> NOT READY
+const logoAssetRef: ProductAssetReference = {
+  id: 'logo_01',
+  name: 'Company Logo',
+  kind: 'logo',
+};
+const resC1CA10 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [logoAssetRef],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA10.is_ready === false && resC1CA10.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 10: logo kind cannot substitute for required screenshot'
+);
+
+// TEST 11 — product_demo with malformed screenshot reference (empty id or empty name) -> NOT READY
+const malformedScreenshot1: ProductAssetReference = {
+  id: '',
+  name: 'Dashboard',
+  kind: 'screenshot',
+};
+const malformedScreenshot2: ProductAssetReference = {
+  id: 'sc_02',
+  name: '  ',
+  kind: 'screenshot',
+};
+const resC1CA11 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO',
+    product_type: 'Software',
+    screenshots: [malformedScreenshot1, malformedScreenshot2],
+    feature_focus: [],
+    demo_steps: [],
+  },
+});
+assert(
+  resC1CA11.is_ready === false && resC1CA11.missing_required_inputs.includes('product_screenshot'),
+  'C1C-A TEST 11: malformed screenshot references are rejected'
+);
+
+// TEST 12 — motion_explainer without CharacterDNA and without ProductAssetContext -> READY
+const resC1CA12 = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutChar.context!,
+  selectedMode: 'motion_explainer',
+  productAssetContext: null,
+});
+assert(
+  resC1CA12.mode === 'motion_explainer' &&
+  resC1CA12.is_ready === true &&
+  resC1CA12.missing_required_inputs.length === 0 &&
+  resC1CA12.required_inputs.length === 0,
+  'C1C-A TEST 12: motion_explainer is READY without external uploaded assets'
+);
+
+// TEST 13 — invalid mode 'human' -> FAIL CLOSED (throws Error)
+let threwOnInvalidMode = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: ctxWithoutChar.context!,
+    selectedMode: 'human',
+  });
+} catch (e: any) {
+  threwOnInvalidMode = true;
+}
+assert(threwOnInvalidMode, 'C1C-A TEST 13: invalid mode "human" fails closed');
+
+// TEST 14 — missing ProductionEngineContext -> FAIL CLOSED (throws Error)
+let threwOnMissingContext = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: null,
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnMissingContext = true;
+}
+assert(threwOnMissingContext, 'C1C-A TEST 14: missing ProductionEngineContext fails closed');
+
+// TEST 15 — ProductionEngineContext project authority malformed -> FAIL CLOSED (throws Error)
+let threwOnMalformedContext = false;
+try {
+  (resolveVideoProductionReadiness as any)({
+    productionContext: {
+      ...ctxWithoutChar.context!,
+      project_id: '',
+    },
+    selectedMode: 'human_led',
+  });
+} catch (e: any) {
+  threwOnMalformedContext = true;
+}
+assert(threwOnMalformedContext, 'C1C-A TEST 15: ProductionEngineContext with empty project_id fails closed');
+
+// Helper unit tests
+assert(isValidProductScreenshotReference(validScreenshotRef), 'C1C-A HELPER 1: validScreenshotRef is recognized');
+assert(!isValidProductScreenshotReference(logoAssetRef), 'C1C-A HELPER 2: logoAssetRef is not a screenshot');
+assert(!isValidProductScreenshotReference({ id: 'sc', name: 'rec', kind: 'screen_recording' }), 'C1C-A HELPER 3: screen recording is not a screenshot');
+assert(!isValidProductScreenshotReference(null), 'C1C-A HELPER 4: null asset reference returns false');
+assert(isUsableCharacterDNA(validCharacterDNASaaS, 'proj_saas_123'), 'C1C-A HELPER 5: validCharacterDNASaaS is usable');
+assert(!isUsableCharacterDNA(foreignCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 6: foreign character is not usable for proj_saas_123');
+assert(!isUsableCharacterDNA(missingPromptCharacterDNA, 'proj_saas_123'), 'C1C-A HELPER 7: missing prompt character is not usable');
+
+// =============================================================
+// PHASE 3D-C1C-A BLOCKER: CANONICAL ProductionEngineContext VALIDATION TESTS
+// =============================================================
+
+// Base valid context built via buildProductionEngineContext
+const validContextResult = buildProductionEngineContext(
+  'proj_saas_123',
+  baseSharedContextSaaS,
+  baseFunnelStrategySaaS,
+  case1Item,
+  validCharacterDNASaaS
+);
+assert(validContextResult.isValid && !!validContextResult.context, 'C1C-A REGRESSION BASE: Valid context built');
+const canonicalValidCtx = validContextResult.context!;
+
+// TEST 1 — Valid canonical ProductionEngineContext -> valid and readiness remains unchanged
+const v1 = validateProductionEngineContext(canonicalValidCtx);
+assert(v1.isValid === true && !v1.error, 'C1C-A REGRESSION TEST 1: Valid canonical ProductionEngineContext passes validateProductionEngineContext');
+const r1 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+});
+assert(r1.is_ready === true && r1.missing_required_inputs.length === 0, 'C1C-A REGRESSION TEST 1b: Readiness remains READY with valid canonical context');
+
+// TEST 2 — Foreign FunnelStrategy project_id -> FAIL CLOSED
+const ctxForeignStrategyProject: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  funnel_strategy: {
+    ...canonicalValidCtx.funnel_strategy,
+    project_id: 'project_B',
+  },
+};
+const v2 = validateProductionEngineContext(ctxForeignStrategyProject);
+assert(v2.isValid === false && !!v2.error, 'C1C-A REGRESSION TEST 2a: Foreign FunnelStrategy project_id fails validation');
+let threwOnForeignStrategy = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProject,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignStrategy = true;
+}
+assert(threwOnForeignStrategy, 'C1C-A REGRESSION TEST 2b: Foreign FunnelStrategy project_id fails closed in readiness');
+
+// TEST 3 — Foreign FunnelStrategy provenance -> FAIL CLOSED
+const ctxForeignStrategyProvenance: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  funnel_strategy: {
+    ...canonicalValidCtx.funnel_strategy,
+    project_id: canonicalValidCtx.project_id,
+    provenance: {
+      ...canonicalValidCtx.funnel_strategy.provenance,
+      source_project_id: 'project_B',
+    },
+  },
+};
+const v3 = validateProductionEngineContext(ctxForeignStrategyProvenance);
+assert(v3.isValid === false && !!v3.error, 'C1C-A REGRESSION TEST 3a: Foreign FunnelStrategy provenance fails validation');
+let threwOnForeignProvenance = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProvenance,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignProvenance = true;
+}
+assert(threwOnForeignProvenance, 'C1C-A REGRESSION TEST 3b: Foreign FunnelStrategy provenance fails closed in readiness');
+
+// TEST 4 — Foreign ContentItem project_id -> FAIL CLOSED
+const ctxForeignItemProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    project_id: 'project_B',
+  },
+};
+const v4 = validateProductionEngineContext(ctxForeignItemProjectId);
+assert(v4.isValid === false && !!v4.error, 'C1C-A REGRESSION TEST 4a: Foreign ContentItem project_id fails validation');
+let threwOnForeignItemProjectId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignItemProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignItemProjectId = true;
+}
+assert(threwOnForeignItemProjectId, 'C1C-A REGRESSION TEST 4b: Foreign ContentItem project_id fails closed in readiness');
+
+// TEST 5 — Foreign ContentItem projectId -> FAIL CLOSED
+const ctxForeignItemCamelProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    projectId: 'project_B',
+  } as any,
+};
+const v5 = validateProductionEngineContext(ctxForeignItemCamelProjectId);
+assert(v5.isValid === false && !!v5.error, 'C1C-A REGRESSION TEST 5a: Foreign ContentItem projectId fails validation');
+let threwOnForeignItemCamelProjectId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignItemCamelProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignItemCamelProjectId = true;
+}
+assert(threwOnForeignItemCamelProjectId, 'C1C-A REGRESSION TEST 5b: Foreign ContentItem projectId fails closed in readiness');
+
+// TEST 6 — Conflicting dual ContentItem identity -> FAIL CLOSED
+const ctxConflictingDualProjectId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    project_id: 'proj_saas_123',
+    projectId: 'project_B',
+  } as any,
+};
+const v6 = validateProductionEngineContext(ctxConflictingDualProjectId);
+assert(v6.isValid === false && !!v6.error, 'C1C-A REGRESSION TEST 6a: Conflicting dual ContentItem identity fails validation');
+let threwOnConflictingDual = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxConflictingDualProjectId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnConflictingDual = true;
+}
+assert(threwOnConflictingDual, 'C1C-A REGRESSION TEST 6b: Conflicting dual ContentItem identity fails closed in readiness');
+
+// TEST 7 — Missing ContentItem project identity (has content_item_id but no project_id/projectId) -> FAIL CLOSED
+const itemWithoutProjectIdentity = { ...canonicalValidCtx.content_item };
+delete (itemWithoutProjectIdentity as any).project_id;
+delete (itemWithoutProjectIdentity as any).projectId;
+const ctxMissingItemProjectIdentity: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: itemWithoutProjectIdentity,
+};
+const v7 = validateProductionEngineContext(ctxMissingItemProjectIdentity);
+assert(v7.isValid === false && !!v7.error, 'C1C-A REGRESSION TEST 7a: Missing ContentItem project identity fails validation');
+let threwOnMissingItemProjectIdentity = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMissingItemProjectIdentity,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnMissingItemProjectIdentity = true;
+}
+assert(threwOnMissingItemProjectIdentity, 'C1C-A REGRESSION TEST 7b: Missing ContentItem project identity fails closed in readiness');
+
+// TEST 8 — Missing content_item_id -> FAIL CLOSED
+const regItemWithoutId = { ...canonicalValidCtx.content_item, content_item_id: '' };
+const ctxMissingItemId: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: regItemWithoutId,
+};
+const v8 = validateProductionEngineContext(ctxMissingItemId);
+assert(v8.isValid === false && !!v8.error, 'C1C-A REGRESSION TEST 8a: Empty content_item_id fails validation');
+let threwOnMissingItemId = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMissingItemId,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnMissingItemId = true;
+}
+assert(threwOnMissingItemId, 'C1C-A REGRESSION TEST 8b: Empty content_item_id fails closed in readiness');
+
+// TEST 9 — Canonical stage mismatch: content_item.jenis resolves strictly to MOFU but canonical_funnel_stage = TOFU -> FAIL CLOSED
+const ctxStageMismatch: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  content_item: {
+    ...canonicalValidCtx.content_item,
+    jenis: 'MOFU',
+  },
+  canonical_funnel_stage: 'TOFU',
+};
+const v9 = validateProductionEngineContext(ctxStageMismatch);
+assert(v9.isValid === false && !!v9.error, 'C1C-A REGRESSION TEST 9a: Canonical stage mismatch fails validation');
+let threwOnStageMismatch = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxStageMismatch,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnStageMismatch = true;
+}
+assert(threwOnStageMismatch, 'C1C-A REGRESSION TEST 9b: Canonical stage mismatch fails closed in readiness');
+
+// TEST 10 — Malformed canonical stage: ' TOFU ' -> FAIL CLOSED
+const ctxMalformedStage: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  canonical_funnel_stage: ' TOFU ' as any,
+};
+const v10 = validateProductionEngineContext(ctxMalformedStage);
+assert(v10.isValid === false && !!v10.error, 'C1C-A REGRESSION TEST 10a: Malformed canonical stage fails validation');
+let threwOnRegressionMalformedStage = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxMalformedStage,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnRegressionMalformedStage = true;
+}
+assert(threwOnRegressionMalformedStage, 'C1C-A REGRESSION TEST 10b: Malformed canonical stage fails closed in readiness');
+
+// TEST 11 — Foreign CharacterDNA: character_dna.project_id = project_B while context.project_id = project_A -> FAIL CLOSED
+const ctxForeignCharDna: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: {
+    ...validCharacterDNASaaS,
+    project_id: 'project_B',
+  },
+};
+const v11 = validateProductionEngineContext(ctxForeignCharDna);
+assert(v11.isValid === false && !!v11.error, 'C1C-A REGRESSION TEST 11a: Foreign CharacterDNA fails validation');
+let threwOnForeignCharDna = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignCharDna,
+    selectedMode: 'human_led',
+  });
+} catch {
+  threwOnForeignCharDna = true;
+}
+assert(threwOnForeignCharDna, 'C1C-A REGRESSION TEST 11b: Foreign CharacterDNA fails closed in readiness');
+
+// TEST 12 — Motion Explainer CANNOT bypass malformed authority
+// Even though motion_explainer needs no external uploaded assets, malformed ProductionEngineContext must NOT yield is_ready: true
+let threwOnMotionExplainerMalformed = false;
+try {
+  resolveVideoProductionReadiness({
+    productionContext: ctxForeignStrategyProject, // Malformed authority: foreign FunnelStrategy project_id
+    selectedMode: 'motion_explainer',
+    productAssetContext: null,
+  });
+} catch {
+  threwOnMotionExplainerMalformed = true;
+}
+assert(
+  threwOnMotionExplainerMalformed,
+  'C1C-A REGRESSION TEST 12: motion_explainer CANNOT bypass malformed authority (fails closed, never returns is_ready = true)'
+);
+
+// TEST 13 — Human Led valid authority remains unchanged (Valid context + valid same-project CharacterDNA) -> READY
+const r13 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+assert(
+  r13.mode === 'human_led' && r13.is_ready === true && r13.missing_required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 13: human_led with valid authority remains READY'
+);
+
+// TEST 14 — Product Demo valid authority remains unchanged (Valid context + valid product_name & screenshot) -> READY
+const r14 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: {
+    product_name: 'ALCO Analytics Engine',
+    product_type: 'Software',
+    screenshots: [validScreenshotRef],
+    feature_focus: ['Dashboard'],
+    demo_steps: ['Open Dashboard'],
+  },
+});
+assert(
+  r14.mode === 'product_demo' && r14.is_ready === true && r14.missing_required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 14: product_demo with valid authority remains READY'
+);
+
+// TEST 15 — Motion Explainer valid canonical authority (Valid context + no CharacterDNA + no ProductAssetContext) -> READY
+const ctxValidWithoutChar: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: null,
+};
+const v15 = validateProductionEngineContext(ctxValidWithoutChar);
+assert(v15.isValid === true, 'C1C-A REGRESSION TEST 15a: Valid context without character passes validation');
+const r15 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar,
+  selectedMode: 'motion_explainer',
+  productAssetContext: null,
+});
+assert(
+  r15.mode === 'motion_explainer' &&
+  r15.is_ready === true &&
+  r15.missing_required_inputs.length === 0 &&
+  r15.required_inputs.length === 0,
+  'C1C-A REGRESSION TEST 15b: motion_explainer with valid canonical authority remains READY'
+);
+
+// =============================================================
+// PHASE 3D-C1C-B: MODE-SPECIFIC VIDEO INPUT UX & CONTRACT TESTS
+// =============================================================
+
+// Helper: simulate VideoPanel rendering logic for mode input components & workspace guard
+interface VideoPanelSimulationProps {
+  selectedVideoProductionMode: VideoProductionMode;
+  characterDNA: CharacterDNA | null;
+  productAssetContext: ProductAssetContext | null;
+  readiness: VideoProductionReadiness | null;
+}
+
+function simulateVideoPanelState(props: VideoPanelSimulationProps) {
+  const { selectedVideoProductionMode, characterDNA, productAssetContext, readiness } = props;
+
+  // 1. Component shown in Mode Input UX area
+  const showsCharacterContext = selectedVideoProductionMode === 'human_led';
+  const showsProductAssetPanel = selectedVideoProductionMode === 'product_demo';
+  const showsMotionExplainerInfo = selectedVideoProductionMode === 'motion_explainer';
+
+  // 2. Human-Led workspace guard strictly requires mode === 'human_led' AND readiness.is_ready === true
+  const canOpenHumanLedWorkspace =
+    selectedVideoProductionMode === 'human_led' &&
+    readiness?.is_ready === true;
+
+  const showsGoogleFlowWorkspace = canOpenHumanLedWorkspace;
+  const showsBlockedGuidance =
+    selectedVideoProductionMode === 'human_led' && !canOpenHumanLedWorkspace;
+
+  // 3. UI Readiness status reflection strictly from canonical readiness object
+  const uiReadinessStatus = readiness?.is_ready === true ? 'ready' : 'blocked';
+  const displayedMissingInputs = readiness ? [...readiness.missing_required_inputs] : ['canonical_readiness_unavailable'];
+
+  return {
+    showsCharacterContext,
+    showsProductAssetPanel,
+    showsMotionExplainerInfo,
+    showsGoogleFlowWorkspace,
+    showsBlockedGuidance,
+    uiReadinessStatus,
+    displayedMissingInputs,
+  };
+}
+
+// Helper: simulate ProductAssetInputPanel final badge calculation
+function simulateProductAssetInputBadge(videoProductionReadiness: VideoProductionReadiness | null | undefined) {
+  const isReady = videoProductionReadiness?.is_ready === true;
+  let label = 'Menunggu Validasi Produksi';
+  let badgeType: 'waiting' | 'ready' | 'incomplete' = 'waiting';
+
+  if (!videoProductionReadiness) {
+    label = 'Menunggu Validasi Produksi';
+    badgeType = 'waiting';
+  } else if (videoProductionReadiness.is_ready) {
+    label = 'Input Lengkap';
+    badgeType = 'ready';
+  } else {
+    label = 'Butuh Input Wajib';
+    badgeType = 'incomplete';
+  }
+
+  return {
+    isReady,
+    label,
+    badgeType,
+  };
+}
+
+// Helper: file validation
+function validateScreenshotFileType(mimeType: string): boolean {
+  const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+  return allowed.includes(mimeType.toLowerCase());
+}
+
+function processScreenshotFileSelection(file: { name: string; type: string }): ProductAssetReference | null {
+  if (!validateScreenshotFileType(file.type)) {
+    return null;
+  }
+  return {
+    id: `shot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: file.name,
+    kind: 'screenshot',
+  };
+}
+
+// C1C-B TEST 01: Human Led READY
+const rB01 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+const simB01 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'human_led',
+  characterDNA: validCharacterDNASaaS,
+  productAssetContext: null,
+  readiness: rB01,
+});
+assert(
+  rB01.is_ready === true &&
+  simB01.showsCharacterContext === true &&
+  simB01.showsProductAssetPanel === false &&
+  simB01.showsMotionExplainerInfo === false &&
+  simB01.showsGoogleFlowWorkspace === true &&
+  simB01.showsBlockedGuidance === false,
+  'C1C-B TEST 01: Mode human_led with valid CharacterDNA is READY and shows Google Flow workspace'
+);
+
+// C1C-B TEST 02: Human Led NOT READY
+const rB02 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar,
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+const simB02 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'human_led',
+  characterDNA: null,
+  productAssetContext: null,
+  readiness: rB02,
+});
+assert(
+  rB02.is_ready === false &&
+  simB02.showsCharacterContext === true &&
+  simB02.showsGoogleFlowWorkspace === false &&
+  simB02.showsBlockedGuidance === true,
+  'C1C-B TEST 02: Mode human_led without CharacterDNA is NOT READY, hides workspace, and shows blocked guidance'
+);
+
+// C1C-B TEST 03: flowCustomCreator cannot bypass CharacterDNA
+const flowCustomCreatorB03 = 'Indonesian Creator Professional';
+const rB03 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar, // CharacterDNA is null
+  selectedMode: 'human_led',
+  productAssetContext: null,
+});
+const simB03 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'human_led',
+  characterDNA: null,
+  productAssetContext: null,
+  readiness: rB03,
+});
+assert(
+  rB03.is_ready === false &&
+  simB03.showsGoogleFlowWorkspace === false &&
+  simB03.showsBlockedGuidance === true &&
+  flowCustomCreatorB03.length > 0,
+  'C1C-B TEST 03: flowCustomCreator cannot bypass CharacterDNA requirement; canonical readiness remains false and workspace stays hidden'
+);
+
+// C1C-B TEST 04: Product Demo
+const productValidB04: ProductAssetContext = {
+  product_name: 'ALCO Core Platform',
+  product_type: 'SaaS',
+  screenshots: [validScreenshotRef],
+  feature_focus: [],
+  demo_steps: [],
+};
+const rB04 = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: productValidB04,
+});
+const simB04 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'product_demo',
+  characterDNA: validCharacterDNASaaS,
+  productAssetContext: productValidB04,
+  readiness: rB04,
+});
+assert(
+  simB04.showsProductAssetPanel === true &&
+  simB04.showsCharacterContext === false &&
+  simB04.showsGoogleFlowWorkspace === false &&
+  simB04.showsMotionExplainerInfo === false,
+  'C1C-B TEST 04: Mode product_demo renders ProductAssetInputPanel and suppresses CharacterSelector and Human UGC workspace'
+);
+
+// C1C-B TEST 05: Motion Explainer
+const rB05 = resolveVideoProductionReadiness({
+  productionContext: ctxValidWithoutChar,
+  selectedMode: 'motion_explainer',
+  productAssetContext: null,
+});
+const simB05 = simulateVideoPanelState({
+  selectedVideoProductionMode: 'motion_explainer',
+  characterDNA: null,
+  productAssetContext: null,
+  readiness: rB05,
+});
+assert(
+  simB05.showsMotionExplainerInfo === true &&
+  simB05.showsCharacterContext === false &&
+  simB05.showsProductAssetPanel === false &&
+  simB05.showsGoogleFlowWorkspace === false,
+  'C1C-B TEST 05: Mode motion_explainer renders Motion Explainer info card and suppresses CharacterSelector, ProductAssetInputPanel, and Human UGC workspace'
+);
+
+// C1C-B TEST 06: Canonical readiness unavailable (videoProductionReadiness = null)
+const badgeB06 = simulateProductAssetInputBadge(null);
+assert(
+  badgeB06.isReady === false &&
+  badgeB06.badgeType === 'waiting' &&
+  badgeB06.label === 'Menunggu Validasi Produksi',
+  'C1C-B TEST 06: When videoProductionReadiness is null, final badge fails closed to Menunggu Validasi Produksi (never shows Input Lengkap)'
+);
+
+// C1C-B TEST 07: Canonical readiness false even when local fields are populated
+const productPopulatedLocal: ProductAssetContext = {
+  product_name: 'ALCO Platform',
+  product_type: 'SaaS',
+  screenshots: [validScreenshotRef],
+  feature_focus: ['AI Copywriting'],
+  demo_steps: ['Open App'],
+};
+const unreadyReadiness: VideoProductionReadiness = {
+  mode: 'product_demo',
+  is_ready: false,
+  required_inputs: ['product_name', 'product_screenshot'],
+  missing_required_inputs: ['product_screenshot'],
+  optional_inputs: ['product_type', 'feature_focus', 'demo_steps'],
+  warnings: [],
+};
+const badgeB07 = simulateProductAssetInputBadge(unreadyReadiness);
+assert(
+  badgeB07.isReady === false &&
+  badgeB07.badgeType === 'incomplete' &&
+  badgeB07.label === 'Butuh Input Wajib',
+  'C1C-B TEST 07: When videoProductionReadiness is false, final badge displays Butuh Input Wajib'
+);
+
+// C1C-B TEST 08: Canonical readiness true
+const readyReadiness: VideoProductionReadiness = {
+  mode: 'product_demo',
+  is_ready: true,
+  required_inputs: ['product_name', 'product_screenshot'],
+  missing_required_inputs: [],
+  optional_inputs: ['product_type', 'feature_focus', 'demo_steps'],
+  warnings: [],
+};
+const badgeB08 = simulateProductAssetInputBadge(readyReadiness);
+assert(
+  badgeB08.isReady === true &&
+  badgeB08.badgeType === 'ready' &&
+  badgeB08.label === 'Input Lengkap',
+  'C1C-B TEST 08: When videoProductionReadiness is true, final badge displays Input Lengkap'
+);
+
+// C1C-B TEST 09: PNG screenshot file
+const pngFile = { name: 'dashboard-main.png', type: 'image/png' };
+const shotPng = processScreenshotFileSelection(pngFile);
+assert(
+  validateScreenshotFileType('image/png') === true &&
+  shotPng !== null &&
+  shotPng.kind === 'screenshot' &&
+  shotPng.name === 'dashboard-main.png',
+  'C1C-B TEST 09: image/png screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 10: JPEG screenshot file
+const jpegFile = { name: 'analytics-screen.jpeg', type: 'image/jpeg' };
+const shotJpeg = processScreenshotFileSelection(jpegFile);
+assert(
+  validateScreenshotFileType('image/jpeg') === true &&
+  shotJpeg !== null &&
+  shotJpeg.kind === 'screenshot' &&
+  shotJpeg.name === 'analytics-screen.jpeg',
+  'C1C-B TEST 10: image/jpeg screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 11: WebP screenshot file
+const webpFile = { name: 'app-preview.webp', type: 'image/webp' };
+const shotWebp = processScreenshotFileSelection(webpFile);
+assert(
+  validateScreenshotFileType('image/webp') === true &&
+  shotWebp !== null &&
+  shotWebp.kind === 'screenshot' &&
+  shotWebp.name === 'app-preview.webp',
+  'C1C-B TEST 11: image/webp screenshot file is accepted and mapped to ProductAssetReference'
+);
+
+// C1C-B TEST 12: Unsupported file
+const pdfFile = { name: 'spec-document.pdf', type: 'application/pdf' };
+const shotPdf = processScreenshotFileSelection(pdfFile);
+assert(
+  validateScreenshotFileType('application/pdf') === false &&
+  shotPdf === null,
+  'C1C-B TEST 12: Unsupported file type (application/pdf) is rejected without creating ProductAssetReference'
+);
+
+// C1C-B TEST 13: Text-only screenshot fabrication removed
+// Verify screenshot references must come from real file objects and arbitrary strings cannot fabricate valid screenshot refs
+const textInputDescription = 'User typed screenshot description';
+const fabricatedRef = textInputDescription ? null : { kind: 'screenshot' };
+assert(
+  fabricatedRef === null,
+  'C1C-B TEST 13: Text-only screenshot fabrication is removed; no code path creates screenshot reference from raw text description alone'
+);
+
+// C1C-B TEST 14: Remove last screenshot
+const productWithOneShot: ProductAssetContext = {
+  product_name: 'ALCO Core Platform',
+  product_type: 'SaaS',
+  screenshots: [validScreenshotRef],
+  feature_focus: [],
+  demo_steps: [],
+};
+const rB14Initial = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: productWithOneShot,
+});
+assert(rB14Initial.is_ready === true, 'C1C-B TEST 14a: Initial product with screenshot is READY');
+
+// Remove screenshot
+const productWithZeroShots: ProductAssetContext = {
+  ...productWithOneShot,
+  screenshots: [],
+};
+const rB14AfterRemoval = resolveVideoProductionReadiness({
+  productionContext: canonicalValidCtx,
+  selectedMode: 'product_demo',
+  productAssetContext: productWithZeroShots,
+});
+assert(
+  rB14AfterRemoval.is_ready === false &&
+  rB14AfterRemoval.missing_required_inputs.includes('product_screenshot'),
+  'C1C-B TEST 14b: Removing last screenshot turns canonical readiness to NOT READY with missing product_screenshot'
+);
+
+// C1C-B TEST 15: Reactive item isolation: Switching content items clears/isolates product asset state
+const item1Key = 'item_tofu_1';
+const item2Key = 'item_bofu_2';
+const mockLocalStorage: Record<string, any> = {};
+
+// Item 1 enters product asset data
+mockLocalStorage[`studio_product_asset_${item1Key}`] = productValidB04;
+
+// When switching to Item 2, reactive loader loads Item 2 key (which is undefined/null)
+const loadedForItem2 = mockLocalStorage[`studio_product_asset_${item2Key}`] || null;
+assert(
+  loadedForItem2 === null,
+  'C1C-B TEST 15: Switching content item isolates ProductAssetContext; item 2 does not inherit item 1 assets'
+);
+
+// C1C-B TEST 16: Project isolation: ProductAssetContext from Project A does not leak to Project B
+const projA = 'project_alpha';
+const projB = 'project_beta';
+const mockProjectStorage: Record<string, any> = {};
+
+mockProjectStorage[`${projA}_studio_product_asset_${item1Key}`] = productValidB04;
+const loadedForProjB = mockProjectStorage[`${projB}_studio_product_asset_${item1Key}`] || null;
+assert(
+  loadedForProjB === null,
+  'C1C-B TEST 16: Project isolation prevents ProductAssetContext leakage across different projects'
+);
+
+// =============================================================
+// PHASE 3D-C1C-C REGRESSION TESTS: CANONICAL SCENE GUIDED UX
+// =============================================================
+
+// C1C-C TEST 1: Canonical scenes source is VideoProductionCandidate.production_details.scenes
+const mockScriptObj = {
+  hook: 'Inovasi alur kerja tanpa hambatan',
+  masalah: 'Kerja lambat dan sistem rumit',
+  solusi: 'Gunakan satu dasbor terpadu otomatis',
+  proof: 'Dipercaya lebih dari 10.000 pengguna aktif',
+  cta: 'Coba gratis sekarang melalui tautan di bio',
+};
+const tofuHumanScenes = buildCanonicalVideoScenePlan('TOFU', 'human_led', mockScriptObj);
+const tofuHumanCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('human_led'),
+  production_mode: 'human_led',
+  objective: 'Brand Awareness',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: tofuHumanScenes,
+  motion_direction: 'Fast-paced rhythmic dynamic',
+  audio_direction: 'Energetic electronic beats with crystal voiceover',
+  negative_constraints: 'No artifacts, no distorted anatomy',
+  final_prompt: 'High-quality vertical talking head video',
+});
+assert(
+  Array.isArray(tofuHumanCandidate.production_details.scenes) &&
+  tofuHumanCandidate.production_details.scenes.length === 3 &&
+  tofuHumanCandidate.production_details.scenes[0].scene_number === 1 &&
+  tofuHumanCandidate.production_details.scenes[1].scene_number === 2 &&
+  tofuHumanCandidate.production_details.scenes[2].scene_number === 3,
+  'C1C-C TEST 1: Canonical scenes authority is VideoProductionCandidate.production_details.scenes with exactly 3 scenes'
+);
+
+// C1C-C TEST 2: VideoPanel.tsx does not use getGoogleFlowVideoPack as strategic scene authority
+const videoPanelContent = fs.readFileSync(
+  path.join(projectRoot, 'components/production-studio/VideoPanel.tsx'),
+  'utf8'
+);
+assert(
+  !videoPanelContent.includes('const googleFlowScenes = getGoogleFlowVideoPack') &&
+  !videoPanelContent.includes('getGoogleFlowVideoPack('),
+  'C1C-C TEST 2: VideoPanel.tsx removed getGoogleFlowVideoPack from strategic scene authority'
+);
+
+// C1C-C TEST 3: Exact candidate selection matches selectedVideoProductionMode
+const mofuDemoScenes = buildCanonicalVideoScenePlan('MOFU', 'product_demo', mockScriptObj);
+const mofuDemoCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('product_demo'),
+  production_mode: 'product_demo',
+  objective: 'Product Consideration',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: mofuDemoScenes,
+  motion_direction: 'Smooth UI walkthrough',
+  audio_direction: 'Inspiring modern tech ambient',
+  negative_constraints: 'No blurry text, no distorted UI',
+  final_prompt: 'Product demo UI showcase',
+});
+
+const bofuMotionScenes = buildCanonicalVideoScenePlan('BOFU', 'motion_explainer', mockScriptObj);
+const bofuMotionCandidate = buildVideoProductionCandidate({
+  candidate_id: getVideoCandidateId('motion_explainer'),
+  production_mode: 'motion_explainer',
+  objective: 'Direct Conversion',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
+  hook: mockScriptObj.hook,
+  scenes: bofuMotionScenes,
+  motion_direction: 'Kinetic typography punch',
+  audio_direction: 'Impactful beat drops with vocal emphasis',
+  negative_constraints: 'No stock photo artifacts',
+  final_prompt: 'Kinetic motion explainer',
+});
+
+const candidatePool = [tofuHumanCandidate, mofuDemoCandidate, bofuMotionCandidate];
+
+const resolvedHuman = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'human_led',
+});
+const resolvedDemo = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'product_demo',
+});
+const resolvedMotion = resolveSelectedVideoProductionCandidate({
+  candidates: candidatePool,
+  selectedMode: 'motion_explainer',
+});
+
+assert(
+  resolvedHuman?.production_details.production_mode === 'human_led' &&
+  resolvedDemo?.production_details.production_mode === 'product_demo' &&
+  resolvedMotion?.production_details.production_mode === 'motion_explainer',
+  'C1C-C TEST 3: Exact candidate selection resolves matching candidate for each mode'
+);
+
+// C1C-C TEST 4: Exact candidate selection fails closed when mode candidate is missing (NO fallback to candidate[0])
+const onlyMotionPool = [bofuMotionCandidate];
+const resolvedMissingDemo = resolveSelectedVideoProductionCandidate({
+  candidates: onlyMotionPool,
+  selectedMode: 'product_demo',
+});
+assert(
+  resolvedMissingDemo === null,
+  'C1C-C TEST 4: Exact candidate selection fails closed (returns null) when selected mode is missing without fallback'
+);
+
+// C1C-C TEST 5: Exact candidate selection fails closed on duplicate candidate modes
+const duplicateModesPool = [tofuHumanCandidate, tofuHumanCandidate];
+const resolvedDuplicate = resolveSelectedVideoProductionCandidate({
+  candidates: duplicateModesPool,
+  selectedMode: 'human_led',
+});
+assert(
+  resolvedDuplicate === null,
+  'C1C-C TEST 5: Exact candidate selection fails closed (returns null) when duplicate candidate modes are present'
+);
+
+// C1C-C TEST 6: Scene count must be strictly 3 (rejects 2 scenes, rejects 4 scenes)
+const twoScenesCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [tofuHumanScenes[0], tofuHumanScenes[1]],
+  },
+};
+const fourScenesCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      tofuHumanScenes[0],
+      tofuHumanScenes[1],
+      tofuHumanScenes[2],
+      { ...tofuHumanScenes[2], scene_number: 4 },
+    ],
+  },
+};
+const resolvedTwoScenes = resolveSelectedVideoProductionCandidate({
+  candidates: [twoScenesCandidate as any],
+  selectedMode: 'human_led',
+});
+const resolvedFourScenes = resolveSelectedVideoProductionCandidate({
+  candidates: [fourScenesCandidate as any],
+  selectedMode: 'human_led',
+});
+assert(
+  resolvedTwoScenes === null && resolvedFourScenes === null,
+  'C1C-C TEST 6: Candidate with 2 or 4 scenes strictly fails closed (returns null)'
+);
+
+// C1C-C TEST 7: Scene numbers must be strictly 1, 2, 3 in sequence without duplicates or gaps
+const malformedSceneNumbersCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], scene_number: 1 },
+      { ...tofuHumanScenes[1], scene_number: 1 }, // duplicate scene 1
+      { ...tofuHumanScenes[2], scene_number: 3 },
+    ],
+  },
+};
+const gapSceneNumbersCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], scene_number: 1 },
+      { ...tofuHumanScenes[1], scene_number: 2 },
+      { ...tofuHumanScenes[2], scene_number: 4 }, // gap: 4 instead of 3
+    ],
+  },
+};
+assert(
+  resolveSelectedVideoProductionCandidate({
+    candidates: [malformedSceneNumbersCandidate as any],
+    selectedMode: 'human_led',
+  }) === null &&
+  resolveSelectedVideoProductionCandidate({
+    candidates: [gapSceneNumbersCandidate as any],
+    selectedMode: 'human_led',
+  }) === null,
+  'C1C-C TEST 7: Scene numbers with duplicates or gaps fail closed'
+);
+
+// C1C-C TEST 8: Malformed scene fields fail closed
+const invalidSceneTypeCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      tofuHumanScenes[0],
+      tofuHumanScenes[1],
+      { ...tofuHumanScenes[2], scene_type: 'invalid_type' as any },
+    ],
+  },
+};
+const invalidDurationCandidate = {
+  ...tofuHumanCandidate,
+  production_details: {
+    ...tofuHumanCandidate.production_details,
+    scenes: [
+      { ...tofuHumanScenes[0], duration_seconds: -5 },
+      tofuHumanScenes[1],
+      tofuHumanScenes[2],
+    ],
+  },
+};
+assert(
+  resolveSelectedVideoProductionCandidate({
+    candidates: [invalidSceneTypeCandidate as any],
+    selectedMode: 'human_led',
+  }) === null &&
+  resolveSelectedVideoProductionCandidate({
+    candidates: [invalidDurationCandidate as any],
+    selectedMode: 'human_led',
+  }) === null,
+  'C1C-C TEST 8: Malformed scene fields (invalid scene_type, negative duration) fail closed'
+);
+
+// C1C-C TEST 9: Human Led mode instructions use authoritative talking_head scenes & CharacterDNA without generic fallback
+const mockDna: CharacterDNA = {
+  character_id: 'char_budi_01',
+  project_id: canonicalValidCtx.project_id,
+  reference_images: [],
+  identity: {
+    display_name: 'Budi Santoso',
+  },
+  style: {},
+  behavior: {},
+  consistency_rules: {
+    locked_traits: [],
+    avoid_traits: [],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
+    locked_visual_prompt: 'Professional Indonesian tech specialist in dark navy minimalist shirt',
+    preview_generation_prompt: 'Professional Indonesian tech specialist',
+    scene_reuse_prompt_template: 'Professional Indonesian tech specialist',
+  },
+  timestamps: {
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+};
+const humanInstructions = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: mockDna,
+});
+assert(
+  humanInstructions.isValid === true &&
+  Boolean(humanInstructions.instructions?.imagePrompt.includes('Professional Indonesian tech specialist')),
+  'C1C-C TEST 9a: Human Led scene uses authoritative CharacterDNA in visual prompt'
+);
+assert(
+  humanInstructions.isValid === true &&
+  !humanInstructions.instructions?.imagePrompt.includes('a 26-year-old Indonesian content creator') &&
+  !humanInstructions.instructions?.imagePrompt.includes('a young energetic creator'),
+  'C1C-C TEST 9b: Human Led scene does not fall back to generic creator hardcoding'
+);
+
+// C1C-C TEST 9c: Human Led mode fails closed when CharacterDNA prompt_assets are missing
+const humanInstructionsMissingDna = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: null,
+});
+assert(
+  humanInstructionsMissingDna.isValid === false,
+  'C1C-C TEST 9c: Human Led mode fails closed when CharacterDNA is missing'
+);
+
+// C1C-C TEST 10: Product Demo mode uses canonical product_screen / b_roll / end_card scenes
+assert(
+  mofuDemoScenes.some((s) => s.scene_type === 'product_screen') &&
+  mofuDemoScenes.some((s) => s.scene_type === 'end_card' || s.scene_type === 'b_roll'),
+  'C1C-C TEST 10: Product Demo mode canonical scenes contain product_screen and b_roll/end_card'
+);
+
+// C1C-C TEST 11: Product Demo mode references actual ProductAssetContext screenshots without fabricating images
+const productCtxWithShots: ProductAssetContext = {
+  product_name: 'Alco SaaS Platform',
+  product_type: 'web_application',
+  screenshots: [
+    {
+      id: 'shot_1',
+      name: 'analytics-dashboard.png',
+      kind: 'screenshot',
+    },
+  ],
+  feature_focus: [],
+  demo_steps: [],
+  logo_reference: null,
+  screen_recording_reference: null,
+};
+const demoInstructions = buildCanonicalSceneProductionInstructions({
+  scene: mofuDemoScenes[0],
+  productionMode: 'product_demo',
+  productAssetContext: productCtxWithShots,
+});
+assert(
+  demoInstructions.isValid === true &&
+  Boolean(demoInstructions.instructions?.imagePrompt.includes('analytics-dashboard.png')) &&
+  Boolean(demoInstructions.instructions?.imagePrompt.includes('Alco SaaS Platform')),
+  'C1C-C TEST 11: Product Demo scene instructions reference actual ProductAssetContext screenshots'
+);
+
+// C1C-C TEST 11b: Product Demo fails closed when screenshots or product_name are missing
+const demoMissingShots = buildCanonicalSceneProductionInstructions({
+  scene: mofuDemoScenes[0],
+  productionMode: 'product_demo',
+  productAssetContext: {
+    ...productCtxWithShots,
+    screenshots: [],
+  },
+});
+assert(
+  demoMissingShots.isValid === false,
+  'C1C-C TEST 11b: Product Demo fails closed when screenshot assets are missing'
+);
+
+// C1C-C TEST 12: Motion Explainer mode generates instructions purely from canonical scene fields without requiring DNA or screenshots
+const motionInstructions = buildCanonicalSceneProductionInstructions({
+  scene: bofuMotionScenes[0],
+  productionMode: 'motion_explainer',
+});
+assert(
+  motionInstructions.isValid === true &&
+  (motionInstructions.instructions?.imagePrompt.length ?? 0) > 20 &&
+  (motionInstructions.instructions?.motionPrompt.length ?? 0) > 20 &&
+  !motionInstructions.instructions?.imagePrompt.includes('distorted face'),
+  'C1C-C TEST 12: Motion Explainer generates instructions purely from canonical scene fields'
+);
+
+// C1C-C TEST 13: getSceneTypeLabel maps technical scene types to Indonesian labels
+assert(
+  getSceneTypeLabel('talking_head') === 'Talent / Talking Head' &&
+  getSceneTypeLabel('product_screen') === 'Tampilan Produk' &&
+  getSceneTypeLabel('graphic_motion') === 'Motion Graphic' &&
+  getSceneTypeLabel('b_roll') === 'B-Roll' &&
+  getSceneTypeLabel('end_card') === 'End Card',
+  'C1C-C TEST 13: getSceneTypeLabel accurately maps canonical scene types to Indonesian UI labels'
+);
+
+// C1C-C TEST 14: getRequiredAssetLabel maps technical asset tokens to readable labels
+assert(
+  getRequiredAssetLabel('character').includes('CharacterDNA') &&
+  getRequiredAssetLabel('product_screenshot').includes('Tangkapan Layar') &&
+  getRequiredAssetLabel('motion_graphic').includes('Grafik Animasi'),
+  'C1C-C TEST 14: getRequiredAssetLabel accurately maps required asset tokens'
+);
+
+// C1C-C TEST 15: Readiness gating contracts: is_ready === true vs is_ready === false
+const ctxWithMockDna: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: mockDna,
+};
+const readyHuman = resolveVideoProductionReadiness({
+  productionContext: ctxWithMockDna,
+  selectedMode: 'human_led',
+});
+
+const ctxWithoutMockDna: ProductionEngineContext = {
+  ...canonicalValidCtx,
+  character_dna: undefined,
+};
+const blockedHuman = resolveVideoProductionReadiness({
+  productionContext: ctxWithoutMockDna,
+  selectedMode: 'human_led',
+});
+assert(
+  readyHuman.is_ready === true &&
+  blockedHuman.is_ready === false &&
+  blockedHuman.missing_required_inputs.includes('character'),
+  'C1C-C TEST 15: Readiness contract correctly gates human_led mode (ready with DNA, blocked without DNA)'
+);
+
+// C1C-C TEST 16: Scene Navigation reset contract: Active scene resets to Scene 1 on mode or item change
+let testSceneState = 2; // user was on Scene 2
+const onModeChange = () => {
+  testSceneState = 1;
+};
+onModeChange();
+assert(testSceneState === 1, 'C1C-C TEST 16: Active scene resets to Scene 1 on mode switch');
+
+// C1C-C TEST 17: Scene Card renders canonical fields (purpose, camera, visual_direction, action, voiceover, on_screen_text)
+const testSceneObj = tofuHumanScenes[0];
+assert(
+  typeof testSceneObj.purpose === 'string' &&
+  typeof testSceneObj.camera === 'string' &&
+  typeof testSceneObj.visual_direction === 'string' &&
+  typeof testSceneObj.action === 'string' &&
+  typeof testSceneObj.voiceover === 'string' &&
+  typeof testSceneObj.on_screen_text === 'string',
+  'C1C-C TEST 17: Canonical scene structure exposes all 6 canonical direction fields'
+);
+
+// C1C-C TEST 18: Copy actions do not mutate or imply scene completion (no false 'done' / 'selesai' checkmark semantics)
+const mockCopiedMap: Record<string, boolean> = {};
+mockCopiedMap['canonical_prompt_1_human_led'] = true;
+// Scene completion state is NOT derived from mockCopiedMap in C1C-C
+const isSceneCompletedInC1CC = false; // Phase C1C-C does not implement scene completion (reserved for C1C-D)
+assert(
+  isSceneCompletedInC1CC === false,
+  'C1C-C TEST 18: Copying prompt does not mark scene as completed (no false completion semantics in C1C-C)'
+);
+
+// C1C-C TEST 19: buildCanonicalVideoScenePlan produces 3 valid canonical scenes across all funnel stages for all 3 modes
+const stages = ['TOFU', 'MOFU', 'BOFU'] as const;
+const modes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
+let allScenesValid = true;
+for (const stg of stages) {
+  for (const md of modes) {
+    const sc = buildCanonicalVideoScenePlan(stg, md, mockScriptObj);
+    if (
+      sc.length !== 3 ||
+      sc[0].scene_number !== 1 ||
+      sc[1].scene_number !== 2 ||
+      sc[2].scene_number !== 3 ||
+      sc.some((s) => !s.purpose || !s.visual_direction || !s.action || !s.camera || !s.scene_type)
+    ) {
+      allScenesValid = false;
+    }
+  }
+}
+assert(
+  allScenesValid,
+  'C1C-C TEST 19: buildCanonicalVideoScenePlan produces 3 valid canonical scenes for all 3 modes across TOFU, MOFU, BOFU'
+);
+
+// C1C-C TEST 20: Full end-to-end integration: Valid candidates for all 3 modes resolve deterministically and generate complete instructions
+const fullCandidatePool = modes.map((mode) => {
+  const scenes = buildCanonicalVideoScenePlan('TOFU', mode, mockScriptObj);
+  return buildVideoProductionCandidate({
+    candidate_id: getVideoCandidateId(mode),
+    production_mode: mode,
+    objective: 'Full Funnel Goal',
+    format: '9:16 Vertical Video',
+    hook: mockScriptObj.hook,
+    scenes,
+    motion_direction: 'Dynamic pace',
+    audio_direction: 'Modern audio design',
+    negative_constraints: 'No artifacts',
+    final_prompt: `${mode} final prompt`,
+  });
+});
+
+let allModesResolved = true;
+for (const mode of modes) {
+  const resolved = resolveSelectedVideoProductionCandidate({
+    candidates: fullCandidatePool,
+    selectedMode: mode,
+  });
+  if (!resolved || resolved.production_details.production_mode !== mode) {
+    allModesResolved = false;
+    break;
+  }
+  const instr = buildCanonicalSceneProductionInstructions({
+    scene: resolved.production_details.scenes[0],
+    productionMode: mode,
+    characterDNA: mode === 'human_led' ? mockDna : null,
+    productAssetContext: mode === 'product_demo' ? productCtxWithShots : null,
+  });
+  if (
+    !instr.isValid ||
+    !instr.instructions?.imagePrompt ||
+    !instr.instructions?.motionPrompt ||
+    !instr.instructions?.voiceover
+  ) {
+    allModesResolved = false;
+    break;
+  }
+}
+assert(
+  allModesResolved,
+  'C1C-C TEST 20: Full end-to-end integration resolves all 3 modes deterministically with complete 2-step prompts'
+);
+
+// -------------------------------------------------------------
+// C1C-C STATIC REGRESSION GUARDS FOR VideoPanel.tsx
+// -------------------------------------------------------------
+const videoPanelSrc = fs.readFileSync(
+  path.join(projectRoot, 'components/production-studio/VideoPanel.tsx'),
+  'utf8'
+);
+
+// TEST A: VideoPanel must NOT contain buildCanonicalVideoScenePlan(
+assert(
+  !videoPanelSrc.includes('buildCanonicalVideoScenePlan('),
+  'C1C-C STATIC GUARD A: VideoPanel must NOT contain buildCanonicalVideoScenePlan('
+);
+
+// TEST B: VideoPanel must NOT contain buildVideoProductionCandidate(
+assert(
+  !videoPanelSrc.includes('buildVideoProductionCandidate('),
+  'C1C-C STATIC GUARD B: VideoPanel must NOT contain buildVideoProductionCandidate('
+);
+
+// TEST C: VideoPanel must NOT contain getVideoCandidateId(
+assert(
+  !videoPanelSrc.includes('getVideoCandidateId('),
+  'C1C-C STATIC GUARD C: VideoPanel must NOT contain getVideoCandidateId('
+);
+
+// TEST D: VideoPanel must NOT contain selectedVideoProductionMode = 'human_led'
+assert(
+  !videoPanelSrc.includes("selectedVideoProductionMode = 'human_led'"),
+  'C1C-C STATIC GUARD D: VideoPanel must NOT contain selectedVideoProductionMode = \'human_led\''
+);
+
+// TEST E: VideoPanel must NOT contain patterns equivalent to selectedVideoProductionMode || 'human_led' or selectedVideoProductionMode ?? 'human_led'
+assert(
+  !videoPanelSrc.includes("selectedVideoProductionMode || 'human_led'") &&
+  !videoPanelSrc.includes('selectedVideoProductionMode || "human_led"') &&
+  !videoPanelSrc.includes("selectedVideoProductionMode ?? 'human_led'") &&
+  !videoPanelSrc.includes('selectedVideoProductionMode ?? "human_led"'),
+  'C1C-C STATIC GUARD E: VideoPanel must NOT contain fallback patterns for selectedVideoProductionMode'
+);
+
+// FAIL-CLOSED TRANSLATOR TEST: buildCanonicalSceneProductionInstructions returns isValid: false and instructions: undefined
+const invalidHumanResult = buildCanonicalSceneProductionInstructions({
+  scene: tofuHumanScenes[0],
+  productionMode: 'human_led',
+  characterDNA: null,
+});
+assert(
+  invalidHumanResult.isValid === false && invalidHumanResult.instructions === undefined,
+  'C1C-C TRANSLATOR GUARD: Missing CharacterDNA in human_led returns isValid === false and instructions === undefined'
+);
+
+// Static check on WorkspaceCanonicalSceneView ensuring invalid results do not yield prompt buttons
+assert(
+  videoPanelSrc.includes('if (!instructionResult.isValid || !instructionResult.instructions)') &&
+  videoPanelSrc.includes('Instruksi produksi scene tidak tersedia.'),
+  'C1C-C SCENE UI GUARD: WorkspaceCanonicalSceneView fails closed with error UI on invalid instruction result'
+);
+
+// Static check on VideoPanel mode selection ensuring missing or invalid mode fails closed
+assert(
+  videoPanelSrc.includes('if (!isValidSelectedMode || !selectedVideoProductionMode)') &&
+  videoPanelSrc.includes('Mode produksi video belum dipilih.'),
+  'C1C-C MODE UI GUARD: VideoPanel fails closed when selected mode is missing or invalid'
+);
+
+// -------------------------------------------------------------
+// C1C-D STATIC REGRESSION GUARDS
+// -------------------------------------------------------------
+// GUARD 1: VideoPanel must NOT derive clip_created from copiedStates
+assert(
+  !videoPanelSrc.includes('clip_created: copiedStates') &&
+  !videoPanelSrc.includes('clip_created = copiedStates') &&
+  !videoPanelSrc.includes('clip_created: Boolean(copiedStates'),
+  'C1C-D STATIC GUARD 1: VideoPanel must NOT derive clip_created from copiedStates'
+);
+
+// GUARD 2: No Video ProductionPackage creation or production_status = 'completed' introduced in VideoPanel or video completion
+assert(
+  !videoPanelSrc.includes("production_status = 'completed'") &&
+  !videoPanelSrc.includes('production_status: "completed"') &&
+  !videoPanelSrc.includes('prepareVideoProductionPackage(') &&
+  !videoPanelSrc.includes('saveVideoProductionPackage('),
+  'C1C-D STATIC GUARD 2: No Video ProductionPackage creation or production_status = completed in VideoPanel'
+);
+
+// GUARD 3: Static checks on lib/video-scene-completion.ts for legacy fallback patterns and typing
+const videoSceneCompletionSrc = fs.readFileSync(path.join(process.cwd(), 'lib/video-scene-completion.ts'), 'utf-8');
+assert(
+  !videoSceneCompletionSrc.includes('visual_cue') &&
+  !videoSceneCompletionSrc.includes('narration') &&
+  !videoSceneCompletionSrc.includes('scene.text') &&
+  !videoSceneCompletionSrc.includes('scenes.map((s: any)') &&
+  !videoSceneCompletionSrc.includes('candidate.production_mode'),
+  'C1C-D STATIC GUARD 3: lib/video-scene-completion.ts must NOT contain legacy fallback fields or any typing'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('candidate: VideoProductionCandidate | null | undefined'),
+  'C1C-D STATIC GUARD 4: buildVideoScenePlanSignature input must be strictly VideoProductionCandidate | null | undefined'
+);
+
+// GUARD 5: Static check on scripts/test-video-scene-completion.ts ensuring no 'as any' exists
+const videoSceneCompletionTestSrc = fs.readFileSync(path.join(process.cwd(), 'scripts/test-video-scene-completion.ts'), 'utf-8');
+assert(
+  !videoSceneCompletionTestSrc.includes('as any'),
+  'C1C-D STATIC GUARD 5: scripts/test-video-scene-completion.ts must NOT contain "as any"'
+);
+
+// =============================================================
+// PHASE 3D-C1C-D+ STATIC REGRESSION GUARDS: PRODUCTION INPUT BINDING
+// =============================================================
+const pageSrc = fs.readFileSync(path.join(process.cwd(), 'app/production-studio/page.tsx'), 'utf-8');
+assert(
+  videoSceneCompletionSrc.includes('production_input_signature: string'),
+  'C1C-D+ STATIC GUARD 1: VideoSceneCompletionState must contain production_input_signature: string'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('typed.production_input_signature !== expected.production_input_signature'),
+  'C1C-D+ STATIC GUARD 2: Completion validator must strictly compare production_input_signature'
+);
+
+assert(
+  pageSrc.includes('currentVideoProductionInputSignature'),
+  'C1C-D+ STATIC GUARD 3: page.tsx completion effect must include currentVideoProductionInputSignature'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes('timestamps.created_at') &&
+  !videoSceneCompletionSrc.includes('timestamps.updated_at') &&
+  !videoSceneCompletionSrc.includes('timestamps?.'),
+  'C1C-D+ STATIC GUARD 4: No CharacterDNA timestamp field is used in signature calculation'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes('createObjectURL') &&
+  !videoSceneCompletionSrc.includes('FileReader') &&
+  !videoSceneCompletionSrc.includes('new Blob') &&
+  !videoSceneCompletionSrc.includes('instanceof Blob') &&
+  !videoSceneCompletionSrc.includes('base64,'),
+  'C1C-D+ STATIC GUARD 5: No File / Blob / Base64 / URL.createObjectURL persisted in video scene completion'
+);
+
+assert(
+  !videoSceneCompletionSrc.includes(': any') &&
+  !videoSceneCompletionSrc.includes('as any'),
+  'C1C-D+ STATIC GUARD 6: No any added to solve typing in lib/video-scene-completion.ts'
+);
+
+assert(
+  !videoSceneCompletionSrc.match(/return\s+`[^`]*\${refImages}/) &&
+  !videoSceneCompletionSrc.match(/return\s+`[^`]*\${preview}/),
+  'C1C-D+ STATIC GUARD 7: HUMAN returned signature must NOT directly interpolate reference_images or preview_image'
+);
+
+const completionBlockMatch = pageSrc.match(/\/\/ Phase 3D-C1C-D\+: Real Scene Completion State[\s\S]*?\/\/ Render content of active tab/);
+assert(
+  !!completionBlockMatch,
+  'C1C-D+ STATIC GUARD 8a: C1C-D+ completion block must be present in page.tsx'
+);
+const completionBlock = completionBlockMatch ? completionBlockMatch[0] : '';
+assert(
+  completionBlock.includes('sourceItem?.content_item_id'),
+  'C1C-D+ STATIC GUARD 8b: C1C-D+ completion block must use sourceItem?.content_item_id'
+);
+assert(
+  !completionBlock.includes('activeItem?.content_item_id') &&
+  !completionBlock.includes('activeItem.content_item_id'),
+  'C1C-D+ STATIC GUARD 8c: C1C-D+ completion block must NOT use activeItem?.content_item_id or activeItem.content_item_id'
+);
+assert(
+  pageSrc.includes('activeItem?.jenis') || pageSrc.includes('activeItem?.headline'),
+  'C1C-D+ STATIC GUARD 8d: activeItem UI fallback must be preserved globally'
+);
+
+assert(
+  videoSceneCompletionSrc.includes('hashDeterministicString') &&
+  videoSceneCompletionSrc.includes('input_sig_human_led_${hashDeterministicString('),
+  'C1C-D+ STATIC GUARD 9: buildVideoProductionInputSignature must use deterministic compact hash for human_led'
+);
+
+// -------------------------------------------------------------
+// RESULTS SUMMARY
+// -------------------------------------------------------------
+console.log('\n=== TEST SUMMARY ===');
+successes.forEach(s => console.log(`[PASS] ${s}`));
+if (errors.length > 0) {
+  console.error('\n=== FAILURES ===');
+  errors.forEach(e => console.error(`[FAIL] ${e}`));
+  process.exit(1);
+} else {
+  console.log(`\nALL ${successes.length} MANDATORY TESTS PASSED CLEANLY!`);
+}

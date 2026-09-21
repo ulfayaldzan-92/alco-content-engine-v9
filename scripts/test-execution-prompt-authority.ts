@@ -27,7 +27,7 @@ import {
   buildCanonicalVideoScenePlan,
 } from '../lib/production-candidate';
 import type { SharedContentContext, ContentItem, CharacterDNA } from '../lib/content-contract';
-import type { FunnelStrategy } from '../lib/funnel-strategy';
+import { type FunnelStrategy, buildFunnelStrategyFromContext } from '../lib/funnel-strategy';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -46,48 +46,83 @@ console.log('====================================================\n');
 // ----------------------------------------------------
 const mockSharedContext: SharedContentContext = {
   project_id: 'proj_100',
-  brand_name: 'Luminary Skin',
-  category: 'Skincare',
-  primary_audience: 'Women 25-40',
-  positioning: 'Clean botanical skincare',
-  main_offer: 'Hydrating Glow Serum',
-  core_message: 'Healthy radiant skin naturally',
-  campaign_goal: 'Customer acquisition',
-  brand_visual_snapshot: {
-    visual_style: 'Minimalist editorial',
-    typography_style: 'Modern serif',
-    design_mood: 'Fresh and radiant',
+  project_name: 'Luminary Skin Project',
+  source: { origin: 'manual_context' },
+  brand_context: {
+    brand_name: 'Luminary Skin',
+    category: 'Skincare',
+    brand_summary: 'Clean botanical skincare',
+    brand_voice: 'Professional',
+  },
+  audience_context: {
+    primary_audience: 'Women 25-40',
+    pain_points: ['Dehydrated skin'],
+    desires: ['Hydrated glow'],
+    objections: ['Price point'],
+  },
+  strategy_context: {
+    positioning: 'Clean botanical skincare',
+    usp: ['Botanical actives'],
+    main_offer: 'Hydrating Glow Serum',
+    offer_benefits: ['Barrier repair'],
+    core_message: 'Healthy radiant skin naturally',
+    copy_direction: ['Informative'],
+    content_pillars: ['Education'],
+  },
+  system_flags: {
+    is_complete_for_planning: true,
+    missing_required_fields: [],
   },
 };
 
-const mockFunnelStrategy: FunnelStrategy = {
-  funnel_stage: 'mofu',
-  funnel_objective: 'Educate on active botanical ingredients',
-  message_direction: 'Ingredient breakdown and results',
-  cta_direction: 'Learn more about formulation',
-};
+const mockFunnelStrategy: FunnelStrategy = buildFunnelStrategyFromContext(mockSharedContext);
 
 const mockContentItem: ContentItem = {
+  no: 1,
   content_item_id: 'ci_200',
-  content_format: 'image',
-  funnel_stage: 'mofu',
-  strategic_objective: 'Showcase formula benefits',
-  strategic_rationale: 'Addresses barrier repair needs',
+  project_id: 'proj_100',
+  projectId: 'proj_100',
+  tanggal: '2026-09-21',
+  jenis: 'MOFU',
+  tujuan: 'Showcase formula benefits',
+  hookType: 'Problem-Solution',
   headline: 'Restore Your Moisture Barrier',
   body: 'Formulated with 5 restorative botanicals for luminous hydration.',
   caption: 'Skin barrier repair in 7 days.',
   cta: 'Discover the Serum',
-  visual_direction: 'Crisp studio photography of serum droplet on dewy skin.',
+  format: 'Single',
+  recommendedAssetTypes: ['image', 'carousel', 'video'],
+  primaryAssetType: 'image',
+  referensi: 'Internal reference',
+  visual: 'Crisp studio photography of serum droplet on dewy skin.',
+  keterangan: 'Addresses barrier repair needs',
 };
 
 const mockCharacterDNA: CharacterDNA = {
   character_id: 'char_amber',
-  canonical_name: 'Dr. Amber Hayes',
-  role: 'Lead Biochemist',
-  appearance_traits: ['warm hazel eyes', 'structured lab coat over ochre knit'],
-  wardrobe_style: 'Professional clinician',
-  personality_tone: 'Authoritative yet empathetic',
-  continuity_anchors: ['gold hexagonal brooch on collar'],
+  project_id: 'proj_100',
+  reference_images: [],
+  identity: {
+    display_name: 'Dr. Amber Hayes',
+  },
+  style: {},
+  behavior: {
+    on_camera_persona: 'Authoritative yet empathetic',
+  },
+  consistency_rules: {
+    locked_traits: ['warm hazel eyes', 'structured lab coat over ochre knit'],
+    avoid_traits: [],
+  },
+  prompt_assets: {
+    dna_summary_prompt: 'Dr. Amber Hayes, Lead Biochemist',
+    locked_visual_prompt: 'gold hexagonal brooch on collar',
+    preview_generation_prompt: 'Generate preview',
+    scene_reuse_prompt_template: 'Reuse character',
+  },
+  timestamps: {
+    created_at: '2026-09-21T00:00:00.000Z',
+    updated_at: '2026-09-21T00:00:00.000Z',
+  },
 };
 
 // Valid Canonical Image Candidate
@@ -120,26 +155,26 @@ const mockCarouselCandidate = buildCarouselProductionCandidate({
     {
       slide_number: 1,
       role: 'hook',
-      layout: 'left_aligned_text_bold',
-      visual_description: 'Skin diagram showing micro tears',
-      text_structure: { headline: 'Signs of Barrier Distress', body: 'Redness and flaking' },
-      visual_prompts: { prompt: 'Infographic of dry skin cells under microscope' },
+      headline: 'Signs of Barrier Distress',
+      body: 'Redness and flaking',
+      visual_direction: 'Skin diagram showing micro tears',
+      layout_direction: 'Left-aligned text bold',
     },
     {
       slide_number: 2,
       role: 'solution',
-      layout: 'centered_focus',
-      visual_description: 'Botanical formulation actives',
-      text_structure: { headline: 'Restorative Botanical Complex', body: 'Centella + Ceramides' },
-      visual_prompts: { prompt: 'Clean macro photograph of botanical leaves with moisture drops' },
+      headline: 'Restorative Botanical Complex',
+      body: 'Centella + Ceramides',
+      visual_direction: 'Botanical formulation actives',
+      layout_direction: 'Centered focus',
     },
     {
       slide_number: 3,
       role: 'cta',
-      layout: 'bottom_card',
-      visual_description: 'Serum bottle with radiant skin in background',
-      text_structure: { headline: 'Restore Your Glow', body: 'Available now' },
-      visual_prompts: { prompt: 'Hero bottle with soft luminous sunlight' },
+      headline: 'Restore Your Glow',
+      body: 'Available now',
+      visual_direction: 'Serum bottle with radiant skin in background',
+      layout_direction: 'Bottom card',
     },
   ],
   final_prompts: {
@@ -153,7 +188,7 @@ const mockCarouselCandidate = buildCarouselProductionCandidate({
 });
 
 // Valid Canonical Video Candidate
-const videoScenes = buildCanonicalVideoScenePlan('MOFU', 'product_demo', {
+const videoScenes = buildCanonicalVideoScenePlan('MOFU', 'human_led', {
   hook: 'Is your skin barrier dehydrated?',
   solusi: 'This botanical serum repairs moisture deeply.',
   cta: 'Try Luminary Skin today.',
@@ -161,11 +196,14 @@ const videoScenes = buildCanonicalVideoScenePlan('MOFU', 'product_demo', {
 
 const mockVideoCandidate = buildVideoProductionCandidate({
   candidate_id: 'cand_vid_001',
-  production_mode: 'product_demo',
+  production_mode: 'human_led',
   objective: 'Demonstrate formulation texture and instant barrier hydration',
-  format: 'vertical_reel',
+  format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
   hook: 'Is your skin barrier dehydrated?',
   scenes: videoScenes,
+  camera_direction: 'Direct to camera eye level',
+  motion_direction: 'Smooth subtle zoom',
+  audio_direction: 'Soft background music',
   negative_constraints: 'No harsh artificial studio strobes',
   final_prompt: 'Video demonstration of serum application and absorption.',
 });
@@ -182,7 +220,7 @@ console.log('--- TEST GROUP 1: Deterministic Hashing & Signatures ---');
 
 const imgTransRes = translateImageProductionPrompt({ candidate: mockImageCandidate, characterDNA: mockCharacterDNA });
 assert(imgTransRes.ok, 'Image translation succeeds');
-const imgBundle = imgTransRes.bundle as ImageTranslatedPromptBundle;
+const imgBundle = (imgTransRes as any).bundle as ImageTranslatedPromptBundle;
 
 const carTransRes = translateCarouselProductionPrompts({
   candidate: mockCarouselCandidate,
@@ -194,11 +232,12 @@ const carTransRes = translateCarouselProductionPrompts({
   characterDNA: mockCharacterDNA,
 });
 assert(carTransRes.ok, 'Carousel translation succeeds');
-const carBundle = carTransRes.bundle as CarouselTranslatedPromptBundle;
+const carBundle = (carTransRes as any).bundle as CarouselTranslatedPromptBundle;
 
 const vidTransRes = translateVideoProductionPrompts({ candidate: mockVideoCandidate, characterDNA: mockCharacterDNA });
+if (!vidTransRes.ok) console.error('Video translation error:', (vidTransRes as any).error);
 assert(vidTransRes.ok, 'Video translation succeeds');
-const vidBundle = vidTransRes.bundle as VideoTranslatedPromptBundle;
+const vidBundle = (vidTransRes as any).bundle as VideoTranslatedPromptBundle;
 
 const imgAuth1 = buildExecutionPromptAuthority(imgBundle);
 const imgAuth2 = buildExecutionPromptAuthority(imgBundle);

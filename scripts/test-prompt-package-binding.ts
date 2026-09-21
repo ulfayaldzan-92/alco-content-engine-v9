@@ -549,18 +549,24 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
   assert.strictEqual(engineCtxRes.isValid, true);
   if (engineCtxRes.isValid && engineCtxRes.context) {
     const cand = makeVideoCandidate('motion_explainer');
-    const assetInputWithoutEp = {
-      asset_type: 'video' as const,
-      video: cand.production_details,
-      final_prompt: cand.final_prompt,
-      // execution_prompts intentionally omitted
-    };
-    const buildRes = buildProductionPackage(engineCtxRes.context, assetInputWithoutEp as any, {
-      package_id: 'pkg_vid_no_ep',
-      created_at: '2026-09-20T12:00:00Z',
-    });
-    assert.strictEqual(buildRes.isValid, false, 'Test 17: Video build without execution_prompts must fail');
-    assert(buildRes.error?.includes('execution_prompts'));
+    const transRes = translateVideoProductionPrompts({ candidate: cand });
+    assert.strictEqual(transRes.ok, true);
+    if (transRes.ok) {
+      const bound = bindTranslatedPromptBundleToAssetInput(cand, transRes.bundle);
+      assert.strictEqual(bound.ok, true);
+      if (bound.ok) {
+        const assetInputWithoutEp = {
+          ...bound.assetInput,
+          execution_prompts: undefined,
+        };
+        const buildRes = buildProductionPackage(engineCtxRes.context, assetInputWithoutEp as any, {
+          package_id: 'pkg_vid_no_ep',
+          created_at: '2026-09-20T12:00:00Z',
+        });
+        assert.strictEqual(buildRes.isValid, false, 'Test 17: Video build without execution_prompts must fail');
+        assert(buildRes.error?.includes('execution_prompts'), `Expected error to include 'execution_prompts', got: ${buildRes.error}`);
+      }
+    }
   }
   console.log('✅ Test 17: buildProductionPackage strictly fails closed when video execution_prompts is missing');
 }
@@ -660,21 +666,27 @@ function makeVideoCandidate(mode: 'human_led' | 'product_demo' | 'motion_explain
 }
 
 // --------------------------------------------------
-// Test 19: Raw Production Candidate Adapter Fail-Closed for Video
+// Test 19: Raw Production Candidate Adapter Fail-Closed for All Types (Phase 4C-A)
 // --------------------------------------------------
 {
   const imgCand = makeImageCandidate();
   const imgAdaptRes = adaptProductionCandidateToAssetInput(imgCand);
-  assert.strictEqual(imgAdaptRes.ok, true, 'Test 19a: Image candidate adapts normally');
-  if (imgAdaptRes.ok) {
-    assert.strictEqual(imgAdaptRes.assetInput.asset_type, 'image');
+  assert.strictEqual(imgAdaptRes.ok, false, 'Test 19a: Raw Image candidate must fail closed in adaptProductionCandidateToAssetInput');
+  if (!imgAdaptRes.ok) {
+    assert.ok(
+      imgAdaptRes.error.includes('Image ProductionAssetInput requires translated execution prompt authority'),
+      'Test 19a error indicates execution prompt authority required'
+    );
   }
 
   const carCand = makeCarouselCandidate();
   const carAdaptRes = adaptProductionCandidateToAssetInput(carCand);
-  assert.strictEqual(carAdaptRes.ok, true, 'Test 19b: Carousel candidate adapts normally');
-  if (carAdaptRes.ok) {
-    assert.strictEqual(carAdaptRes.assetInput.asset_type, 'carousel');
+  assert.strictEqual(carAdaptRes.ok, false, 'Test 19b: Raw Carousel candidate must fail closed in adaptProductionCandidateToAssetInput');
+  if (!carAdaptRes.ok) {
+    assert.ok(
+      carAdaptRes.error.includes('Carousel ProductionAssetInput requires translated execution prompt authority'),
+      'Test 19b error indicates execution prompt authority required'
+    );
   }
 
   const vidCand = makeVideoCandidate('human_led');

@@ -99,6 +99,7 @@ import {
   VideoProductionReadiness,
 } from '../lib/video-production-readiness';
 import { ProductAssetContext, ProductAssetReference } from '../lib/video-production-input';
+import { buildExecutionPromptAuthority } from '../lib/execution-prompt-authority';
 import {
   resolveSelectedVideoProductionCandidate,
   getSceneTypeLabel,
@@ -2017,10 +2018,19 @@ const p3bImageDetails = {
   negative_constraints: 'No text clutter, no low resolution, no artifacts',
 };
 
+const p3bImageAuthRes = buildExecutionPromptAuthority({
+  asset_type: 'image',
+  candidate_id: 'cand_img_p3b',
+  execution_prompt: 'Generate a clean high-end commercial photo of Alco workspace...',
+});
+assert(p3bImageAuthRes.ok, `p3bImageAuthRes failed: ${(p3bImageAuthRes as any).error}`);
+const p3bImageAuth = (p3bImageAuthRes as any).authority;
+
 const p3bImageInput: ProductionAssetInput = {
   asset_type: 'image',
   image: p3bImageDetails,
   final_prompt: 'Generate a clean high-end commercial photo of Alco workspace...',
+  execution_authority: p3bImageAuth,
 };
 
 const p3bCarouselDetails = {
@@ -2050,16 +2060,31 @@ const p3bCarouselDetails = {
   negative_constraints: 'No unreadable small typography',
 };
 
+const p3bCarouselFinalPrompts = {
+  master_prompt: 'Master carousel generation guide',
+  slides: [
+    { slide_number: 1, prompt: 'Slide 1 generation prompt' },
+    { slide_number: 2, prompt: 'Slide 2 generation prompt' },
+  ],
+};
+
+const p3bCarouselAuthRes = buildExecutionPromptAuthority({
+  asset_type: 'carousel',
+  candidate_id: 'cand_car_p3b',
+  master_prompt: p3bCarouselFinalPrompts.master_prompt,
+  slides: [
+    { slide_number: 1, execution_prompt: 'Slide 1 generation prompt' },
+    { slide_number: 2, execution_prompt: 'Slide 2 generation prompt' },
+  ],
+});
+assert(p3bCarouselAuthRes.ok, `p3bCarouselAuthRes failed: ${(p3bCarouselAuthRes as any).error}`);
+const p3bCarouselAuth = (p3bCarouselAuthRes as any).authority;
+
 const p3bCarouselInput: ProductionAssetInput = {
   asset_type: 'carousel',
   carousel: p3bCarouselDetails,
-  final_prompts: {
-    master_prompt: 'Master carousel generation guide',
-    slides: [
-      { slide_number: 1, prompt: 'Slide 1 generation prompt' },
-      { slide_number: 2, prompt: 'Slide 2 generation prompt' },
-    ],
-  },
+  final_prompts: p3bCarouselFinalPrompts,
+  execution_authority: p3bCarouselAuth,
 };
 
 const p3bVideoDetails = {
@@ -2143,11 +2168,43 @@ const p3bVideoExecutionPrompts: VideoExecutionPrompts = {
   ],
 };
 
+const p3bVideoAuthRes = buildExecutionPromptAuthority({
+  asset_type: 'video',
+  candidate_id: 'cand_vid_p3b',
+  production_mode: 'human_led',
+  scenes: [
+    {
+      scene_number: 1,
+      start_frame_prompt: 'Start frame scene 1 prompt',
+      motion_prompt: 'Motion prompt scene 1',
+      voiceover: 'Stop guessing your funnel strategy. Use an authoritative engine.',
+      on_screen_text: 'Stop Guessing Strategy',
+    },
+    {
+      scene_number: 2,
+      start_frame_prompt: 'Start frame scene 2 prompt',
+      motion_prompt: 'Motion prompt scene 2',
+      voiceover: 'Our system takes three concrete steps to generate video outlines.',
+      on_screen_text: 'Three Simple Steps',
+    },
+    {
+      scene_number: 3,
+      start_frame_prompt: 'Start frame scene 3 prompt',
+      motion_prompt: 'Motion prompt scene 3',
+      voiceover: 'Go to Alco Content Engine now.',
+      on_screen_text: 'Alco.ai',
+    },
+  ],
+});
+assert(p3bVideoAuthRes.ok, `p3bVideoAuthRes failed: ${(p3bVideoAuthRes as any).error}`);
+const p3bVideoAuth = (p3bVideoAuthRes as any).authority;
+
 const p3bVideoInput: ProductionAssetInput = {
   asset_type: 'video',
   video: p3bVideoDetails,
   final_prompt: '15-second vertical video prompt for Alco Content Engine...',
   execution_prompts: p3bVideoExecutionPrompts,
+  execution_authority: p3bVideoAuth,
 };
 
 const p3bMetadata: ProductionPackageMetadata = {
@@ -3000,18 +3057,16 @@ const p3cbImageCandParams = {
   finalPrompt: 'Final Prompt Image',
 };
 
-// P3C-B-01: Image candidate adapter happy path
+// P3C-B-01: Image candidate adapter fails closed requiring translated execution authority
 const p3cbImageCand = buildImageProductionCandidate(p3cbImageCandParams);
 const imageAdapterRes = adaptProductionCandidateToAssetInput(p3cbImageCand);
 assert(
-  imageAdapterRes.ok === true &&
-  imageAdapterRes.assetInput.asset_type === 'image' &&
-  imageAdapterRes.assetInput.image === p3cbImageCand.production_details &&
-  imageAdapterRes.assetInput.final_prompt === 'Final Prompt Image',
-  'Test P3C-B-01: Image candidate converts to ProductionAssetInput accurately'
+  imageAdapterRes.ok === false &&
+  imageAdapterRes.error.includes('Image ProductionAssetInput requires translated execution prompt authority'),
+  'Test P3C-B-01: Image candidate adapter fails closed requiring translated execution prompt authority'
 );
 
-// P3C-B-02: Carousel candidate adapter happy path & explicit selection
+// P3C-B-02: Carousel candidate adapter fails closed requiring translated execution authority
 const p3cbCarouselCand = buildCarouselProductionCandidate({
   candidate_id: 'carousel_plan',
   objective: 'Obj',
@@ -3025,16 +3080,15 @@ const p3cbCarouselCand = buildCarouselProductionCandidate({
 });
 const carouselAdapterRes = adaptProductionCandidateToAssetInput(p3cbCarouselCand);
 assert(
-  carouselAdapterRes.ok === true &&
-  carouselAdapterRes.assetInput.asset_type === 'carousel' &&
-  carouselAdapterRes.assetInput.carousel === p3cbCarouselCand.production_details &&
-  carouselAdapterRes.assetInput.final_prompts === p3cbCarouselCand.final_prompts,
-  'Test P3C-B-02a: Carousel candidate converts to ProductionAssetInput accurately'
+  carouselAdapterRes.ok === false &&
+  carouselAdapterRes.error.includes('Carousel ProductionAssetInput requires translated execution prompt authority'),
+  'Test P3C-B-02a: Carousel candidate adapter fails closed requiring translated execution prompt authority'
 );
 const carouselSelectRes = selectProductionCandidate([p3cbCarouselCand], 'carousel_plan');
 assert(
-  carouselSelectRes.ok === true && carouselSelectRes.assetInput.asset_type === 'carousel',
-  'Test P3C-B-02b: selectProductionCandidate explicitly selects carousel_plan'
+  carouselSelectRes.ok === false &&
+  carouselSelectRes.error.includes('Carousel ProductionAssetInput requires translated execution prompt authority'),
+  'Test P3C-B-02b: selectProductionCandidate fails closed on raw candidate requiring translated execution authority'
 );
 
 // P3C-B-03: Raw Video candidate adapter fails closed (requires translated execution prompt authority via bundle binding)
@@ -3097,10 +3151,8 @@ const candC = buildImageProductionCandidate({ ...p3cbImageCandParams, candidate_
 const p3cbCandidatesList = [candA, candB, candC];
 const selectedRes = selectProductionCandidate(p3cbCandidatesList, 'option_b');
 assert(
-  selectedRes.ok === true &&
-  selectedRes.assetInput.asset_type === 'image' &&
-  selectedRes.assetInput.final_prompt === 'PROMPT_B',
-  'Test P3C-B-06: selectProductionCandidate explicitly selects candidate B with PROMPT_B'
+  selectedRes.ok === false && selectedRes.error.includes('Image ProductionAssetInput requires translated execution prompt authority'),
+  'Test P3C-B-06: selectProductionCandidate fails closed on raw candidates'
 );
 
 // P3C-B-07: Unknown selectedCandidateId fails

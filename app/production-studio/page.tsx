@@ -71,6 +71,11 @@ import {
   isAuthoritativeProductionOutputSource,
 } from '@/lib/production-output-source';
 import { prepareProductionPackage } from '@/lib/production-package-workflow';
+import {
+  translateImageProductionPrompt,
+  translateCarouselProductionPrompts,
+  translateVideoProductionPrompts,
+} from '@/lib/prompt-translation';
 import { saveProductionPackage } from '@/lib/production-package-storage';
 import { ProductionPackageMetadata } from '@/lib/production-engine';
 import { evaluateVideoProductionGate } from '@/lib/video-production-gate';
@@ -3331,6 +3336,9 @@ export default function ProductionStudioPage() {
       created_at: new Date().toISOString(),
     };
 
+    // Phase 4B: Translate candidate prompt to canonical execution prompt bundle
+    const translatedPromptBundle = translateImageProductionPrompt(selectedCandidate, characterDNA);
+
     // Prepare Production Package
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
@@ -3340,6 +3348,7 @@ export default function ProductionStudioPage() {
       characterDNA: characterDNA || undefined,
       candidates,
       selectedCandidateId: angleId,
+      translatedPromptBundle,
       metadata: packageMetadata,
     });
 
@@ -4761,6 +4770,13 @@ ${formatDirection}${revisionDirective}`;
     setVideoProductionPackagePreparing(true);
     setVideoProductionPackageError(null);
 
+    // Phase 4B: Translate video candidate to canonical execution prompt bundle
+    const translatedPromptBundle = translateVideoProductionPrompts(
+      activeVideoCandidate,
+      productionEngineContext?.character_dna || characterDNA,
+      selectedVideoProductionMode === 'product_demo' ? productAssetContext : null
+    );
+
     // 6. Prepare production package using exact activeVideoCandidate.candidate_id
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
@@ -4770,6 +4786,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA: productionEngineContext?.character_dna || undefined,
       candidates: canonicalVideoCandidates,
       selectedCandidateId: activeVideoCandidate.candidate_id,
+      translatedPromptBundle,
       metadata: packageMetadata,
     });
 
@@ -5019,6 +5036,17 @@ ${formatDirection}${revisionDirective}`;
     setCarouselProductionPackagePreparing(true);
     setCarouselProductionPackageError(null);
 
+    // Phase 4B: Translate carousel candidate to canonical execution prompt bundle
+    const carouselSlideMetadata = carouselPlan?.slides
+      ? carouselPlan.slides.map((s) => ({ slide_number: s.slide, visual_format: s.visual_format }))
+      : undefined;
+
+    const translatedPromptBundle = translateCarouselProductionPrompts(
+      effectiveCarouselCandidate,
+      carouselSlideMetadata,
+      productionEngineContext?.character_dna || characterDNA
+    );
+
     // 6. Prepare production package using exactly effectiveCarouselCandidate
     const prepResult = prepareProductionPackage({
       projectId: canonicalProjectId,
@@ -5028,6 +5056,7 @@ ${formatDirection}${revisionDirective}`;
       characterDNA: productionEngineContext?.character_dna || undefined,
       candidates: [effectiveCarouselCandidate],
       selectedCandidateId: effectiveCarouselCandidate.candidate_id,
+      translatedPromptBundle,
       metadata: packageMetadata,
     });
 

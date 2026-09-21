@@ -74,18 +74,23 @@ export function adaptProductionCandidateToAssetInput(
   };
 }
 
+export type SelectRawCandidateResult =
+  | {
+      ok: true;
+      candidate: ProductionCandidate;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 /**
- * Explicitly selects a candidate by ID from candidates array and adapts it to ProductionAssetInput.
- * Strict fail-closed rules:
- * - Empty selectedCandidateId fails
- * - Unknown selectedCandidateId fails
- * - Duplicate candidate IDs in candidates list fail
- * - No fallback to first candidate or default
+ * Validates and selects a candidate by ID from candidates list without premature asset conversion.
  */
-export function selectProductionCandidate(
+export function selectRawProductionCandidate(
   candidates: ProductionCandidate[],
   selectedCandidateId: string
-): ProductionCandidateAdapterResult {
+): SelectRawCandidateResult {
   if (!selectedCandidateId || typeof selectedCandidateId !== 'string' || selectedCandidateId.trim().length === 0) {
     return {
       ok: false,
@@ -133,6 +138,32 @@ export function selectProductionCandidate(
     }
   }
 
-  return adaptProductionCandidateToAssetInput(matchingCandidates[0]);
+  return {
+    ok: true,
+    candidate: matchingCandidates[0],
+  };
+}
+
+/**
+ * Explicitly selects a candidate by ID from candidates array and adapts it to ProductionAssetInput.
+ * Strict fail-closed rules:
+ * - Empty selectedCandidateId fails
+ * - Unknown selectedCandidateId fails
+ * - Duplicate candidate IDs in candidates list fail
+ * - No fallback to first candidate or default
+ */
+export function selectProductionCandidate(
+  candidates: ProductionCandidate[],
+  selectedCandidateId: string
+): ProductionCandidateAdapterResult {
+  const selection = selectRawProductionCandidate(candidates, selectedCandidateId);
+  if (!selection.ok) {
+    return {
+      ok: false,
+      error: selection.error,
+    };
+  }
+
+  return adaptProductionCandidateToAssetInput(selection.candidate);
 }
 

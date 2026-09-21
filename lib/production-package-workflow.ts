@@ -1,13 +1,15 @@
 import type { SharedContentContext, ContentItem, CharacterDNA } from './content-contract';
 import type { FunnelStrategy } from './funnel-strategy';
 import type { ProductionCandidate } from './production-candidate';
-import { selectProductionCandidate } from './production-candidate-adapter';
+import { selectRawProductionCandidate } from './production-candidate-adapter';
 import { buildProductionEngineContext } from './production-engine-context';
 import type { ProductionPackage } from './production-contract';
 import {
   type ProductionPackageMetadata,
   buildProductionPackage,
 } from './production-engine';
+import type { TranslatedProductionPromptBundle, PromptTranslationResult } from './prompt-translation';
+import { bindTranslatedPromptBundleToAssetInput } from './prompt-package-binding';
 
 export interface PrepareProductionPackageInput {
   projectId: string;
@@ -17,6 +19,7 @@ export interface PrepareProductionPackageInput {
   characterDNA?: CharacterDNA | null;
   candidates: ProductionCandidate[];
   selectedCandidateId: string;
+  translatedPromptBundle: TranslatedProductionPromptBundle | PromptTranslationResult;
   metadata: ProductionPackageMetadata;
 }
 
@@ -33,10 +36,11 @@ export type PrepareProductionPackageResult =
 /**
  * Pure canonical orchestration function for preparing a ProductionPackage.
  *
- * Flow:
+ * Flow (Phase 4B-A):
  * 1. Validates & builds ProductionEngineContext via buildProductionEngineContext()
- * 2. Explicitly selects & adapts candidate via selectProductionCandidate()
- * 3. Delegates ProductionPackage creation strictly to Single Production Engine buildProductionPackage()
+ * 2. Explicitly selects canonical candidate via selectRawProductionCandidate()
+ * 3. Binds candidate + translatedPromptBundle into authoritative ProductionAssetInput
+ * 4. Delegates ProductionPackage creation strictly to Single Production Engine buildProductionPackage()
  *
  * FAIL-CLOSED: Does not repair, normalize, or fabricate inputs or metadata.
  * Does not generate timestamps, UUIDs, or fallback candidates.
@@ -67,23 +71,56 @@ export function prepareProductionPackage(
     };
   }
 
-  // 2. Explicit candidate selection & adaptation
-  const adapterResult = selectProductionCandidate(
+  // 2. Explicit candidate selection
+  const selectionResult = selectRawProductionCandidate(
     input.candidates,
     input.selectedCandidateId
   );
 
-  if (!adapterResult.ok) {
+  if (!selectionResult.ok) {
     return {
       ok: false,
-      error: adapterResult.error || 'Failed to select production candidate',
+      error: selectionResult.error || 'Failed to select production candidate',
     };
   }
 
-  // 3. Delegate package construction strictly to Single Production Engine
+  // 3. Strict translated prompt bundle presence & binding (Phase 4B-A)
+  if (!input.translatedPromptBundle || typeof input.translatedPromptBundle !== 'object') {
+    return {
+      ok: false,
+      error: 'Missing required translatedPromptBundle for package creation (FAIL CLOSED).',
+    };
+  }
+
+  let authoritativeBundle: TranslatedProductionPromptBundle;
+  if ('ok' in input.translatedPromptBundle) {
+    if (!input.translatedPromptBundle.ok) {
+      return {
+        ok: false,
+        error: `Prompt translation failed: ${input.translatedPromptBundle.error} (FAIL CLOSED).`,
+      };
+    }
+    authoritativeBundle = input.translatedPromptBundle.bundle;
+  } else {
+    authoritativeBundle = input.translatedPromptBundle;
+  }
+
+  const bindingResult = bindTranslatedPromptBundleToAssetInput(
+    selectionResult.candidate,
+    authoritativeBundle
+  );
+
+  if (!bindingResult.ok) {
+    return {
+      ok: false,
+      error: bindingResult.error || 'Failed to bind translated prompt bundle to production asset input.',
+    };
+  }
+
+  // 4. Delegate package construction strictly to Single Production Engine
   const engineResult = buildProductionPackage(
     contextResult.context,
-    adapterResult.assetInput,
+    bindingResult.assetInput,
     input.metadata
   );
 

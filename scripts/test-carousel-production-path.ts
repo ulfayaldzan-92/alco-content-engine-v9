@@ -48,6 +48,7 @@ import {
   validateProductionCandidate,
 } from '../lib/production-candidate';
 import { prepareProductionPackage } from '../lib/production-package-workflow';
+import { translateCarouselProductionPrompts } from '../lib/prompt-translation';
 import {
   saveProductionPackage,
   loadProductionPackage,
@@ -848,6 +849,11 @@ async function runCarouselProductionPathTests(): Promise<void> {
   for (let s = 1; s <= effWithChar.production_details.slide_count; s++) {
     compWithChar = setCarouselSlideAssetCreated(compWithChar, s, true);
   }
+  const translatedCarouselBundle30 = translateCarouselProductionPrompts(
+    effWithChar,
+    baseSlides.map((s) => ({ slide_number: s.slide, visual_format: s.visual_format })),
+    charDNA
+  );
   const prepResult = prepareProductionPackage({
     projectId: mockItem.project_id,
     sharedContext: mockCtx,
@@ -856,6 +862,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
     characterDNA: charDNA,
     candidates: [effWithChar],
     selectedCandidateId: effWithChar.candidate_id,
+    translatedPromptBundle: translatedCarouselBundle30,
     metadata: {
       package_id: 'pkg-carousel-001',
       created_at: new Date().toISOString(),

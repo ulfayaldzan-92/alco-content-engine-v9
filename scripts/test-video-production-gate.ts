@@ -32,6 +32,7 @@ import {
   buildVideoProductionInputSignature,
 } from '../lib/video-scene-completion';
 import { prepareProductionPackage } from '../lib/production-package-workflow';
+import { translateVideoProductionPrompts } from '../lib/prompt-translation';
 import {
   saveProductionPackage,
   loadProductionPackage,
@@ -472,6 +473,7 @@ const packageMetadata: ProductionPackageMetadata = {
   package_id: 'pkg_test_33_uuid',
   created_at: new Date().toISOString(),
 };
+const translatedBundle33 = translateVideoProductionPrompts(validCandidateMotion);
 const prepResult = prepareProductionPackage({
   projectId: 'proj_gate_video_001',
   sharedContext: baseSharedContext,
@@ -479,9 +481,10 @@ const prepResult = prepareProductionPackage({
   contentItem: baseContentItem,
   candidates: [validCandidateMotion],
   selectedCandidateId: validCandidateMotion.candidate_id,
+  translatedPromptBundle: translatedBundle33,
   metadata: packageMetadata,
 });
-assert(prepResult.ok === true, 'prepareProductionPackage must succeed');
+assert(prepResult.ok === true, `prepareProductionPackage must succeed: ${!prepResult.ok ? prepResult.error : ''}`);
 if (!prepResult.ok) {
   throw new Error('prepareProductionPackage failed');
 }

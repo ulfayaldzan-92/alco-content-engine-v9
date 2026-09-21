@@ -173,10 +173,38 @@ export interface VideoProductionDetails {
   negative_constraints: string;
 }
 
+export interface VideoExecutionPromptScene {
+  scene_number: 1 | 2 | 3;
+  start_frame_prompt: string;
+  motion_prompt: string;
+  voiceover: string;
+  on_screen_text: string;
+}
+
+export interface VideoExecutionPrompts {
+  candidate_id: string;
+  production_mode: VideoProductionMode;
+  scenes: [
+    VideoExecutionPromptScene,
+    VideoExecutionPromptScene,
+    VideoExecutionPromptScene
+  ];
+}
+
 export interface VideoProductionPackage extends ProductionPackageBase {
   asset_type: 'video';
   video: VideoProductionDetails;
+
+  /**
+   * Legacy/source-level prompt retained for backward compatibility.
+   * It is NOT the Phase 4B execution authority.
+   */
   final_prompt: string;
+
+  /**
+   * Canonical execution prompt authority for Phase 4B.
+   */
+  execution_prompts?: VideoExecutionPrompts;
 }
 
 /**
@@ -729,6 +757,92 @@ export function validateProductionPackage(pkg: any): { isValid: boolean; error?:
     if (typeof vidPkg.final_prompt !== 'string' || !vidPkg.final_prompt.trim()) {
       return { isValid: false, error: 'Missing or empty final_prompt in VideoProductionPackage.' };
     }
+
+    // Phase 4B: Strict execution_prompts validation if present (backward compatible with legacy packages when undefined)
+    if (vidPkg.execution_prompts !== undefined) {
+      const ep = vidPkg.execution_prompts;
+      if (!ep || typeof ep !== 'object') {
+        return { isValid: false, error: 'execution_prompts must be a non-null object in VideoProductionPackage.' };
+      }
+
+      if (typeof ep.candidate_id !== 'string' || !ep.candidate_id.trim()) {
+        return { isValid: false, error: 'execution_prompts.candidate_id must be a non-empty string.' };
+      }
+
+      if (!validVideoModes.includes(ep.production_mode)) {
+        return {
+          isValid: false,
+          error: `execution_prompts.production_mode "${ep.production_mode}" is invalid. Must be human_led, product_demo, or motion_explainer.`,
+        };
+      }
+
+      if (ep.production_mode !== vidPkg.video.production_mode) {
+        return {
+          isValid: false,
+          error: `execution_prompts.production_mode ("${ep.production_mode}") must match video.production_mode ("${vidPkg.video.production_mode}").`,
+        };
+      }
+
+      if (!Array.isArray(ep.scenes) || ep.scenes.length !== 3) {
+        return {
+          isValid: false,
+          error: `execution_prompts.scenes count (${Array.isArray(ep.scenes) ? ep.scenes.length : 0}) must be exactly 3.`,
+        };
+      }
+
+      const seenEpSceneNumbers = new Set<number>();
+      for (let i = 0; i < ep.scenes.length; i++) {
+        const epScene = ep.scenes[i];
+        if (!epScene || typeof epScene !== 'object') {
+          return { isValid: false, error: `execution_prompts.scenes[${i}] must be a non-null object.` };
+        }
+
+        const expectedSceneNum = (i + 1) as 1 | 2 | 3;
+        if (epScene.scene_number !== expectedSceneNum) {
+          return {
+            isValid: false,
+            error: `execution_prompts.scenes[${i}].scene_number must be sequential starting at 1. Expected ${expectedSceneNum}, got ${epScene.scene_number}.`,
+          };
+        }
+
+        if (seenEpSceneNumbers.has(epScene.scene_number)) {
+          return {
+            isValid: false,
+            error: `Duplicate scene_number ${epScene.scene_number} detected in execution_prompts.scenes.`,
+          };
+        }
+        seenEpSceneNumbers.add(epScene.scene_number);
+
+        if (typeof epScene.start_frame_prompt !== 'string' || !epScene.start_frame_prompt.trim()) {
+          return {
+            isValid: false,
+            error: `execution_prompts.scenes[${i}].start_frame_prompt must be a non-empty string.`,
+          };
+        }
+
+        if (typeof epScene.motion_prompt !== 'string' || !epScene.motion_prompt.trim()) {
+          return {
+            isValid: false,
+            error: `execution_prompts.scenes[${i}].motion_prompt must be a non-empty string.`,
+          };
+        }
+
+        if (typeof epScene.voiceover !== 'string') {
+          return {
+            isValid: false,
+            error: `execution_prompts.scenes[${i}].voiceover must be a string.`,
+          };
+        }
+
+        if (typeof epScene.on_screen_text !== 'string') {
+          return {
+            isValid: false,
+            error: `execution_prompts.scenes[${i}].on_screen_text must be a string.`,
+          };
+        }
+      }
+    }
+
     return { isValid: true };
   }
 

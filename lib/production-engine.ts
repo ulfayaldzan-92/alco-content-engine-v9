@@ -5,6 +5,7 @@ import {
   CarouselProductionDetails,
   CarouselFinalPrompts,
   VideoProductionDetails,
+  VideoExecutionPrompts,
   buildProductionStrategySnapshot,
   buildProductionContentSnapshot,
   buildProductionBrandVisualSnapshot,
@@ -37,6 +38,7 @@ export type ProductionAssetInput =
       asset_type: 'video';
       video: VideoProductionDetails;
       final_prompt: string;
+      execution_prompts: VideoExecutionPrompts;
     };
 
 /**
@@ -237,6 +239,7 @@ export function buildProductionPackage(
       asset_type: 'video',
       video: assetInput.video,
       final_prompt: assetInput.final_prompt,
+      execution_prompts: assetInput.execution_prompts,
     };
   } else {
     return {

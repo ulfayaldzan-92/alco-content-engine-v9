@@ -3275,7 +3275,7 @@ export default function ProductionStudioPage() {
   };
 
   // Direct image generation state
-  const [generatedImages, setGeneratedImages] = useState<Record<string, { imageDataUrl: string; model?: string; aspectRatio?: string }>>({});
+  const [generatedImages, setGeneratedImages] = useState<Record<string, GeneratedImageExecutionOutput>>({});
   const [imageGeneratingKey, setImageGeneratingKey] = useState<string | null>(null);
   const [imageGenerateError, setImageGenerateError] = useState<string | null>(null);
 
@@ -3345,6 +3345,30 @@ export default function ProductionStudioPage() {
       return;
     }
 
+    // Capture Image Execution Authority BEFORE request
+    const authorityResult = buildExecutionPromptAuthority(translatedBundle);
+    if (!authorityResult.ok) {
+      const authErr = authorityResult.error || 'Gagal membuat execution authority.';
+      setImageGenerateError(authErr);
+      showToast(`Gagal: ${authErr}`);
+      return;
+    }
+
+    const requestExecutionAuthority = authorityResult.authority;
+    if (requestExecutionAuthority.asset_type !== 'image') {
+      const authErr = 'Execution authority asset_type bukan image.';
+      setImageGenerateError(authErr);
+      showToast(`Gagal: ${authErr}`);
+      return;
+    }
+
+    if (requestExecutionAuthority.candidate_id !== selectedCandidate.candidate_id) {
+      const authErr = 'Execution authority candidate_id mismatch.';
+      setImageGenerateError(authErr);
+      showToast(`Gagal: ${authErr}`);
+      return;
+    }
+
     // Package metadata generation in caller
     if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
       setImageGenerateError('API crypto.randomUUID tidak tersedia untuk pembuatan metadata production package.');
@@ -3396,11 +3420,11 @@ export default function ProductionStudioPage() {
     }
 
     const requestProjectId = canonicalProjectId;
-    const requestItemNo = sourceItem.no;
-    const requestItemId = sourceItem.content_item_id;
-    const key = `${requestItemNo}_${angleId}`;
+    const requestContentItemId = sourceItem.content_item_id;
+    const requestCandidateId = angleId;
+    const requestCanonicalKey = getGeneratedImageOutputKey(requestProjectId, requestContentItemId, requestCandidateId);
 
-    setImageGeneratingKey(key);
+    setImageGeneratingKey(requestCanonicalKey);
     setImageGenerateError(null);
 
     try {
@@ -3415,13 +3439,21 @@ export default function ProductionStudioPage() {
 
       const data = await res.json();
 
-      // ASYNC GUARD
+      // ASYNC GUARD (Verify latest/current authority signature matches)
+      const currentAuthority = imageExecutionAuthoritiesRef.current?.[requestCandidateId] ?? null;
+      const isAuthorityMatch =
+        currentAuthority &&
+        currentAuthority.asset_type === 'image' &&
+        currentAuthority.candidate_id === requestCandidateId &&
+        currentAuthority.contract_version === requestExecutionAuthority.contract_version &&
+        currentAuthority.execution_signature === requestExecutionAuthority.execution_signature;
+
       if (
         getActiveProjectId() !== requestProjectId ||
         canonicalProjectId !== requestProjectId ||
         !sourceItem ||
-        (requestItemId && sourceItem.content_item_id !== requestItemId) ||
-        sourceItem.no !== requestItemNo
+        sourceItem.content_item_id !== requestContentItemId ||
+        !isAuthorityMatch
       ) {
         console.warn('[Async Guard] Discarding stale generated image response');
         return;
@@ -3431,29 +3463,35 @@ export default function ProductionStudioPage() {
         const errMsg = data.error || data.message || "Gagal generate image. Coba lagi nanti.";
         setImageGenerateError(errMsg);
       } else {
-        const authority = buildExecutionPromptAuthority(translatedBundle);
         const imageOutputData: GeneratedImageExecutionOutput = {
-          project_id: canonicalProjectId,
-          content_item_id: sourceItem.content_item_id,
-          candidate_id: angleId,
+          project_id: requestProjectId,
+          content_item_id: requestContentItemId,
+          candidate_id: requestCandidateId,
           imageDataUrl: data.imageDataUrl,
           model: data.model,
           aspectRatio: data.aspectRatio,
-          execution_authority: authority,
+          execution_authority: requestExecutionAuthority,
         };
-        const canonicalKey = getGeneratedImageOutputKey(canonicalProjectId, sourceItem.content_item_id, angleId);
         setGeneratedImages(prev => ({
           ...prev,
-          [key]: imageOutputData,
-          [canonicalKey]: imageOutputData,
+          [requestCanonicalKey]: imageOutputData,
         }));
       }
     } catch (err: any) {
+      const currentAuthority = imageExecutionAuthoritiesRef.current?.[requestCandidateId] ?? null;
+      const isAuthorityMatch =
+        currentAuthority &&
+        currentAuthority.asset_type === 'image' &&
+        currentAuthority.candidate_id === requestCandidateId &&
+        currentAuthority.contract_version === requestExecutionAuthority.contract_version &&
+        currentAuthority.execution_signature === requestExecutionAuthority.execution_signature;
+
       if (
         getActiveProjectId() !== requestProjectId ||
+        canonicalProjectId !== requestProjectId ||
         !sourceItem ||
-        (requestItemId && sourceItem.content_item_id !== requestItemId) ||
-        sourceItem.no !== requestItemNo
+        sourceItem.content_item_id !== requestContentItemId ||
+        !isAuthorityMatch
       ) {
         return;
       }
@@ -4622,10 +4660,24 @@ ${formatDirection}${revisionDirective}`;
   const imageExecutionAuthorities = useMemo<Record<string, ExecutionPromptAuthority | null>>(() => {
     const map: Record<string, ExecutionPromptAuthority | null> = {};
     for (const [id, bundle] of Object.entries(imageTranslatedPromptBundles)) {
-      map[id] = bundle ? buildExecutionPromptAuthority(bundle) : null;
+      if (bundle) {
+        const result = buildExecutionPromptAuthority(bundle);
+        if (result.ok && result.authority.asset_type === 'image') {
+          map[id] = result.authority;
+        } else {
+          map[id] = null;
+        }
+      } else {
+        map[id] = null;
+      }
     }
     return map;
   }, [imageTranslatedPromptBundles]);
+
+  const imageExecutionAuthoritiesRef = React.useRef(imageExecutionAuthorities);
+  useEffect(() => {
+    imageExecutionAuthoritiesRef.current = imageExecutionAuthorities;
+  }, [imageExecutionAuthorities]);
 
   const selectedImageTranslationResult = selectedAngleId ? (imageTranslationResults[selectedAngleId] ?? null) : null;
   const imageTranslatedPromptBundle = selectedImageTranslationResult?.ok ? (selectedImageTranslationResult.bundle as ImageTranslatedPromptBundle) : null;
@@ -4650,7 +4702,11 @@ ${formatDirection}${revisionDirective}`;
 
   const currentCarouselExecutionAuthority = useMemo<ExecutionPromptAuthority | null>(() => {
     if (!carouselTranslatedPromptBundle) return null;
-    return buildExecutionPromptAuthority(carouselTranslatedPromptBundle);
+    const result = buildExecutionPromptAuthority(carouselTranslatedPromptBundle);
+    if (result.ok && result.authority.asset_type === 'carousel') {
+      return result.authority;
+    }
+    return null;
   }, [carouselTranslatedPromptBundle]);
 
   // 3. Video Translated Prompt Bundle (Requires Authoritative ProductionEngineContext)
@@ -4674,7 +4730,11 @@ ${formatDirection}${revisionDirective}`;
 
   const currentVideoExecutionAuthority = useMemo<ExecutionPromptAuthority | null>(() => {
     if (!videoTranslatedPromptBundle) return null;
-    return buildExecutionPromptAuthority(videoTranslatedPromptBundle);
+    const result = buildExecutionPromptAuthority(videoTranslatedPromptBundle);
+    if (result.ok && result.authority.asset_type === 'video') {
+      return result.authority;
+    }
+    return null;
   }, [videoTranslatedPromptBundle]);
 
   // Phase 3D-C1C-D+: Real Scene Completion State (Persistent, Isolated by Project + Item + Mode + Scene Signature + Input Signature + Execution Signature)
@@ -5280,7 +5340,7 @@ ${formatDirection}${revisionDirective}`;
       currentVideoExecutionAuthority,
     };
 
-    if (activeTab === 'image') return <ImagePanel {...commonProps} />;
+    if (activeTab === 'image') return <ImagePanel {...commonProps} canonicalProjectId={canonicalProjectId} />;
     if (activeTab === 'carousel') return <CarouselPanel {...commonProps} />;
     if (activeTab === 'video') return <VideoPanel {...commonProps} />;
 

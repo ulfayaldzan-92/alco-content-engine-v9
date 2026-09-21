@@ -12,6 +12,7 @@ import { isGeneratedImageOutputCurrent, getGeneratedImageOutputKey } from '@/lib
 
 export default function ImagePanel(props: any) {
   const {
+    canonicalProjectId,
     activeItem,
     activeContext,
     imageAnglesPackage,
@@ -66,12 +67,10 @@ export default function ImagePanel(props: any) {
 
   const activeAngle = imageAnglesPackage.angles.find((a: any) => a.id === selectedAngleId) || imageAnglesPackage.angles[0];
   const recommendedAngleId = imageAnglesPackage.recommendedAngleId || 'A';
-  const legacyKey = `${sourceItem?.no || 1}_${activeAngle.id}`;
-  const canonicalProjectId = sourceItem?.projectId || sourceItem?.project_id || activeItem?.projectId || activeItem?.project_id || '';
   const contentItemId = sourceItem?.content_item_id || activeItem?.content_item_id || '';
   const canonicalKey = getGeneratedImageOutputKey(canonicalProjectId, contentItemId, activeAngle.id);
   
-  const rawGeneratedImg = generatedImages?.[canonicalKey] ?? generatedImages?.[legacyKey];
+  const rawGeneratedImg = generatedImages?.[canonicalKey];
   const activeAuthority = imageExecutionAuthorities?.[activeAngle.id] ?? null;
 
   const isOutputCurrent = isGeneratedImageOutputCurrent(rawGeneratedImg, {
@@ -82,8 +81,7 @@ export default function ImagePanel(props: any) {
   });
 
   const generatedImg = isOutputCurrent ? rawGeneratedImg : null;
-  const imageKey = legacyKey;
-  const isGenerating = imageGeneratingKey === imageKey || imageGeneratingKey === canonicalKey;
+  const isGenerating = imageGeneratingKey === canonicalKey;
   
   // Phase 4B-B / Phase 4C-B: Authority prompt bundle resolution
   const activeBundle = imageTranslatedPromptBundles?.[activeAngle.id] ?? (imageTranslatedPromptBundle?.candidate_id === activeAngle.id ? imageTranslatedPromptBundle : null);

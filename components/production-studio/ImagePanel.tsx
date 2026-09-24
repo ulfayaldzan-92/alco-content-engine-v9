@@ -26,7 +26,6 @@ export default function ImagePanel(props: any) {
     nextStepVisibleKeys,
     handleDismissNextStep,
     imageOutput,
-    getInitialDraft,
     sourceItem,
     handleDownloadImage,
     imageGenerateError,
@@ -42,24 +41,16 @@ export default function ImagePanel(props: any) {
   } = props;
 
   if (!imageAnglesPackage || imageAnglesPackage.angles.length === 0) {
-    const rawFallback = imageOutput || getInitialDraft('image', activeItem, activeContext);
     return (
-      <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-6 space-y-3 shadow-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-[#e7e0d4]">
-          <div className="flex items-center gap-2">
-            <ImageIcon size={16} className="text-primary" />
-            <h3 className="text-xs font-bold text-[#1f2933]">Draft Naskah Image</h3>
-          </div>
-          <button
-            onClick={() => handleCopyText('image_raw_draft', rawFallback, 'none')}
-            className="px-3 py-1.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-[#1f2933] text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-[#e7e0d4]"
-          >
-            {copiedStates['image_raw_draft'] ? <Check size={13} className="text-primary" /> : <Copy size={13} />}
-            <span>{copiedStates['image_raw_draft'] ? 'Tersalin' : 'Salin Naskah'}</span>
-          </button>
+      <div className="bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl p-8 shadow-xs text-center flex flex-col items-center justify-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+          <ImageIcon size={24} />
         </div>
-        <div className="whitespace-pre-wrap font-mono text-stone-800 text-xs leading-relaxed bg-[#f6f3ee] p-4 rounded-xl border border-[#e7e0d4]">
-          {rawFallback}
+        <div className="space-y-1 max-w-md">
+          <h4 className="text-sm font-bold text-[#1f2933]">Belum Ada Prompt Image</h4>
+          <p className="text-xs text-stone-500 leading-relaxed">
+            Belum ada draft Image yang dihasilkan untuk item ini. Klik &ldquo;Buat Prompt Gambar&rdquo; untuk menghasilkan 3 angle berdasarkan ContentItem, FunnelStrategy, dan context project yang aktif.
+          </p>
         </div>
       </div>
     );

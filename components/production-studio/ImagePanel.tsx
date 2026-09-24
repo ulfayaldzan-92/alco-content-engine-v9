@@ -25,7 +25,6 @@ export default function ImagePanel(props: any) {
     handleGenerateImage,
     nextStepVisibleKeys,
     handleDismissNextStep,
-    imageOutput,
     sourceItem,
     handleDownloadImage,
     imageGenerateError,

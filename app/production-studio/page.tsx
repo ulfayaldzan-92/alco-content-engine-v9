@@ -5344,13 +5344,15 @@ ${formatDirection}${revisionDirective}`;
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => handleCopyText(activeTab, currentOutputText || '', 'none')}
-                      className="p-2 hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl border border-[#e7e0d4] bg-[#fffdf8] transition-all shadow-xs cursor-pointer"
-                      title="Salin Naskah"
-                    >
-                      {copiedStates[activeTab] ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
-                    </button>
+                    {!(activeTab === 'image' && !currentOutputText.trim()) && (
+                      <button
+                        onClick={() => handleCopyText(activeTab, currentOutputText || '', 'none')}
+                        className="p-2 hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl border border-[#e7e0d4] bg-[#fffdf8] transition-all shadow-xs cursor-pointer"
+                        title="Salin Naskah"
+                      >
+                        {copiedStates[activeTab] ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
+                      </button>
+                    )}
                   </div>
                 </div>
 

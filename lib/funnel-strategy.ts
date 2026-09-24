@@ -118,7 +118,7 @@ export function buildFunnelStrategyFromContext(
   const firstBenefit = offerBenefits[0] || mainOffer;
 
   const campaignGoal =
-    optionCampaignGoal || `Membangun otoritas dan konversi seputar: ${coreMessage}`;
+    optionCampaignGoal || coreMessage;
 
   const tofuObjective = category
     ? `Membangun awareness awal dan problem recognition seputar ${category} tanpa unsur penjualan langsung.`

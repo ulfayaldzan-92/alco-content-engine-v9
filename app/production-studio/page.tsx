@@ -41,6 +41,7 @@ import {
   buildFunnelPromptBlock, 
   getFunnelRules, 
   normalizeFunnelStage, 
+  parseStrictFunnelStage,
   sanitizeCtaForFunnel, 
   getVoiceoverCtaForFunnel, 
   FUNNEL_CONTENT_RULES, 
@@ -486,11 +487,14 @@ const sanitizeAndAlignImageAngle = (
 ): ImageAngle | null => {
   if (!item || typeof item !== 'object') return null;
 
-  const requiredIds: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
-  const rawId = String(item.id || (angleIndex >= 0 && angleIndex < 3 ? requiredIds[angleIndex] : '')).toUpperCase().trim();
+  const rawId = String(item.id || '')
+    .toUpperCase()
+    .trim();
+
   if (rawId !== 'A' && rawId !== 'B' && rawId !== 'C') {
     return null;
   }
+
   const id: 'A' | 'B' | 'C' = rawId as 'A' | 'B' | 'C';
 
   const rawStage = (['TOFU', 'MOFU', 'BOFU'].includes(globalFunnelStage) 
@@ -732,16 +736,20 @@ const validateAndNormalizeImageAngles = (
   }
 
   // Derive authoritative funnel stage
-  const rawItemStage = activeItem?.jenis ? normalizeFunnelStage(activeItem.jenis) : null;
-  const rawAngleStage = (anglesArray[0] && (anglesArray[0].funnelStage || anglesArray[0].funnel_stage))
-    ? String(anglesArray[0].funnelStage || anglesArray[0].funnel_stage).toUpperCase().trim()
-    : null;
+  const itemStage = parseStrictFunnelStage(activeItem?.jenis);
+  const angleStageRaw = anglesArray[0]?.funnelStage || anglesArray[0]?.funnel_stage;
+  const angleStage = parseStrictFunnelStage(
+    typeof angleStageRaw === 'string' ? angleStageRaw : undefined
+  );
 
-  const rawStage = rawItemStage || rawAngleStage;
-  if (!rawStage || !['TOFU', 'MOFU', 'BOFU'].includes(rawStage)) {
+  if (itemStage && angleStage && itemStage !== angleStage) {
     return null;
   }
-  const funnelStage = rawStage as 'TOFU' | 'MOFU' | 'BOFU';
+
+  const funnelStage = itemStage || angleStage;
+  if (!funnelStage) {
+    return null;
+  }
   const coreHeadline = String(activeItem?.headline || '').trim();
 
   const validAngles: ImageAngle[] = [];
@@ -4345,6 +4353,10 @@ ${formatDirection}${revisionDirective}`;
     const textToParse = imageOutput || getInitialDraft('image', activeItem, activeContext);
     const normalizedJson = validateAndNormalizeImageAngles(textToParse, activeItem, activeContext, canAttachImageCandidate);
     if (!normalizedJson) {
+      if (canAttachImageCandidate) {
+        return null;
+      }
+
       const fallbackParsed = tryParseJSON(textToParse);
       if (!fallbackParsed) return null;
 

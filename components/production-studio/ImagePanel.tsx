@@ -67,7 +67,7 @@ export default function ImagePanel(props: any) {
 
   const activeAngle = imageAnglesPackage.angles.find((a: any) => a.id === selectedAngleId) || imageAnglesPackage.angles[0];
   const recommendedAngleId = imageAnglesPackage.recommendedAngleId || 'A';
-  const contentItemId = sourceItem?.content_item_id || activeItem?.content_item_id || '';
+  const contentItemId = sourceItem?.content_item_id || '';
   const canonicalKey = getGeneratedImageOutputKey(canonicalProjectId, contentItemId, activeAngle.id);
   
   const rawGeneratedImg = generatedImages?.[canonicalKey];

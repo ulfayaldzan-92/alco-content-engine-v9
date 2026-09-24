@@ -3139,6 +3139,10 @@ export default function ProductionStudioPage() {
 
   // State structure for the Production Studio
   const [sourceItem, setSourceItem] = useState<ContentItem | null>(null);
+  const currentContentItemIdRef = React.useRef<string | null>(sourceItem?.content_item_id ?? null);
+  useEffect(() => {
+    currentContentItemIdRef.current = sourceItem?.content_item_id ?? null;
+  }, [sourceItem?.content_item_id]);
   const [sharedContextSnapshot, setSharedContextSnapshot] = useState<SharedContentContext | null>(null);
   const [funnelStrategySnapshot, setFunnelStrategySnapshot] = useState<FunnelStrategy | null>(null);
   const [characterDNA, setCharacterDNA] = useState<CharacterDNA | null>(null);
@@ -3451,8 +3455,7 @@ export default function ProductionStudioPage() {
       if (
         getActiveProjectId() !== requestProjectId ||
         canonicalProjectId !== requestProjectId ||
-        !sourceItem ||
-        sourceItem.content_item_id !== requestContentItemId ||
+        currentContentItemIdRef.current !== requestContentItemId ||
         !isAuthorityMatch
       ) {
         console.warn('[Async Guard] Discarding stale generated image response');
@@ -3489,8 +3492,7 @@ export default function ProductionStudioPage() {
       if (
         getActiveProjectId() !== requestProjectId ||
         canonicalProjectId !== requestProjectId ||
-        !sourceItem ||
-        sourceItem.content_item_id !== requestContentItemId ||
+        currentContentItemIdRef.current !== requestContentItemId ||
         !isAuthorityMatch
       ) {
         return;

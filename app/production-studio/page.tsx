@@ -483,16 +483,24 @@ const sanitizeAndAlignImageAngle = (
   angleIndex: number,
   activeContext?: any,
   attachProductionCandidate: boolean = true
-): ImageAngle => {
-  const requiredIds: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
-  const rawId = (item.id || requiredIds[angleIndex] || 'A').toString().toUpperCase().trim();
-  const id: 'A' | 'B' | 'C' = (rawId === 'A' || rawId === 'B' || rawId === 'C') 
-    ? (rawId as 'A' | 'B' | 'C') 
-    : (requiredIds[angleIndex] || 'A');
+): ImageAngle | null => {
+  if (!item || typeof item !== 'object') return null;
 
-  const funnelStage = (['TOFU', 'MOFU', 'BOFU'].includes(globalFunnelStage) 
+  const requiredIds: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
+  const rawId = String(item.id || (angleIndex >= 0 && angleIndex < 3 ? requiredIds[angleIndex] : '')).toUpperCase().trim();
+  if (rawId !== 'A' && rawId !== 'B' && rawId !== 'C') {
+    return null;
+  }
+  const id: 'A' | 'B' | 'C' = rawId as 'A' | 'B' | 'C';
+
+  const rawStage = (['TOFU', 'MOFU', 'BOFU'].includes(globalFunnelStage) 
     ? globalFunnelStage 
-    : String(item.funnelStage || item.funnel_stage || 'TOFU').toUpperCase().trim()) as 'TOFU' | 'MOFU' | 'BOFU';
+    : String(item.funnelStage || item.funnel_stage || '').toUpperCase().trim());
+
+  if (!['TOFU', 'MOFU', 'BOFU'].includes(rawStage)) {
+    return null;
+  }
+  const funnelStage = rawStage as 'TOFU' | 'MOFU' | 'BOFU';
 
   let name = String(item.name || '').trim();
   if (!name) {
@@ -506,8 +514,6 @@ const sanitizeAndAlignImageAngle = (
   }
 
   const rawHeadline = (coreHeadline || item.headline || item.textOverlay || '').trim();
-  const headlineLower = rawHeadline.toLowerCase();
-  const isSocialProofHeadline = /ratusan|puluhan|ribuan|\b\d+\s*\+?\s*(klien|brand|bisnis|alumni|member|pengguna)|pemilik bisnis|pengusaha|komunitas|testimoni|terbukti|studi kasus|hasil nyata|portofolio/i.test(rawHeadline);
 
   const bofuTriggers = [
     'beli', 'diskon', 'promo', 'order', 'checkout', 'daftar sekarang',
@@ -515,233 +521,94 @@ const sanitizeAndAlignImageAngle = (
     'harga khusus', 'klik link', 'dm sekarang', 'garansi'
   ];
 
-  let rawVisualObjective = String(item.visualObjective || item.visual_objective || '').trim();
-  let rawTextOverlay = String(item.textOverlay || item.text_overlay || rawHeadline || '').trim();
-  let rawPrompt = String(item.finalPrompt || item.final_prompt || '').trim();
+  const rawVisualObjective = String(item.visualObjective || item.visual_objective || '').trim();
+  const rawTextOverlay = String(item.textOverlay || item.text_overlay || '').trim();
+  const rawPrompt = String(item.finalPrompt || item.final_prompt || '').trim();
 
-  let extractedObjective = extractPromptField('Visual Objective', rawPrompt) || rawVisualObjective;
-  let extractedSubject = extractPromptField('Subject', rawPrompt);
-  let extractedAction = extractPromptField('Action', rawPrompt);
-  let extractedExpression = extractPromptField('Expression', rawPrompt);
-  let extractedEnvironment = extractPromptField('Environment', rawPrompt);
-  let extractedComposition = extractPromptField('Composition', rawPrompt);
-  let extractedLighting = extractPromptField('Lighting', rawPrompt);
-  let extractedCamera = extractPromptField('Camera', rawPrompt);
-  let extractedStyle = extractPromptField('Visual Style', rawPrompt);
-  let extractedOverlayInPrompt = extractPromptField('Text Overlay', rawPrompt).replace(/^"|"$/g, '');
+  const extractedObjective = extractPromptField('Visual Objective', rawPrompt) || rawVisualObjective;
+  const extractedSubject = extractPromptField('Subject', rawPrompt) || String(item.subject || '').trim();
+  const extractedAction = extractPromptField('Action', rawPrompt) || String(item.action || '').trim();
+  const extractedExpression = extractPromptField('Expression', rawPrompt) || String(item.expression || '').trim();
+  const extractedEnvironment = extractPromptField('Environment', rawPrompt) || String(item.environment || '').trim();
+  const extractedComposition = extractPromptField('Composition', rawPrompt) || String(item.composition || '').trim();
+  const extractedLighting = extractPromptField('Lighting', rawPrompt) || String(item.lighting || '').trim();
+  const extractedCamera = extractPromptField('Camera', rawPrompt) || String(item.camera || '').trim();
+  const extractedStyle = extractPromptField('Visual Style', rawPrompt) || String(item.visualStyle || item.visual_style || '').trim();
+  const extractedOverlayInPrompt = extractPromptField('Text Overlay', rawPrompt).replace(/^"|"$/g, '').trim();
 
-  let isAligned = true;
-  const issues: string[] = [];
+  // Content-bearing fields must NOT be missing or empty
+  if (!extractedObjective || !extractedSubject || !extractedAction || !extractedExpression || !extractedEnvironment) {
+    return null;
+  }
 
-  // ==========================================
-  // DIMENSION 1: Funnel Stage vs Visual Objective
-  // ==========================================
-  let visualObjective = '';
+  const visualObjective = extractedObjective;
+  const subject = extractedSubject;
+  const action = extractedAction;
+  const expression = extractedExpression;
+  const environment = extractedEnvironment;
+
+  // Funnel alignment check - detect conflict and FAIL CLOSED (do not repair with generic marketing content)
   if (funnelStage === 'TOFU') {
-    const hasBofuObjective = /keputusan|beli|offer|demo|social proof|closing|hasil nyata/i.test(extractedObjective);
-    if (hasBofuObjective || !extractedObjective) {
-      if (hasBofuObjective) {
-        isAligned = false;
-        issues.push("Visual Objective awal mengandung elemen BOFU (penawaran/hasil); diselaraskan ke awareness & relatable problem TOFU.");
-      }
-      visualObjective = id === 'C' 
-        ? "Memicu rasa ingin tahu tinggi dan refleksi kritis terhadap kebiasaan kerja sehari-hari audiens tanpa unsur jualan."
-        : "Membangun awareness alami dan empati relatable situasi kerja sehari-hari audiens tanpa unsur jualan.";
-    } else {
-      visualObjective = extractedObjective;
-    }
+    const hasBofuObjective = /keputusan|beli|offer|demo|social proof|closing|hasil nyata/i.test(visualObjective);
+    if (hasBofuObjective) return null;
+
+    const hasBofuAction = /melihat dashboard hasil|analitik pertumbuhan|komunitas sukses|testimoni klien|siap membeli|closing/i.test(action);
+    if (hasBofuAction) return null;
+
+    const hasWrongExp = /closing|siap membeli/i.test(expression);
+    if (hasWrongExp) return null;
   } else if (funnelStage === 'MOFU') {
-    const isMismatched = /bingung ringan|caption kaku|daftar sekarang|beli|hard selling/i.test(extractedObjective);
-    if (isMismatched || !extractedObjective) {
-      if (isMismatched) {
-        isAligned = false;
-        issues.push("Visual Objective diselaraskan ke pembangunan pemahaman, framework solusi terstruktur, dan trust edukatif MOFU.");
-      }
-      visualObjective = id === 'B'
-        ? "Menyoroti perbandingan pola kerja terstruktur vs acak dan memberikan momen insight 'Aha!' yang edukatif."
-        : "Membangun pemahaman mendalam, framework solusi, perbandingan metode terstruktur, dan trust edukatif.";
-    } else {
-      visualObjective = extractedObjective;
-    }
+    const isMismatched = /daftar sekarang|beli|hard selling|closing/i.test(visualObjective);
+    if (isMismatched) return null;
+
+    const hasWrongAction = /membeli sekarang|checkout|daftar sekarang/i.test(action);
+    if (hasWrongAction) return null;
   } else {
     // BOFU
-    const hasTofuObjective = /caption terasa kaku|bingung ringan|kesadaran awal|awareness alami|tanpa unsur jualan|frustrasi kecil/i.test(extractedObjective);
-    if (hasTofuObjective || !extractedObjective) {
-      isAligned = false;
-      issues.push("Visual Objective awal menggunakan adegan awareness TOFU pada corong BOFU; diselaraskan ke kepercayaan & dorongan keputusan.");
-      if (isSocialProofHeadline || id === 'A') {
-        visualObjective = "Membangun kepercayaan mendalam dan mendorong keputusan akhir melalui social proof kredibel, komunitas nyata, dan validasi kepuasan pengguna.";
-      } else {
-        visualObjective = "Membangun kepercayaan dan mendorong keputusan melalui demonstrasi hasil nyata, keunggulan produk/solusi, dan kesiapan tindakan.";
-      }
-    } else {
-      visualObjective = extractedObjective;
-    }
+    const hasTofuObjective = /kesadaran awal|awareness alami|tanpa unsur jualan|frustrasi kecil/i.test(visualObjective);
+    if (hasTofuObjective) return null;
+
+    const hasTofuAction = /frustrasi kecil|ide konten mentok/i.test(action);
+    if (hasTofuAction) return null;
   }
 
-  // ==========================================
-  // DIMENSION 2 & 4: Headline vs Action & Expression
-  // ==========================================
-  let subject = extractedSubject;
-  let action = extractedAction;
-  let expression = extractedExpression;
-  let environment = extractedEnvironment;
-  let composition = extractedComposition || "Subjek di kanan tengah, menyisakan ruang negatif bersih yang lapang di area kiri atas untuk headline teks, framing rule of thirds editorial.";
-  let lighting = extractedLighting || "Cahaya alami lembut masuk dari jendela samping (soft warm ambient light), pencahayaan natural berdimensi.";
-  let camera = extractedCamera || "50mm f/2.0 lens photography feel, eye-level, depth of field halus dengan latar belakang sedikit blur (subtle bokeh).";
-  let visualStyle = extractedStyle || "Clean editorial Instagram photography, otentik bergaya dokumenter estetis, warna natural hangat, bukan poster iklan ramai atau foto stok generik.";
+  // Text Overlay resolution (must be authoritatively present, clean, non-placeholder, non-empty)
+  let textOverlay = (rawTextOverlay || extractedOverlayInPrompt || '').replace(/^"|"$/g, '').trim();
+  if (!textOverlay || textOverlay.includes('...') || textOverlay.includes('…') || textOverlay.includes('[Tulis hook') || textOverlay.length < 3) {
+    return null;
+  }
 
+  // Remove multi-dots/ellipsis from real text overlay
+  textOverlay = textOverlay.replace(/\.{2,}/g, '').replace(/…/g, '').trim();
+  if (!textOverlay) return null;
+
+  const overlayLower = textOverlay.toLowerCase();
   if (funnelStage === 'TOFU') {
-    // Check for BOFU actions
-    const hasBofuAction = /melihat dashboard hasil|analitik pertumbuhan|komunitas sukses|testimoni klien|siap membeli/i.test(action);
-    if (hasBofuAction || !action) {
-      if (hasBofuAction) {
-        isAligned = false;
-        issues.push("Action awal menampilkan bukti BOFU; diselaraskan ke situasi sehari-hari yang dialami kreator.");
-      }
-      subject = "Seorang kreator / profesional muda usia 26-28 tahun, berpakaian kemeja linen kasual santai, rambut tertata alami.";
-      action = id === 'C'
-        ? "Menghentikan gerakan tangan sesaat di atas touchpad laptop sebelum menekan klik, pandangan mata menatap intens ke layar dengan rasa penasaran."
-        : "Sedang membaca ulang draf caption di layar laptop sambil menopang dagu dengan satu tangan, tangan lainnya memegang cangkir keramik.";
-      environment = "Meja kerja kayu hangat di dekat jendela, laptop terbuka dengan dokumen draf, notebook catatan, cangkir kopi, dan tanaman hias kecil.";
-    }
-    // Check expression
-    const hasWrongExp = /puas|percaya|yakin|closing|siap membeli|sukses/i.test(expression);
-    if (hasWrongExp || !expression) {
-      if (hasWrongExp) {
-        isAligned = false;
-        issues.push("Ekspresi diselaraskan ke bingung ringan / penasaran / relate alami corong TOFU.");
-      }
-      expression = id === 'C'
-        ? "Tatapan mata fokus meneliti, alis sedikit berkerut tanda berpikir kritis dan penasaran sebelum mengambil keputusan."
-        : "Ekspresi bingung ringan dan senyum kecut reflektif (ekspresi 'kok tulisan ini kaku ya?'), alis sedikit terangkat, tatapan mata fokus meneliti layar.";
-    }
+    const hasBofuOverlay = bofuTriggers.some(t => overlayLower.includes(t));
+    if (hasBofuOverlay) return null;
   } else if (funnelStage === 'MOFU') {
-    const hasWrongAction = /menopang dagu dengan ekspresi bingung|membeli sekarang|checkout/i.test(action);
-    if (hasWrongAction || !action) {
-      if (hasWrongAction) {
-        isAligned = false;
-        issues.push("Action diselaraskan ke analisis framework, perbandingan solusi, dan momen edukasi MOFU.");
-      }
-      subject = "Tangan seorang profesional kreatif sedang menandai poin diagram alur penting dengan pulpen di atas jurnal kerja terbuka di samping laptop.";
-      action = "Jari tangan menunjuk ke catatan diagram checklist sederhana di notebook sambil membandingkan alur kerja di layar tablet digital.";
-      environment = "Workspace minimalis estetik, meja kayu bersih dengan laptop tipis, notebook jurnal terbuka, kacamata berbingkai tipis, dan tablet digital.";
-    }
-    const hasWrongExp = /bingung kaku|frustrasi|hard selling/i.test(expression);
-    if (hasWrongExp || !expression) {
-      if (hasWrongExp) {
-        isAligned = false;
-        issues.push("Ekspresi diselaraskan ke fokus dan momen 'Aha!' memahami solusi.");
-      }
-      expression = "Ekspresi fokus, mulai paham, tatapan 'aha moment' yang tenang dan penuh keyakinan saat menemukan keteraturan sistem baru.";
-    }
+    const hasHardBofu = ['beli sekarang', 'daftar sekarang', 'diskon 50%', 'slot terbatas', 'checkout'].some(t => overlayLower.includes(t));
+    if (hasHardBofu) return null;
   } else {
-    // BOFU: STRICTLY FORBID TOFU SCENES (caption kaku, bingung, menopang dagu frustrasi)
-    const hasTofuAction = /membaca ulang draf caption|menopang dagu|kok caption|kaku|bingung ringan|frustrasi kecil|ide konten mentok/i.test(action) ||
-                          /membaca ulang draf caption|menopang dagu|kok caption|kaku|bingung ringan/i.test(rawPrompt);
-    if (hasTofuAction || !action || isSocialProofHeadline) {
-      if (hasTofuAction) {
-        isAligned = false;
-        issues.push("Action awal menggunakan adegan TOFU (kebingungan draf); diubah total ke adegan BOFU (validasi hasil/social proof).");
-      }
-      
-      if (isSocialProofHeadline || id === 'A') {
-        subject = "Seorang pemilik bisnis / profesional muda usia 28-32 tahun, berpenampilan rapi smart casual modern.";
-        action = "Sedang melihat dashboard metrik pertumbuhan bisnis dan komunitas anggota aktif di layar laptop bersama rekan kerja, menunjukkan data validasi nyata.";
-        environment = "Studio kerja modern yang terang, laptop menampilkan grafik analitik positif dan forum komunitas, meja kayu rapi dengan secangkir kopi.";
-        expression = "Ekspresi yakin, bangga, dan percaya dengan senyum subtle puas (subtle confident smile), siap mengambil keputusan dan memperluas kolaborasi.";
-      } else if (id === 'B') {
-        subject = "Seorang solopreneur / praktisi profesional usia 27-30 tahun, berpakaian kemeja oxford rapi.";
-        action = "Sedang meninjau demonstrasi fitur alur kerja otomatis dan laporan hasil konversi yang sudah selesai di layar monitor laptop.";
-        environment = "Ruang kerja privat kontemporer dengan pencahayaan hangat, laptop menampilkan demo produk yang siap pakai, tata ruang rapi teratur.";
-        expression = "Ekspresi puas, tertarik, dan penuh keyakinan atas bukti efektivitas solusi yang terlihat di layar.";
-      } else {
-        subject = "Seorang pebisnis / kreator mapan usia 28-32 tahun, gaya modern profesional.";
-        action = "Sedang menandatangani atau menekan konfirmasi pada perangkat kerja dengan tampilan paket solusi lengkap yang siap dieksekusi.";
-        environment = "Meja meeting minimalis bergaya Scandinavian, laptop tipis dengan tampilan penawaran solusi terstruktur, suasana kerja premium.";
-        expression = "Ekspresi percaya diri, tenang, dan siap melangkah (decisive commitment).";
-      }
-    }
-
-    const hasTofuExp = /bingung ringan|senyum kecut|alis berkerut heran|frustrasi/i.test(expression);
-    if (hasTofuExp || !expression) {
-      if (hasTofuExp) {
-        isAligned = false;
-        issues.push("Ekspresi awal bingung diselaraskan ke ekspresi percaya, yakin, dan subtle confident smile BOFU.");
-      }
-      expression = "Ekspresi yakin, tertarik, percaya, subtle smile puas, menunjukkan kesiapan mengambil keputusan.";
-    }
+    // BOFU: cannot be purely naive question without value/action
+    const isTofuQuestion = /kok caption.*kaku|kenapa tulisan.*kaku|udah nulis lama.*hambar/i.test(overlayLower);
+    if (isTofuQuestion) return null;
   }
 
-  // ==========================================
-  // DIMENSION 3: Text Overlay vs Funnel Stage
-  // ==========================================
-  let textOverlay = (rawTextOverlay || extractedOverlayInPrompt || rawHeadline).trim();
-  // Clean placeholders or ellipsis
-  if (textOverlay.includes('...') || textOverlay.includes('…') || textOverlay.includes('[Tulis hook')) {
-    textOverlay = '';
-  }
-  let overlayLower = textOverlay.toLowerCase();
-
-  if (funnelStage === 'TOFU') {
-    const hasBofuOverlay = bofuTriggers.some(t => overlayLower.includes(t)) || isSocialProofHeadline;
-    if (hasBofuOverlay) {
-      isAligned = false;
-      issues.push("Text Overlay awal mengandung penawaran/urgensi/social proof BOFU; diselaraskan ke hook problem awareness TOFU.");
-      textOverlay = id === 'C' 
-        ? "Satu kebiasaan kecil sebelum posting yang sering dilewatkan."
-        : id === 'B'
-        ? "Udah nulis lama, tapi pas dibaca kok tetap hambar?"
-        : buildShortImageOverlay(rawHeadline, 'TOFU');
-    } else if (!textOverlay || textOverlay.length < 5) {
-      textOverlay = id === 'C'
-        ? "Satu kebiasaan kecil sebelum posting yang sering dilewatkan."
-        : id === 'B'
-        ? "Udah nulis lama, tapi pas dibaca kok tetap hambar?"
-        : buildShortImageOverlay(rawHeadline, 'TOFU');
-    } else {
-      textOverlay = buildShortImageOverlay(textOverlay, 'TOFU');
-    }
-  } else if (funnelStage === 'MOFU') {
-    const hasHardBofu = ['beli sekarang', 'daftar sekarang', 'diskon 50%', 'slot terbatas'].some(t => overlayLower.includes(t));
-    if (hasHardBofu) {
-      isAligned = false;
-      issues.push("Text Overlay diselaraskan menjadi insight / perbandingan framework MOFU.");
-      textOverlay = "Bukan kurang rajin, cuma belum punya sistem alur yang jelas.";
-    } else if (!textOverlay || textOverlay.length < 5) {
-      textOverlay = id === 'C'
-        ? "Framework 4 langkah agar pesan konten langsung kena ke audiens."
-        : id === 'B'
-        ? "Masalahnya bukan rajin posting, tapi alur narasinya."
-        : "Bukan kurang rajin, cuma belum punya sistem alur yang jelas.";
-    } else {
-      textOverlay = textOverlay.replace(/\.{2,}/g, '').replace(/…/g, '').trim();
-    }
-  } else {
-    // BOFU
-    const isTofuQuestion = /kok caption.*kaku|kenapa tulisan.*kaku|udah nulis lama.*hambar|pernah merasa begini/i.test(overlayLower);
-    if (isTofuQuestion) {
-      isAligned = false;
-      issues.push("Text Overlay awal menggunakan pertanyaan problem awareness TOFU; diselaraskan ke pesan bukti/penawaran BOFU.");
-      textOverlay = isSocialProofHeadline
-        ? rawHeadline
-        : (id === 'A' ? "Ratusan Pemilik Bisnis Sudah Membuktikan Alurnya." : id === 'B' ? "Lihat hasil nyata alurnya sekarang." : "Siap pakai untuk pertumbuhan konten bisnismu.");
-    } else if (!textOverlay || textOverlay.length < 5) {
-      textOverlay = isSocialProofHeadline ? rawHeadline : (id === 'A' ? "Ratusan Pemilik Bisnis Sudah Membuktikan Alurnya." : id === 'B' ? "Lihat hasil nyata alurnya sekarang." : "Siap pakai untuk pertumbuhan konten bisnismu.");
-    } else {
-      textOverlay = textOverlay.replace(/\.{2,}/g, '').replace(/…/g, '').trim();
-    }
-  }
-
-  // Ensure clean captionForPost
+  // Caption for post resolution (must be authoritatively present, non-placeholder, non-empty)
   let captionForPost = String(item.captionForPost || item.caption_for_post || '').trim();
-  if (!captionForPost || captionForPost === '...' || captionForPost === '…' || captionForPost.includes('[Tulis caption')) {
-    captionForPost = buildDefaultCaptionForImage(rawHeadline, funnelStage, id, textOverlay);
+  if (!captionForPost || captionForPost === '...' || captionForPost === '…' || captionForPost.includes('[Tulis caption') || captionForPost.includes('[Caption') || captionForPost.length < 5) {
+    return null;
   }
 
-  // ==========================================
-  // RECONSTRUCT STRICT CANONICAL finalPrompt
-  // ==========================================
+  // Safe visual production rules fallbacks
+  const composition = extractedComposition || "Subjek di kanan tengah, menyisakan ruang negatif bersih yang lapang di area kiri atas untuk headline teks, framing rule of thirds editorial.";
+  const lighting = extractedLighting || "Cahaya alami lembut masuk dari jendela samping (soft warm ambient light), pencahayaan natural berdimensi.";
+  const camera = extractedCamera || "50mm f/2.0 lens photography feel, eye-level, depth of field halus dengan latar belakang sedikit blur (subtle bokeh).";
+  const visualStyle = extractedStyle || "Clean editorial Instagram photography, otentik bergaya dokumenter estetis, warna natural hangat, bukan poster iklan ramai atau foto stok generik.";
+  const negativeConstraints = 'hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic.';
+
+  // Reconstruct strict canonical finalPrompt
   const finalPrompt = `Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):
 
 Funnel Stage: ${funnelStage}
@@ -756,25 +623,24 @@ Camera: ${camera}
 Visual Style: ${visualStyle}
 Typography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.
 Text Overlay: "${textOverlay}"${getBrandVisualRulesBlock(activeContext)}
-Negative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic.`;
-
-  const reason = isAligned
-    ? `Selaras 100% dengan corong ${funnelStage}: Visual Objective, Action, Expression, dan Text Overlay terbukti sinkron tanpa konflik.`
-    : `Penyelarasan otomatis corong ${funnelStage} diterapkan: ${issues.join(' ')}`;
+Negative Prompt: ${negativeConstraints}`;
 
   const messageAlignmentCheck: MessageAlignmentCheck = {
-    isAligned,
-    issue: issues.length > 0 ? issues.join(' ') : undefined,
+    isAligned: true,
     fixedTextOverlay: textOverlay,
-    reason,
+    reason: `Selaras 100% dengan corong ${funnelStage}: Visual Objective, Action, Expression, dan Text Overlay terbukti sinkron tanpa konflik.`,
   };
 
   const rawBrief = item.strategyBrief || item.strategy_brief || {};
+  const rawAudience = String(rawBrief.audienceContext || rawBrief.audience_context || '').trim();
+  const contextAudience = activeContext?.audience_context?.primary_audience?.trim() || '';
+  const resolvedAudience = rawAudience || contextAudience || '';
+
   const strategyBrief: StrategyBrief = {
     funnelStage,
-    tujuanKonten: String(rawBrief.tujuanKonten || rawBrief.tujuan_konten || (funnelStage === 'TOFU' ? 'Membangun awareness alami' : funnelStage === 'MOFU' ? 'Membangun pemahaman & trust' : 'Mendorong keputusan & validasi')).trim(),
+    tujuanKonten: String(rawBrief.tujuanKonten || rawBrief.tujuan_konten || getFunnelRules(funnelStage).goal || '').trim(),
     ideUtama: String(rawBrief.ideUtama || rawBrief.ide_utama || coreHeadline || rawHeadline || name).trim(),
-    audienceContext: String(rawBrief.audienceContext || rawBrief.audience_context || (funnelStage === 'BOFU' ? 'Target pembeli siap mengambil keputusan' : 'Kreator & Pemilik Bisnis')).trim(),
+    audienceContext: resolvedAudience,
     angle: name,
     emosiUtama: String(rawBrief.emosiUtama || rawBrief.emosi_utama || (funnelStage === 'TOFU' ? 'Merasa relate, penasaran' : funnelStage === 'MOFU' ? 'Tersadar, momen Aha!' : 'Percaya, yakin, mantap')).trim(),
     pesanVisual: String(rawBrief.pesanVisual || rawBrief.pesan_visual || visualObjective).trim(),
@@ -793,10 +659,17 @@ Negative Prompt: hard selling ads, cluttered poster, too much text, generic stoc
         visualStyle,
         textOverlay,
         branding: '',
-        negativeConstraints: 'hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic.',
+        negativeConstraints,
         finalPrompt,
       })
     : undefined;
+
+  if (attachProductionCandidate && productionCandidate) {
+    const candidateVal = validateProductionCandidate(productionCandidate);
+    if (!candidateVal.isValid) {
+      return null;
+    }
+  }
 
   return {
     id,
@@ -853,51 +726,51 @@ const validateAndNormalizeImageAngles = (
     }
   }
 
-  if (!Array.isArray(anglesArray) || anglesArray.length === 0) {
+  // Exactly 3 angles required
+  if (!Array.isArray(anglesArray) || anglesArray.length !== 3) {
     return null;
   }
 
-  const rawStage = String(
-    (anglesArray[0] && (anglesArray[0].funnelStage || anglesArray[0].funnel_stage)) ||
-    activeItem?.jenis ||
-    'TOFU'
-  ).toUpperCase();
-  const funnelStage: 'TOFU' | 'MOFU' | 'BOFU' = rawStage.includes('MOFU') ? 'MOFU' : rawStage.includes('BOFU') ? 'BOFU' : 'TOFU';
+  // Derive authoritative funnel stage
+  const rawItemStage = activeItem?.jenis ? normalizeFunnelStage(activeItem.jenis) : null;
+  const rawAngleStage = (anglesArray[0] && (anglesArray[0].funnelStage || anglesArray[0].funnel_stage))
+    ? String(anglesArray[0].funnelStage || anglesArray[0].funnel_stage).toUpperCase().trim()
+    : null;
+
+  const rawStage = rawItemStage || rawAngleStage;
+  if (!rawStage || !['TOFU', 'MOFU', 'BOFU'].includes(rawStage)) {
+    return null;
+  }
+  const funnelStage = rawStage as 'TOFU' | 'MOFU' | 'BOFU';
   const coreHeadline = String(activeItem?.headline || '').trim();
 
   const validAngles: ImageAngle[] = [];
 
-  for (let i = 0; i < anglesArray.length && validAngles.length < 3; i++) {
+  for (let i = 0; i < anglesArray.length; i++) {
     const item = anglesArray[i];
-    if (!item || typeof item !== 'object') continue;
+    if (!item || typeof item !== 'object') return null;
 
     const alignedAngle = sanitizeAndAlignImageAngle(
       item,
       funnelStage,
       coreHeadline,
-      validAngles.length,
+      i,
       activeContext,
       attachProductionCandidate
     );
+    if (!alignedAngle) {
+      return null;
+    }
     validAngles.push(alignedAngle);
   }
 
-  if (validAngles.length === 0) {
+  if (validAngles.length !== 3) {
     return null;
   }
 
-  // Ensure we have 3 angles if at least 1 valid angle was found
-  while (validAngles.length < 3) {
-    const nextIndex = validAngles.length;
-    const placeholder = sanitizeAndAlignImageAngle(
-      {},
-      funnelStage,
-      coreHeadline,
-      nextIndex,
-      activeContext,
-      attachProductionCandidate
-    );
-    validAngles.push(placeholder);
+  const ids = new Set(validAngles.map(a => a.id));
+  if (ids.size !== 3 || !ids.has('A') || !ids.has('B') || !ids.has('C')) {
+    return null;
   }
 
   if (!recommendationReason) {
@@ -3292,8 +3165,8 @@ export default function ProductionStudioPage() {
     if (!angleId || !!imageGeneratingKey || !canonicalProjectId) return;
 
     // Strict authority check (NO fallback item)
-    if (!sourceItem) {
-      setImageGenerateError('Authoritative ContentItem tidak ditemukan (sourceItem null). Production package diblokir.');
+    if (!sourceItem || !sourceItem.content_item_id) {
+      setImageGenerateError('Authoritative ContentItem tidak ditemukan atau tidak memiliki content_item_id. Production package diblokir.');
       showToast('Gagal: ContentItem tidak valid untuk produksi.');
       return;
     }
@@ -4501,9 +4374,13 @@ ${formatDirection}${revisionDirective}`;
       if (!Array.isArray(list) || list.length === 0) return null;
 
       const fallbackStage = normalizeFunnelStage(activeItem?.jenis);
-      const formattedAngles: ImageAngle[] = list.map((item: any, i: number) => {
-        return sanitizeAndAlignImageAngle(item, fallbackStage, activeItem?.headline || '', i, activeContext, canAttachImageCandidate);
-      });
+      const formattedAngles: ImageAngle[] = list
+        .map((item: any, i: number) => {
+          return sanitizeAndAlignImageAngle(item, fallbackStage, activeItem?.headline || '', i, activeContext, canAttachImageCandidate);
+        })
+        .filter((a): a is ImageAngle => Boolean(a));
+
+      if (formattedAngles.length === 0) return null;
 
       return {
         recommendedAngleId,

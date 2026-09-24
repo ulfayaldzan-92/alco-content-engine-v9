@@ -1928,75 +1928,263 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 2 (TANPA MARKDOWN):
 }`;
 }
 
+// Helper function to validate Carousel Stage 1 Content Plan (strictly narrative, no visual prompts)
+function validateCarouselStage1ContentPlan(
+  rawTextOrObj: any,
+  expectedFunnelStage: FunnelStage
+): any | null {
+  if (!rawTextOrObj) return null;
+  const parsed = typeof rawTextOrObj === 'string' ? tryParseJSON(rawTextOrObj) : rawTextOrObj;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  // Strict funnel stage validation
+  const rawFunnel = String(parsed.funnel_stage || parsed.funnelStage || '').toUpperCase().trim();
+  const validFunnel: FunnelStage | null = (rawFunnel === 'TOFU' || rawFunnel === 'MOFU' || rawFunnel === 'BOFU') ? (rawFunnel as FunnelStage) : null;
+  if (!validFunnel || validFunnel !== expectedFunnelStage) {
+    return null;
+  }
+
+  // Required top-level non-empty fields from Stage 1 contract
+  const contentGoal = String(parsed.content_goal || parsed.contentGoal || '').trim();
+  const currentBelief = String(parsed.current_belief || parsed.currentBelief || '').trim();
+  const desiredBelief = String(parsed.desired_belief || parsed.desiredBelief || '').trim();
+  const corePromise = String(parsed.core_promise || parsed.corePromise || '').trim();
+  const primaryCtaType = String(parsed.primary_cta_type || parsed.primaryCtaType || '').trim();
+  const primaryCtaText = String(parsed.primary_cta_text || parsed.primaryCtaText || '').trim();
+
+  if (!contentGoal || !currentBelief || !desiredBelief || !corePromise || !primaryCtaType || !primaryCtaText) {
+    return null;
+  }
+
+  // Slide count and slides array: strictly 5 slides
+  const rawSlides = parsed.slides;
+  if (!Array.isArray(rawSlides) || rawSlides.length !== 5) {
+    return null;
+  }
+
+  if (parsed.slide_count !== undefined && Number(parsed.slide_count) !== 5) {
+    return null;
+  }
+
+  const expectedRoles = ['hook', 'problem', 'reframe', 'learn', 'cta'];
+  const validatedSlides: any[] = [];
+
+  for (let i = 0; i < 5; i++) {
+    const s = rawSlides[i];
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+
+    const slideNum = Number(s.slide);
+    if (slideNum !== i + 1) return null;
+
+    const role = String(s.role || '').toLowerCase().trim();
+    if (role !== expectedRoles[i]) return null;
+
+    const communicationJob = String(s.communication_job || s.communicationJob || '').trim();
+    const headline = String(s.headline || '').trim();
+    const body = String(s.body || '').trim();
+    const swipeBridge = String(s.swipe_bridge || s.swipeBridge || '').trim();
+    const emotionalState = String(s.emotional_state || s.emotionalState || '').trim();
+    const coreMessage = String(s.core_message || s.coreMessage || '').trim();
+    const audienceEmotion = String(s.audience_emotion || s.audienceEmotion || '').trim();
+
+    if (!communicationJob || !headline || !body || !swipeBridge || !emotionalState || !coreMessage || !audienceEmotion) {
+      return null;
+    }
+
+    validatedSlides.push({
+      slide: slideNum,
+      role,
+      communication_job: communicationJob,
+      headline,
+      body,
+      swipe_bridge: swipeBridge,
+      emotional_state: emotionalState,
+      core_message: coreMessage,
+      audience_emotion: audienceEmotion,
+    });
+  }
+
+  return {
+    ...parsed,
+    content_goal: contentGoal,
+    funnel_stage: validFunnel,
+    current_belief: currentBelief,
+    desired_belief: desiredBelief,
+    core_promise: corePromise,
+    primary_cta_type: primaryCtaType,
+    primary_cta_text: primaryCtaText,
+    slide_count: 5,
+    slides: validatedSlides,
+  };
+}
+
+// Helper function to validate Carousel Stage 2 Visual Enrichment (strictly visual layers)
+function validateCarouselStage2VisualPlan(rawTextOrObj: any): any | null {
+  if (!rawTextOrObj) return null;
+  const parsed = typeof rawTextOrObj === 'string' ? tryParseJSON(rawTextOrObj) : rawTextOrObj;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  const rawSlides = parsed.slides;
+  if (!Array.isArray(rawSlides) || rawSlides.length !== 5) {
+    return null;
+  }
+
+  const seenSlideNums = new Set<number>();
+  const validatedSlides: any[] = [];
+
+  for (const s of rawSlides) {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+
+    const slideNum = Number(s.slide);
+    if (![1, 2, 3, 4, 5].includes(slideNum) || seenSlideNums.has(slideNum)) {
+      return null;
+    }
+    seenSlideNums.add(slideNum);
+
+    const visualFormat = String(s.visual_format || s.visualFormat || '').toLowerCase().trim();
+    if (visualFormat !== 'photography' && visualFormat !== 'infographic' && visualFormat !== 'hybrid') {
+      return null;
+    }
+
+    const visualIntent = String(s.visual_intent || s.visualIntent || '').trim();
+    const visualType = String(s.visual_type || s.visualType || '').trim();
+    const textZone = String(s.text_zone || s.textZone || '').trim();
+    const negativeSpacePlan = String(s.negative_space_plan || s.negativeSpacePlan || '').trim();
+    const productionPrompt = String(s.production_prompt || s.productionPrompt || '').trim();
+    const slideImagePrompt = String(s.slide_image_prompt || s.slideImagePrompt || '').trim();
+
+    if (!visualIntent || !visualType || !textZone || !negativeSpacePlan || !productionPrompt || !slideImagePrompt) {
+      return null;
+    }
+
+    const vp = s.visual_production || s.visualProduction;
+    if (!vp || typeof vp !== 'object' || Array.isArray(vp)) {
+      return null;
+    }
+
+    const subject = String(vp.subject || '').trim();
+    const action = String(vp.action || '').trim();
+    const composition = String(vp.composition || '').trim();
+    const layout = String(vp.layout || '').trim();
+    const visualMetaphor = String(vp.visual_metaphor || vp.visualMetaphor || '').trim();
+    const typography = String(vp.typography || '').trim();
+    const background = String(vp.background || '').trim();
+    const colorMood = String(vp.color_mood || vp.colorMood || '').trim();
+    const negativeSpace = String(vp.negative_space || vp.negativeSpace || '').trim();
+    const negativePrompt = String(vp.negative_prompt || vp.negativePrompt || '').trim();
+
+    if (
+      !subject || !action || !composition || !layout || !visualMetaphor ||
+      !typography || !background || !colorMood || !negativeSpace || !negativePrompt
+    ) {
+      return null;
+    }
+
+    validatedSlides.push({
+      slide: slideNum,
+      visual_format: visualFormat as VisualFormatType,
+      visual_intent: visualIntent,
+      visual_type: visualType,
+      text_zone: textZone,
+      negative_space_plan: negativeSpacePlan,
+      creative_strategy: s.creative_strategy,
+      visual_production: {
+        subject,
+        action,
+        composition,
+        layout,
+        visual_metaphor: visualMetaphor,
+        typography,
+        background,
+        color_mood: colorMood,
+        negative_space: negativeSpace,
+        negative_prompt: negativePrompt,
+      },
+      production_prompt: productionPrompt,
+      slide_image_prompt: slideImagePrompt,
+    });
+  }
+
+  if (seenSlideNums.size !== 5) return null;
+
+  validatedSlides.sort((a, b) => a.slide - b.slide);
+
+  return {
+    ...parsed,
+    slides: validatedSlides,
+  };
+}
+
 // Helper function to merge Stage 1 (Content Plan) and Stage 2 (Visual Enrichment) into canonical Carousel Plan JSON
-// ENFORCES: Stage 2 MUST NOT rewrite narrative content from Stage 1 (Test F compliant)
+// ENFORCES: Stage 2 MUST NOT rewrite narrative content from Stage 1
 const mergeCarouselPlanStages = (
   stage1Raw: any,
   stage2Raw: any,
   activeItem?: any,
-  activeContext?: any
+  activeContext?: any,
+  expectedFunnelStage?: FunnelStage
 ): string | null => {
-  const stage1Obj = typeof stage1Raw === 'string' ? tryParseJSON(stage1Raw) : stage1Raw;
-  if (!stage1Obj || typeof stage1Obj !== 'object') return null;
+  const currentStage: FunnelStage = expectedFunnelStage || normalizeFunnelStage(activeItem?.jenis);
+  const validStage1 = validateCarouselStage1ContentPlan(stage1Raw, currentStage);
+  if (!validStage1) return null;
 
-  const stage2Obj = typeof stage2Raw === 'string' ? tryParseJSON(stage2Raw) : stage2Raw;
-  const s1Obj = Array.isArray(stage1Obj) ? stage1Obj[0] : stage1Obj;
-  const s2Obj = (stage2Obj && typeof stage2Obj === 'object')
-    ? (Array.isArray(stage2Obj) ? stage2Obj[0] : stage2Obj)
-    : {};
+  const validStage2 = validateCarouselStage2VisualPlan(stage2Raw);
+  if (!validStage2) return null;
 
-  const s1Slides = Array.isArray(s1Obj.slides) ? s1Obj.slides : [];
-  const s2Slides = Array.isArray(s2Obj.slides) ? s2Obj.slides : [];
+  const s1Slides: any[] = validStage1.slides;
+  const s2Slides: any[] = validStage2.slides;
 
-  if (s1Slides.length === 0) return null;
+  if (s1Slides.length !== 5 || s2Slides.length !== 5) return null;
 
-  const mergedSlides = s1Slides.map((s1: any, idx: number) => {
-    const slideNum = Number(s1.slide || idx + 1);
-    const s2 = s2Slides.find((item: any) => Number(item.slide) === slideNum) || {};
+  const mergedSlides = s1Slides.map((s1: any) => {
+    const slideNum = Number(s1.slide);
+    const s2 = s2Slides.find((item: any) => Number(item.slide) === slideNum);
+    if (!s2) return null;
 
     // Narrative content is strictly protected from Stage 1:
     return {
-      ...s1,
       slide: slideNum,
-      role: s1.role || 'content',
-      communication_job: s1.communication_job || '',
-      headline: s1.headline || '',
-      body: s1.body || '',
-      swipe_bridge: s1.swipe_bridge || '',
-      emotional_state: s1.emotional_state || '',
-      core_message: s1.core_message || s1.creative_strategy?.core_message || s1.headline || '',
-      audience_emotion: s1.audience_emotion || s1.creative_strategy?.audience_emotion || s1.emotional_state || '',
+      role: s1.role,
+      communication_job: s1.communication_job,
+      headline: s1.headline,
+      body: s1.body,
+      swipe_bridge: s1.swipe_bridge,
+      emotional_state: s1.emotional_state,
+      core_message: s1.core_message,
+      audience_emotion: s1.audience_emotion,
 
-      // Visual fields enriched from Stage 2 (or retained from previous enrichment)
-      visual_format: s2.visual_format || s1.visual_format || (slideNum === 1 ? 'photography' : 'infographic'),
-      visual_intent: s2.visual_intent || s1.visual_intent || '',
-      visual_type: s2.visual_type || s1.visual_type || (slideNum === 1 ? 'editorial-photo' : 'minimal-diagram'),
-      text_zone: s2.text_zone || s1.text_zone || 'Upper Third / Left Aligned',
-      negative_space_plan: s2.negative_space_plan || s1.negative_space_plan || 'Ruang bersih 40%',
+      // Visual fields strictly from Stage 2:
+      visual_format: s2.visual_format,
+      visual_intent: s2.visual_intent,
+      visual_type: s2.visual_type,
+      text_zone: s2.text_zone,
+      negative_space_plan: s2.negative_space_plan,
       creative_strategy: {
-        funnel_stage: s1.creative_strategy?.funnel_stage || s1Obj.funnel_stage || 'TOFU',
-        slide_role: s1.role || 'content',
-        visual_objective: s2.creative_strategy?.visual_objective || s2.visual_intent || s1.creative_strategy?.visual_objective || s1.visual_intent || '',
-        core_message: s1.headline || '',
-        audience_emotion: s1.emotional_state || s1.creative_strategy?.audience_emotion || '',
-        visual_concept: s2.creative_strategy?.visual_concept || s2.visual_production?.visual_metaphor || s1.creative_strategy?.visual_concept || '',
-        text_overlay: s1.headline || '',
+        funnel_stage: validStage1.funnel_stage,
+        slide_role: s1.role,
+        visual_objective: s2.creative_strategy?.visual_objective || s2.visual_intent,
+        core_message: s1.core_message || s1.headline,
+        audience_emotion: s1.audience_emotion || s1.emotional_state,
+        visual_concept: s2.creative_strategy?.visual_concept || s2.visual_production?.visual_metaphor || '',
+        text_overlay: s1.headline,
       },
-      visual_production: s2.visual_production || s1.visual_production,
-      production_prompt: s2.production_prompt || s1.production_prompt,
-      slide_image_prompt: s2.slide_image_prompt || s1.slide_image_prompt,
+      visual_production: s2.visual_production,
+      production_prompt: s2.production_prompt,
+      slide_image_prompt: s2.slide_image_prompt,
     };
   });
 
+  if (mergedSlides.some((s) => s === null)) return null;
+
   const mergedPlan = {
-    ...s1Obj,
-    visual_system_notes: s2Obj.visual_system_notes || s1Obj.visual_system_notes || 'Tema visual konsisten 4:5 vertical editorial.',
-    captionForPost: s2Obj.captionForPost || s1Obj.captionForPost || buildFunnelAlignedCarouselCaption(s1Obj.funnel_stage || 'TOFU', activeItem, mergedSlides, s1Obj.primary_cta_text, activeContext),
-    captionInstruction: s2Obj.captionInstruction || s1Obj.captionInstruction || 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.',
+    ...validStage1,
+    visual_system_notes: validStage2.visual_system_notes || 'Tema visual konsisten 4:5 vertical editorial.',
+    captionForPost: validStage1.captionForPost || validStage2.captionForPost || buildFunnelAlignedCarouselCaption(validStage1.funnel_stage, activeItem, mergedSlides as CarouselSlide[], validStage1.primary_cta_text, activeContext),
+    captionInstruction: validStage1.captionInstruction || validStage2.captionInstruction || 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.',
     slides: mergedSlides,
   };
 
-  return validateAndNormalizeCarouselPlan(JSON.stringify(mergedPlan), activeItem, activeContext);
+  return validateAndNormalizeCarouselPlan(JSON.stringify(mergedPlan), activeItem, activeContext, true);
 };
 
 // Funnel-aligned caption generator for Video summarizing full video
@@ -3632,31 +3820,20 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
           }
 
           const stage1Text = data1.text || '';
-          let stage1Parsed = tryParseJSON(stage1Text);
-          if (!stage1Parsed || typeof stage1Parsed !== 'object') {
-            const normalizedFallback = validateAndNormalizeCarouselPlan(stage1Text, activeItem, activeContext);
-            if (normalizedFallback) {
-              stage1Parsed = tryParseJSON(normalizedFallback);
-            }
+          const stage1Parsed = validateCarouselStage1ContentPlan(stage1Text, funnelStage);
+
+          if (!stage1Parsed) {
+            setGenerationError("Format respon Stage 1 Content Plan tidak valid atau tidak memenuhi skema. Silakan coba lagi.");
+            showToast("Gagal: Format Stage 1 tidak sesuai skema.");
+            return;
           }
 
-          const normalizedStage1 = validateAndNormalizeCarouselPlan(
-            typeof stage1Parsed === 'object' ? JSON.stringify(stage1Parsed) : stage1Text,
-            activeItem,
-            activeContext
-          );
-
-          if (normalizedStage1) {
-            saveCarouselOutput(normalizedStage1);
-            setCarouselOutputSource('generated_output');
-          }
-
-          // STAGE 2: VISUAL ENRICHMENT
+          // STAGE 2: VISUAL ENRICHMENT (MANDATORY)
           showToast("[2/2] Gemini AI: Menghasilkan Stage 2 (Visual Enrichment)...");
 
           const stage2Prompt = buildCarouselStage2Prompt(
             funnelStage,
-            normalizedStage1 || JSON.stringify(stage1Parsed || {}),
+            JSON.stringify(stage1Parsed),
             formattedContext
           );
 
@@ -3682,16 +3859,19 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
 
           if (!resp2.ok) {
             let errText = 'Stage 2 request failed';
+            let is429 = resp2.status === 429;
             try {
               const errData = await resp2.json();
               if (errData && errData.error) errText = errData.error;
+              if (errData?.isRateLimit) is429 = true;
             } catch (_) {}
 
-            showToast(`Stage 2 bermasalah (${errText}). Menggunakan Stage 1 Content Plan.`);
-            if (normalizedStage1) {
-              setGenerationError(null);
-              saveCarouselOutput(normalizedStage1);
-              setCarouselOutputSource('generated_output');
+            if (is429 || /dibatasi|rate.*limit|quota|429/i.test(errText)) {
+              setGenerationError("Permintaan AI sedang dibatasi (Rate Limit / High Demand). Coba lagi beberapa saat.");
+              showToast("Permintaan AI sedang dibatasi. Coba lagi beberapa saat.");
+            } else {
+              setGenerationError(errText || "Gagal memproses Stage 2 Visual Enrichment. Silakan coba lagi.");
+              showToast(`Gagal Stage 2: ${errText}`);
             }
             return;
           }
@@ -3711,22 +3891,18 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
           }
 
           const stage2Text = data2.text || '';
-          const mergedPlanStr = mergeCarouselPlanStages(stage1Parsed, stage2Text, activeItem, activeContext);
+          const mergedPlanStr = mergeCarouselPlanStages(stage1Parsed, stage2Text, activeItem, activeContext, funnelStage);
 
-          const chosenPlanStr = mergedPlanStr || normalizedStage1;
-
-          if (chosenPlanStr) {
-            setGenerationError(null);
-            saveCarouselOutput(chosenPlanStr);
-            setCarouselOutputSource('generated_output');
-            showToast(mergedPlanStr
-              ? `Aset CAROUSEL (2-Stage Blueprint) berhasil dioptimalkan oleh Gemini AI!`
-              : `Aset CAROUSEL Stage 1 Content Plan berhasil disimpan!`
-            );
-          } else {
-            setGenerationError("Format respon AI tidak valid atau tidak memenuhi skema Carousel canonical. Silakan coba lagi.");
+          if (!mergedPlanStr) {
+            setGenerationError("Format respon Stage 2 atau hasil penggabungan Carousel tidak valid atau tidak memenuhi skema canonical. Silakan coba lagi.");
             showToast("Gagal: Format respon AI tidak sesuai skema.");
+            return;
           }
+
+          setGenerationError(null);
+          saveCarouselOutput(mergedPlanStr);
+          setCarouselOutputSource('generated_output');
+          showToast(`Aset CAROUSEL (2-Stage Blueprint) berhasil dioptimalkan oleh Gemini AI!`);
         } catch (err: any) {
           if (err?.name === 'AbortError') {
             setGenerationError("Permintaan Carousel AI melebihi batas waktu (timeout). Silakan coba lagi.");

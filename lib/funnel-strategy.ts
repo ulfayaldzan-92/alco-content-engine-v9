@@ -63,39 +63,79 @@ export function buildFunnelStrategyFromContext(
     userOverrides?: { tofu?: number; mofu?: number; bofu?: number };
   }
 ): FunnelStrategy {
-  const projectId = context.project_id || 'unknown_project';
-  const brandName = context.brand_context?.brand_name || 'Brand';
-  const category = context.brand_context?.category || 'Bisnis & Layanan';
-  const primaryAudience = context.audience_context?.primary_audience || 'Target Audiens';
-  const painPoints = context.audience_context?.pain_points || [];
-  const desires = context.audience_context?.desires || [];
-  const objections = context.audience_context?.objections || [];
+  if (!context) {
+    throw new Error('Missing authoritative SharedContentContext');
+  }
 
-  const positioning = context.strategy_context?.positioning || '';
-  const usp = context.strategy_context?.usp || [];
-  const mainOffer = context.strategy_context?.main_offer || '';
-  const offerBenefits = context.strategy_context?.offer_benefits || [];
-  const coreMessage = context.strategy_context?.core_message || '';
-  const contentPillars = context.strategy_context?.content_pillars || [];
+  const projectId = context.project_id?.trim();
+  if (!projectId) {
+    throw new Error('Missing authoritative project_id');
+  }
 
-  const firstPain = painPoints[0] || `kebutuhan seputar ${category}`;
-  const firstUsp = usp[0] || positioning || `solusi terpercaya dari ${brandName}`;
-  const firstBenefit = offerBenefits[0] || mainOffer || 'nilai nyata yang terukur';
+  const brandName = context.brand_context?.brand_name?.trim();
+  if (!brandName) {
+    throw new Error('Missing authoritative brand_name');
+  }
+
+  const category = context.brand_context?.category?.trim() || '';
+
+  const primaryAudience = context.audience_context?.primary_audience?.trim();
+  if (!primaryAudience) {
+    throw new Error('Missing authoritative primary_audience');
+  }
+
+  const painPoints = (context.audience_context?.pain_points || [])
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (painPoints.length === 0) {
+    throw new Error('Missing authoritative pain_points');
+  }
+
+  const positioning = context.strategy_context?.positioning?.trim() || '';
+  const usp = (context.strategy_context?.usp || []).map((u) => u.trim()).filter(Boolean);
+  if (!positioning && usp.length === 0) {
+    throw new Error('Missing authoritative positioning/USP');
+  }
+
+  const mainOffer = context.strategy_context?.main_offer?.trim();
+  if (!mainOffer) {
+    throw new Error('Missing authoritative main_offer');
+  }
+
+  const coreMessage = context.strategy_context?.core_message?.trim() || '';
+  const optionCampaignGoal = options?.campaignGoal?.trim();
+  if (!optionCampaignGoal && !coreMessage) {
+    throw new Error('Missing authoritative core_message');
+  }
+
+  const desires = (context.audience_context?.desires || []).map((d) => d.trim()).filter(Boolean);
+  const objections = (context.audience_context?.objections || []).map((o) => o.trim()).filter(Boolean);
+  const offerBenefits = (context.strategy_context?.offer_benefits || []).map((b) => b.trim()).filter(Boolean);
+  const contentPillars = (context.strategy_context?.content_pillars || []).map((cp) => cp.trim()).filter(Boolean);
+
+  const firstPain = painPoints[0];
+  const firstUsp = usp[0] || positioning;
+  const firstBenefit = offerBenefits[0] || mainOffer;
 
   const campaignGoal =
-    options?.campaignGoal ||
-    (coreMessage ? `Membangun otoritas dan konversi seputar: ${coreMessage}` : `Pertumbuhan dan konversi untuk ${brandName}`);
+    optionCampaignGoal || `Membangun otoritas dan konversi seputar: ${coreMessage}`;
+
+  const tofuObjective = category
+    ? `Membangun awareness awal dan problem recognition seputar ${category} tanpa unsur penjualan langsung.`
+    : `Membangun awareness awal dan problem recognition seputar ${firstPain} tanpa unsur penjualan langsung.`;
+
+  const tofuMessageDirection = coreMessage
+    ? `Fokus pada kenyataan sehari-hari ${primaryAudience} yang relevan dengan pesan inti: "${coreMessage}".`
+    : category
+    ? `Refleksi atas tantangan nyata yang dihadapi ${primaryAudience} dalam konteks ${category}.`
+    : `Refleksi atas tantangan nyata yang dihadapi ${primaryAudience} seputar ${firstPain}.`;
 
   // 1. TOFU Strategy: Strictly awareness & relatable problem recognition
   const tofu: FunnelStageStrategy = {
     stage: 'TOFU',
-    audience_state: painPoints.length > 0
-      ? `Audiens (${primaryAudience}) sering menghadapi ${firstPain} namun belum menyadari pendekatan solusi terstruktur.`
-      : `Audiens (${primaryAudience}) sedang mencari wawasan awal seputar ${category}.`,
-    objective: `Membangun awareness awal dan problem recognition seputar ${category} tanpa unsur penjualan langsung.`,
-    message_direction: coreMessage
-      ? `Fokus pada kenyataan sehari-hari ${primaryAudience} yang relevan dengan pesan inti: "${coreMessage}".`
-      : `Refleksi atas tantangan nyata yang dihadapi ${primaryAudience} dalam konteks ${category}.`,
+    audience_state: `Audiens (${primaryAudience}) sering menghadapi ${firstPain} namun belum menyadari pendekatan solusi terstruktur.`,
+    objective: tofuObjective,
+    message_direction: tofuMessageDirection,
     content_direction: `Edukasi ringan, validasi masalah, relatable moment, dan pembongkaran kesalahpahaman umum tanpa tekanan jualan.`,
     hook_direction: `Relational call-out pada situasi ${firstPain}, pertanyaan reflektif, atau rasa ingin tahu wajar tanpa sensasionalisme.`,
     cta_direction: `Soft CTA: simpan untuk dibaca lagi, renungkan, atau cek perspektif lanjutan di caption.`,
@@ -136,13 +176,9 @@ export function buildFunnelStrategyFromContext(
   // 3. BOFU Strategy: Proof, demo, offer clarity, and conversion
   const bofu: FunnelStageStrategy = {
     stage: 'BOFU',
-    audience_state: mainOffer
-      ? `Audiens (${primaryAudience}) telah memahami pendekatan solusi dan siap mengambil keputusan dengan kejelasan penawaran ${mainOffer}.`
-      : `Audiens (${primaryAudience}) membutuhkan validasi akhir dan langkah nyata untuk mulai bertindak.`,
+    audience_state: `Audiens (${primaryAudience}) telah memahami pendekatan solusi dan siap mengambil keputusan dengan kejelasan penawaran ${mainOffer}.`,
     objective: `Mendorong keputusan aksi melalui demonstrasi hasil nyata, transparansi manfaat (${firstBenefit}), dan kejelasan langkah aksi.`,
-    message_direction: mainOffer
-      ? `Menegaskan kepastian nilai melalui ${mainOffer}, menjawab keraguan implementasi, dan memfasilitasi onboarding yang mudah.`
-      : `Menunjukkan bukti penerapan nyata dan mengarahkan audiens ke tindakan nyata selanjutnya.`,
+    message_direction: `Menegaskan kepastian nilai melalui ${mainOffer}, menjawab keraguan implementasi, dan memfasilitasi onboarding yang mudah.`,
     content_direction: `Demonstrasi solusi, studi kasus nyata, rincian penawaran (offer breakdown), FAQ keputusan, dan closing penawaran yang transparan.`,
     hook_direction: `Kejelasan hasil terukur, validasi bukti penerapan, atau ajakan mengambil keputusan tepat saat ini.`,
     cta_direction: `Direct conversion CTA: hubungi tim, amankan penawaran ${mainOffer}, konsultasi, atau mulai sekarang.`,

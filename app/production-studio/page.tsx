@@ -1962,7 +1962,10 @@ function validateCarouselStage1ContentPlan(
     return null;
   }
 
-  if (parsed.slide_count !== undefined && Number(parsed.slide_count) !== 5) {
+  if (
+    parsed.slide_count === undefined ||
+    Number(parsed.slide_count) !== 5
+  ) {
     return null;
   }
 

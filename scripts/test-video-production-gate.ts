@@ -599,6 +599,120 @@ assert(
   'Test D must have missing project identity blocker'
 );
 
+// --- PHASE 4C-B.2 VIDEO GATE AUTHORITY REGRESSION LOCK ---
+console.log('\n--- RUNNING PHASE 4C-B.2 VIDEO GATE AUTHORITY REGRESSION LOCK ---');
+
+// Video Authority Test 1: current_execution_authority = null -> BLOCKED
+console.log('Video Authority Test 1: current_execution_authority = null is blocked');
+const vidResNull = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: null,
+});
+assert(vidResNull.is_allowed === false, 'Video gate must be blocked when current_execution_authority is null');
+assert(
+  vidResNull.blockers.some((b) => b.includes('current_execution_authority') || b.includes('Otoritas eksekusi')),
+  'Must contain execution authority blocker'
+);
+
+// Video Authority Test 2: authority asset_type is not video -> BLOCKED
+console.log('Video Authority Test 2: authority asset_type is not video is blocked');
+const vidWrongAssetAuth: ExecutionPromptAuthority = {
+  asset_type: 'carousel' as unknown as 'video',
+  candidate_id: validCandidateMotion.candidate_id,
+  contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+  execution_signature: 'exec_sig_video_11223344',
+};
+const vidResWrongAsset = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: vidWrongAssetAuth,
+});
+assert(vidResWrongAsset.is_allowed === false, 'Video gate must be blocked when authority asset_type is not video');
+assert(
+  vidResWrongAsset.blockers.some((b) => b.includes('bertipe video')),
+  'Must contain asset_type blocker'
+);
+
+// Video Authority Test 3: authority candidate_id differs from selected candidate -> BLOCKED
+console.log('Video Authority Test 3: authority candidate_id differs from selected candidate is blocked');
+const vidWrongCandAuth: ExecutionPromptAuthority = {
+  asset_type: 'video',
+  candidate_id: 'video_motion_cand_different',
+  contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+  execution_signature: 'exec_sig_video_11223344',
+};
+const vidResWrongCand = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: vidWrongCandAuth,
+});
+assert(vidResWrongCand.is_allowed === false, 'Video gate must be blocked when candidate_id mismatches');
+assert(
+  vidResWrongCand.blockers.some((b) => b.includes('Candidate ID pada otoritas eksekusi')),
+  'Must contain candidate_id mismatch blocker'
+);
+
+// Video Authority Test 4: authority contract_version differs from current -> BLOCKED
+console.log('Video Authority Test 4: authority contract_version differs from current is blocked');
+const vidWrongVerAuth: ExecutionPromptAuthority = {
+  asset_type: 'video',
+  candidate_id: validCandidateMotion.candidate_id,
+  contract_version: 'execution_prompt_v2' as unknown as typeof EXECUTION_PROMPT_CONTRACT_VERSION,
+  execution_signature: 'exec_sig_video_11223344',
+};
+const vidResWrongVer = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: vidWrongVerAuth,
+});
+assert(vidResWrongVer.is_allowed === false, 'Video gate must be blocked when contract_version is invalid');
+assert(
+  vidResWrongVer.blockers.some((b) => b.includes('Versi kontrak otoritas eksekusi')),
+  'Must contain contract_version mismatch blocker'
+);
+
+// Video Authority Test 5: authority execution_signature is malformed -> BLOCKED
+console.log('Video Authority Test 5: authority execution_signature is malformed is blocked');
+const vidMalformedSigAuth: ExecutionPromptAuthority = {
+  asset_type: 'video',
+  candidate_id: validCandidateMotion.candidate_id,
+  contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+  execution_signature: 'exec_sig_video_not_hex_chars',
+};
+const vidResMalformedSig = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: vidMalformedSigAuth,
+});
+assert(vidResMalformedSig.is_allowed === false, 'Video gate must be blocked when execution_signature is malformed');
+assert(
+  vidResMalformedSig.blockers.some((b) => b.includes('Format execution_signature')),
+  'Must contain malformed execution signature blocker'
+);
+
+// Video Authority Test 6: completion contains a valid but OLD video execution_prompt_signature while current_execution_authority contains a different valid signature -> BLOCKED
+console.log('Video Authority Test 6: stale completion signature vs current authority is blocked');
+const vidDiffValidAuth: ExecutionPromptAuthority = {
+  asset_type: 'video',
+  candidate_id: validCandidateMotion.candidate_id,
+  contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+  execution_signature: 'exec_sig_video_99887766',
+};
+const vidResStaleSig = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: vidDiffValidAuth,
+});
+assert(vidResStaleSig.is_allowed === false, 'Video gate must be blocked when completion has stale execution signature');
+assert(
+  vidResStaleSig.blockers.some((b) => b.includes('State penyelesaian scene video tidak valid')),
+  'Must contain completion validation error due to signature mismatch'
+);
+
+// Video Authority Test 7: matching current execution authority + matching 3/3 completion -> still ALLOWED
+console.log('Video Authority Test 7: matching current execution authority + matching 3/3 completion is allowed');
+const vidResValidMatch = evaluateVideoProductionGate({
+  ...makeBaseParams(),
+  current_execution_authority: validExecutionAuthority,
+});
+assert(vidResValidMatch.is_allowed === true, 'Video gate must be allowed with matching authority and 3/3 completion');
+assert(vidResValidMatch.blockers.length === 0, 'Must have zero blockers');
+
 // STATIC REGRESSION GUARDS
 console.log('\n--- RUNNING STATIC REGRESSION GUARDS ---');
 
@@ -675,4 +789,4 @@ assert(!pageFile.includes('Veo'), 'page.tsx must NOT refer to Veo internal video
 assert(!pageFile.includes('Flow API'), 'page.tsx must NOT refer to Flow API');
 assert(!panelFile.includes('automatic clip completion'), 'VideoPanel must NOT contain automatic clip completion');
 
-console.log('\nALL 36 VIDEO PRODUCTION GATE TESTS, TESTS A-D, AND STATIC REGRESSION CHECKS PASSED!');
+console.log('\nALL 36 VIDEO PRODUCTION GATE TESTS, TESTS A-D, 7 AUTHORITY REGRESSION LOCK TESTS, AND STATIC REGRESSION CHECKS PASSED!');

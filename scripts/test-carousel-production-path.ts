@@ -1192,6 +1192,169 @@ async function runCarouselProductionPathTests(): Promise<void> {
     }
   }
 
+  // --- PHASE 4C-B.2 CAROUSEL GATE AUTHORITY REGRESSION LOCK ---
+  console.log('\n--- RUNNING PHASE 4C-B.2 CAROUSEL GATE AUTHORITY REGRESSION LOCK ---');
+
+  // Test 44: current_execution_authority = null -> BLOCKED
+  console.log('Test 44: current_execution_authority = null is blocked');
+  {
+    const gateResNull = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: null,
+    });
+    assert(gateResNull.is_allowed === false, 'Gate must be blocked when current_execution_authority is null');
+    assert(
+      gateResNull.blockers.some((b) => b.includes('current_execution_authority') || b.includes('Otoritas eksekusi')),
+      'Must contain execution authority blocker'
+    );
+  }
+
+  // Test 45: authority asset_type is not carousel -> BLOCKED
+  console.log('Test 45: authority asset_type is not carousel is blocked');
+  {
+    const wrongAssetAuth: ExecutionPromptAuthority = {
+      asset_type: 'video' as unknown as 'carousel',
+      candidate_id: effWithChar.candidate_id,
+      contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+      execution_signature: 'exec_sig_carousel_a1b2c3d4',
+    };
+    const gateResWrongAsset = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: wrongAssetAuth,
+    });
+    assert(gateResWrongAsset.is_allowed === false, 'Gate must be blocked when authority asset_type is not carousel');
+    assert(
+      gateResWrongAsset.blockers.some((b) => b.includes('bertipe carousel')),
+      'Must contain asset_type blocker'
+    );
+  }
+
+  // Test 46: authority candidate_id differs from effective candidate -> BLOCKED
+  console.log('Test 46: authority candidate_id differs from effective candidate is blocked');
+  {
+    const wrongCandAuth: ExecutionPromptAuthority = {
+      asset_type: 'carousel',
+      candidate_id: 'carousel_plan_different',
+      contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+      execution_signature: 'exec_sig_carousel_a1b2c3d4',
+    };
+    const gateResWrongCand = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: wrongCandAuth,
+    });
+    assert(gateResWrongCand.is_allowed === false, 'Gate must be blocked when authority candidate_id differs from effective candidate');
+    assert(
+      gateResWrongCand.blockers.some((b) => b.includes('Candidate ID pada otoritas eksekusi')),
+      'Must contain candidate_id mismatch blocker'
+    );
+  }
+
+  // Test 47: authority contract_version differs from current -> BLOCKED
+  console.log('Test 47: authority contract_version differs from current is blocked');
+  {
+    const wrongVerAuth: ExecutionPromptAuthority = {
+      asset_type: 'carousel',
+      candidate_id: effWithChar.candidate_id,
+      contract_version: 'execution_prompt_v2' as unknown as typeof EXECUTION_PROMPT_CONTRACT_VERSION,
+      execution_signature: 'exec_sig_carousel_a1b2c3d4',
+    };
+    const gateResWrongVer = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: wrongVerAuth,
+    });
+    assert(gateResWrongVer.is_allowed === false, 'Gate must be blocked when authority contract_version is invalid');
+    assert(
+      gateResWrongVer.blockers.some((b) => b.includes('Versi kontrak otoritas eksekusi')),
+      'Must contain contract_version mismatch blocker'
+    );
+  }
+
+  // Test 48: authority execution_signature is malformed -> BLOCKED
+  console.log('Test 48: authority execution_signature is malformed is blocked');
+  {
+    const malformedSigAuth: ExecutionPromptAuthority = {
+      asset_type: 'carousel',
+      candidate_id: effWithChar.candidate_id,
+      contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+      execution_signature: 'exec_sig_carousel_not_hex_chars',
+    };
+    const gateResMalformedSig = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: malformedSigAuth,
+    });
+    assert(gateResMalformedSig.is_allowed === false, 'Gate must be blocked when execution_signature is malformed');
+    assert(
+      gateResMalformedSig.blockers.some((b) => b.includes('Format execution_signature')),
+      'Must contain malformed execution signature blocker'
+    );
+  }
+
+  // Test 49: completion contains a valid but OLD carousel execution_prompt_signature while current_execution_authority contains a different valid signature -> BLOCKED
+  console.log('Test 49: stale completion signature vs current authority is blocked');
+  {
+    const diffValidAuth: ExecutionPromptAuthority = {
+      asset_type: 'carousel',
+      candidate_id: effWithChar.candidate_id,
+      contract_version: EXECUTION_PROMPT_CONTRACT_VERSION,
+      execution_signature: 'exec_sig_carousel_fedcba98',
+    };
+    const gateResStaleSig = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: diffValidAuth,
+    });
+    assert(gateResStaleSig.is_allowed === false, 'Gate must be blocked when completion has stale execution signature');
+    assert(
+      gateResStaleSig.blockers.some((b) => b.includes('Status penyelesaian slide tidak valid')),
+      'Must contain completion validation blocker due to signature mismatch'
+    );
+  }
+
+  // Test 50: matching authority + matching N/N completion -> still ALLOWED
+  console.log('Test 50: matching authority + matching N/N completion is allowed');
+  {
+    const gateResValidMatch = evaluateCarouselProductionGate({
+      production_context: prodEngineCtx,
+      source_item: mockItem,
+      output_source: 'generated_output',
+      effective_candidate: effWithChar,
+      completion_state: compWithChar,
+      current_production_plan_signature: sigWithChar,
+      current_execution_authority: authWithChar,
+    });
+    assert(gateResValidMatch.is_allowed === true, 'Gate must be ALLOWED with matching authority and matching N/N completion');
+    assert(gateResValidMatch.blockers.length === 0, 'Must have zero blockers');
+  }
+
   // --- STATIC REGRESSION GUARDS ---
   console.log('\n--- RUNNING STATIC REGRESSION GUARDS ---');
 
@@ -1244,7 +1407,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
     'CarouselPanel.tsx must destructure carouselPlan from props'
   );
 
-  console.log('\nALL 43 CAROUSEL PRODUCTION PATH TESTS AND 5 STATIC REGRESSION GUARDS PASSED SUCCESSFULLY!');
+  console.log('\nALL 50 CAROUSEL PRODUCTION PATH TESTS AND 5 STATIC REGRESSION GUARDS PASSED SUCCESSFULLY!');
 }
 
 runCarouselProductionPathTests().catch((err) => {

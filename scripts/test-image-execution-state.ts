@@ -23,7 +23,7 @@ function assert(condition: boolean, message: string) {
 }
 
 console.log('====================================================');
-console.log('PHASE 4C-B.2 IMAGE EXECUTION STATE REGRESSION TESTS');
+console.log('PHASE 4C-B.2.1 IMAGE EXECUTION STATE REGRESSION TESTS');
 console.log('====================================================\n');
 
 // Valid templates for test setup
@@ -187,19 +187,34 @@ try {
     candidate_type: 'image',
     candidate_id: 'angle_A',
     production_details: {
-      visual_theme: 'Minimalist Studio',
-      focal_point: 'Product bottle in center',
-      lighting: 'Soft directional studio lighting',
-      composition: 'Rule of thirds, clean background',
+      objective: 'Demonstrate premium skincare serum bottle in minimalist clinic studio',
+      scene: 'Clean modern aesthetic dermatology clinic counter',
+      subject: 'Glass serum bottle with dropper',
+      composition: 'Centered subject with rule of thirds negative space on right',
+      environment: 'Well-lit minimalist dermatology clinic, marble surface',
+      lighting: 'Soft directional studio lighting with subtle rim light',
+      camera_direction: 'Eye-level straight shot, shallow depth of field',
+      visual_style: 'Hyper-realistic clean commercial product photography',
+      text_overlay: 'Serum Retinol Murni 2%',
+      branding: 'ALCO Derma Clinic',
+      negative_constraints: 'No cluttered background, no blurry textures, no low resolution artifacts',
     },
-    final_prompt: 'High resolution product photography of skincare bottle on marble pedestal, soft natural lighting',
+    final_prompt: 'Hyper-realistic commercial product photography of a glass skincare serum bottle on a clean marble surface, soft directional lighting, modern dermatology clinic background',
   };
 
   const translation1 = translateImageProductionPrompt({ candidate: realCandidate });
-  assert(translation1.ok === true && translation1.bundle.asset_type === 'image', 'Real image translation must succeed');
-  const authorityResult1 = buildExecutionPromptAuthority(translation1.bundle);
-  assert(authorityResult1.ok === true && authorityResult1.authority.asset_type === 'image', 'Real authority build must succeed');
+  if (!translation1.ok) {
+    throw new Error(`Expected translation success: ${translation1.error}`);
+  }
+  const bundle1 = translation1.bundle;
+  assert(bundle1.asset_type === 'image', 'Translated bundle must be asset_type image');
+
+  const authorityResult1 = buildExecutionPromptAuthority(bundle1);
+  if (!authorityResult1.ok) {
+    throw new Error(`Expected authority success: ${authorityResult1.error}`);
+  }
   const realAuthority1 = authorityResult1.authority;
+  assert(realAuthority1.asset_type === 'image', 'Authority asset_type must be image');
   assert(realAuthority1.candidate_id === 'angle_A', 'Candidate ID must match angle_A');
   assert(realAuthority1.execution_signature.startsWith('exec_sig_image_'), 'Signature must have exec_sig_image_ prefix');
 
@@ -208,32 +223,49 @@ try {
   const realCharacterDNA: CharacterDNA = {
     character_id: 'char_sarah_01',
     project_id: 'proj_01',
+    source_item_key: 'item_01',
     reference_images: ['https://example.com/sarah.png'],
     preview_image: 'https://example.com/sarah_prev.png',
+    additional_instructions: 'Maintain professional dermatology clinical tone',
     identity: {
       display_name: 'Dr. Sarah Lin',
       gender_presentation: 'Female',
       estimated_age_range: 'Early 30s',
       ethnicity_or_region_hint: 'East Asian',
+      body_type: 'Slim professional build',
       facial_features: 'Gentle warm smile, clear skin',
       hair_description: 'Black hair tied in a professional low bun',
+      skin_tone: 'Fair clear complexion',
       distinctive_characteristics: 'Lab coat and silver stethoscope',
     },
     style: {
       wardrobe_style: 'Clean white lab coat over medical scrubs',
+      accessories: ['Silver stethoscope', 'Small pearl earrings'],
+      makeup_style: 'Clean natural makeup',
       visual_vibe: 'Professional, trustworthy medical expert',
+      brand_fit_reason: 'Aligns with medical authority and skincare credibility',
     },
     behavior: {
       speaking_tone: 'Calm, authoritative, empathetic',
       expression_style: 'Warm and confident',
+      pose_tendency: 'Standing upright holding product gently',
+      gesture_style: 'Precise and welcoming hand gestures',
+      on_camera_persona: 'Expert dermatologist giving trusted guidance',
     },
     consistency_rules: {
-      locked_traits: ['white lab coat', 'low bun hairstyle'],
-      avoid_traits: ['casual clothing', 'dramatic makeup'],
+      locked_traits: ['white lab coat', 'low bun hairstyle', 'clear skin'],
+      avoid_traits: ['casual clothing', 'dramatic makeup', 'flashy jewelry'],
+      continuity_notes: ['Always maintain consistent lab lighting and medical setting'],
     },
     prompt_assets: {
       dna_summary_prompt: 'Dr. Sarah Lin, a female dermatologist in her early 30s wearing a white lab coat',
       locked_visual_prompt: 'Professional portrait of Dr. Sarah Lin in clean medical clinic setting',
+      preview_generation_prompt: 'Studio portrait of Dr. Sarah Lin with warm smile in white lab coat',
+      scene_reuse_prompt_template: 'Dr. Sarah Lin in clinic setting interacting with {scene_context}',
+    },
+    timestamps: {
+      created_at: '2026-09-20T10:00:00.000Z',
+      updated_at: '2026-09-20T10:00:00.000Z',
     },
   };
 
@@ -241,15 +273,25 @@ try {
     candidate: realCandidate,
     characterDNA: realCharacterDNA,
   });
-  assert(translation2.ok === true && translation2.bundle.asset_type === 'image', 'Image translation with CharacterDNA must succeed');
+  if (!translation2.ok) {
+    throw new Error(`Expected translation success: ${translation2.error}`);
+  }
+  const bundle2 = translation2.bundle;
+  assert(bundle2.asset_type === 'image', 'Translated bundle with CharacterDNA must be asset_type image');
+  if (bundle2.asset_type !== 'image') {
+    throw new Error('Expected image bundle');
+  }
   assert(
-    translation2.bundle.execution_prompt.includes(realCharacterDNA.identity.display_name),
+    bundle2.execution_prompt.includes(realCharacterDNA.identity.display_name),
     'Execution prompt must contain CharacterDNA display name'
   );
 
-  const authorityResult2 = buildExecutionPromptAuthority(translation2.bundle);
-  assert(authorityResult2.ok === true && authorityResult2.authority.asset_type === 'image', 'Authority build with CharacterDNA must succeed');
+  const authorityResult2 = buildExecutionPromptAuthority(bundle2);
+  if (!authorityResult2.ok) {
+    throw new Error(`Expected authority success: ${authorityResult2.error}`);
+  }
   const realAuthority2 = authorityResult2.authority;
+  assert(realAuthority2.asset_type === 'image', 'Authority with CharacterDNA must be asset_type image');
   assert(
     realAuthority1.execution_signature !== realAuthority2.execution_signature,
     'Execution signatures must differ when prompt changes via CharacterDNA'
@@ -283,7 +325,7 @@ try {
   });
   assert(isCurrentUnderNewAuth === false, 'Output created under old authority MUST be stale when evaluated against new authority');
 
-  console.log('\n🎉 ALL 16 PHASE 4C-B.2 IMAGE EXECUTION STATE TESTS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL 16 PHASE 4C-B.2.1 IMAGE EXECUTION STATE TESTS PASSED SUCCESSFULLY!');
 } catch (error) {
   console.error('\n❌ Tests Failed!');
   process.exit(1);

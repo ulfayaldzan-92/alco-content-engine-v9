@@ -3767,33 +3767,47 @@ export default function ProductionStudioPage() {
         promptTitle = `3 IMAGE ANGLES - FUNNEL ${funnelStage} MASTER CONTROLLER (CANONICAL JSON)`;
         formatDirection = `Hasilkan 3 angle konten visual yang DIKENDALIKAN SEPENUHNYA OLEH CORONG ${funnelStage} dalam format JSON canonical murni (tanpa markdown).
 
-PRINSIP UTAMA: FUNNEL STAGE ADALAH PENGENDALI UTAMA SELURUH finalPrompt.
-DILARANG KERAS MEMOTONG IDE UTAMA MENJADI KATA TERPOTONG DENGAN "...".
-JIKA IDE UTAMA TERLALU PANJANG, UBAH MENJADI HOOK PENDEK YANG TETAP UTUH, MAKSIMAL 6-10 KATA.
+### AUTHORITY GROUNDING — MANDATORY (SANGAT KETAT):
+Semua fakta bisnis, subjek, produk, klaim benefit, dan pesan WAJIB bersumber HANYA dari ProductionContext yang tercantum di atas (selected ContentItem, SharedContentContext, FunnelStrategy, CharacterDNA jika tersedia, atau catatan revisi user).
+1. DILARANG MENGARANG FAKTA BISNIS: Jangan menciptakan persona usia/gender/pekerjaan, dashboard analitik, metrik omzet, bukti konversi, testimoni klien, jumlah pengguna, atau klaim benefit yang tidak tercantum dalam authority.
+2. ATURAN SUBJECT & CHARACTER:
+   - Jika CharacterDNA tersedia: patuhi identitas dan ciri khas yang terkunci, jangan ubah atau tambahkan ciri di luar CharacterDNA.
+   - Jika CharacterDNA TIDAK tersedia: JANGAN mengarang usia, gender, etnis, pekerjaan, atau persona demografis fiktif. Gunakan objek, produk, antarmuka, diagram alur, tangan, lingkungan, atau subjek netral yang relevan secara kontekstual dengan ContentItem. Subjek manusia tidak wajib dipaksakan jika tidak relevan.
+3. ATURAN ENVIRONMENT & BUSINESS UI:
+   - Jangan otomatis mengasumsikan workspace, kantor, laptop, dashboard analitik, secangkir kopi, atau ruang meeting kecuali memang relevan dan didukung oleh ContentItem.
+   - Dilarang membuat dashboard angka palsu, grafik pertumbuhan fiktif, atau screenshot metrik rekayasa. Jika produk/interface dibahas namun data visual detail tidak tersedia, gunakan visualisasi produk atau konsep yang abstrak/bersih tanpa angka palsu.
+4. ATURAN SOCIAL PROOF & HASIL:
+   - Gunakan testimoni, studi kasus, statistik komunitas, atau klaim angka HANYA JIKA data tersebut secara eksplisit tercantum dalam authority.
+   - Tahap BOFU TIDAK OTOMATIS mewajibkan social proof. Jika data bukti tidak tersedia dalam context, BOFU wajib fokus pada kejelasan penawaran (offer clarity), demonstrasi solusi/fitur nyata, pemahaman nilai, atau ajakan bertindak yang selaras dengan penawaran sebenarnya.
+5. ATURAN TEXT OVERLAY & CAPTION:
+   - Text overlay dan caption WAJIB diturunkan dari headline/body/tujuan ContentItem. Paraphrase atau kompresi diperbolehkan (maksimal 6-10 kata utuh tanpa '...'), tetapi DILARANG menambahkan klaim bisnis atau janji baru.
+6. KREATIVITAS VISUAL:
+   - AI bebas dan didorong berkreasi dalam komposisi, pencahayaan, framing, sudut kamera, depth of field, metafora visual, dan estetika fotografi editorial bersih, selama TIDAK mengarang fakta bisnis atau demografis.
+7. FUNNEL TIDAK MENCIPTAKAN FAKTA:
+   - Corong (${funnelStage}) menentukan intensitas komunikasi, tujuan pesan visual, dan kesiapan keputusan audiens, BUKAN menciptakan fakta produk, persona, atau bukti baru.
 
-ATURAN CORONG ${funnelStage} (SANGAT KETAT):
+ATURAN CORONG ${funnelStage}:
 ${funnelStage === 'TOFU' ? `
 - Visual Objective: Membangun awareness alami, relatable problem sehari-hari, dan curiosity tanpa pesan jualan.
-- Action: Subjek berinteraksi dengan situasi atau hambatan yang relevan dengan topik pada SELECTED CONTENT ITEM.
-- Expression: Bingung ringan, penasaran, merasa relate, senyum kecut reflektif (reflektif terhadap kesulitan sehari-hari).
+- Action: Subjek/objek berinteraksi dengan situasi atau hambatan yang relevan dengan topik pada SELECTED CONTENT ITEM.
+- Expression: (Jika ada subjek manusia) Bingung ringan, penasaran, merasa relate, senyum kecut reflektif terhadap kesulitan sehari-hari.
 - Text Overlay: Pertanyaan reflektif atau hook masalah spesifik dari headline item tanpa terpotong (maksimal 6-10 kata).
-- Caption For Post: Menjelaskan masalah dan insight ringan.
-- DILARANG KERAS DI TOFU: Social proof ("ratusan pengguna", "klien terbukti"), urgency, bonus, daftar sekarang, beli sekarang, hard selling.
+- Caption For Post: Menjelaskan masalah dan insight ringan sesuai authority.
+- DILARANG KERAS DI TOFU: Klaim hasil berlebih, social proof fiktif, urgency, bonus, daftar sekarang, beli sekarang, hard selling.
 ` : funnelStage === 'MOFU' ? `
 - Visual Objective: Membangun pemahaman mendalam, framework solusi terstruktur, perbandingan metode, dan trust edukatif.
-- Action: Subjek menganalisis atau membandingkan diagram alur atau catatan kerja terstruktur yang relevan dengan topik item.
-- Expression: Fokus, mulai paham, tatapan 'aha moment' yang tenang saat menyadari kejelasan metode baru.
+- Action: Menampilkan analisis atau perbandingan kerangka kerja, alur solusi terstruktur, atau pemahaman baru yang relevan dengan topik item.
+- Expression: (Jika ada subjek manusia) Fokus, mulai paham, tatapan 'aha moment' yang tenang saat menyadari kejelasan metode baru.
 - Text Overlay: Insight, kerangka alur, atau sudut pandang baru yang relevan dengan topik item tanpa terpotong (maksimal 6-10 kata).
-- Caption For Post: Menjelaskan solusi/metode edukatif secara terstruktur.
+- Caption For Post: Menjelaskan solusi/metode edukatif secara terstruktur sesuai authority.
 - DILARANG KERAS DI MOFU: Hard closing, FOMO berlebihan, adegan kebingungan mentah tanpa solusi.
 ` : `
-- Visual Objective: Membangun kepercayaan mendalam dan mendorong keputusan akhir melalui validasi solusi, demonstrasi hasil nyata, dan kejelasan nilai.
-- Action: Subjek meninjau hasil nyata, implementasi sistem, atau bukti nilai yang relevan dengan topik item.
-- Expression: Ekspresi yakin, mantap, dan percaya dengan senyum subtle puas, siap mengambil keputusan lanjutan.
-- Text Overlay: Penegasan nilai, hasil nyata, atau ajakan aksi terarah dari topik item tanpa terpotong (maksimal 6-10 kata).
-- Caption For Post: Menguatkan trust, benefit nyata, dan dorongan Call to Action.
-- DILARANG KERAS DI BOFU: Adegan problem awareness TOFU tanpa penegasan solusi/hasil nyata.
-- KHUSUS BOFU: Visual wajib menggambarkan kejelasan implementasi nyata, ekspresi percaya/mantap, dan keputusan akhir dengan gaya clean editorial.
+- Visual Objective: Membangun kejelasan nilai dan mendukung keputusan melalui offer clarity, demonstrasi solusi, authoritative benefits, atau valid evidence yang tersedia di ProductionContext.
+- Action: Menampilkan kejelasan implementasi solusi, penawaran konkret, atau kesiapan langkah selanjutnya yang relevan dengan topik item.
+- Expression: (Jika ada subjek manusia) Ekspresi yakin, mantap, dan percaya dengan senyum subtle puas, siap mengambil keputusan lanjutan.
+- Text Overlay: Penegasan nilai, kejelasan penawaran, atau ajakan aksi terarah dari topik item tanpa terpotong (maksimal 6-10 kata).
+- Caption For Post: Menguatkan trust, benefit nyata yang didukung authority, dan dorongan Call to Action.
+- DILARANG KERAS DI BOFU: Adegan problem awareness TOFU tanpa penegasan solusi/penawaran; dilarang mengarang bukti/testimoni/angka yang tidak ada di context.
 `}
 
 VALIDASI INTERNAL WAJIB (messageAlignmentCheck):
@@ -3805,7 +3819,7 @@ Lakukan evaluasi mandiri pada 4 dimensi:
 JIKA ADA KONFLIK:
 - Set "isAligned": false
 - Tuliskan konfliknya di "issue"
-- WAJIB PERBAIKI "fixedTextOverlay", "visualObjective", "Action", "Expression", dan "finalPrompt" agar selaras 100% dengan corong ${funnelStage}.
+- WAJIB PERBAIKI "fixedTextOverlay", "visualObjective", "Action", "Expression", dan "finalPrompt" agar selaras 100% dengan corong ${funnelStage} dan authority context.
 
 STRUKTUR JSON CANONICAL WAJIB:
 {
@@ -3814,11 +3828,11 @@ STRUKTUR JSON CANONICAL WAJIB:
   "angles": [
     {
       "id": "A",
-      "name": "${funnelStage === 'BOFU' ? 'Social Proof & Community Hook' : funnelStage === 'MOFU' ? 'Insight & Framework Hook' : 'Relatable Problem Hook'}",
+      "name": "${funnelStage === 'BOFU' ? 'Offer Clarity & Value Hook' : funnelStage === 'MOFU' ? 'Insight & Framework Hook' : 'Relatable Problem Hook'}",
       "funnelStage": "${funnelStage}",
-      "visualObjective": "[Visual objective selaras corong ${funnelStage}]",
+      "visualObjective": "[Visual objective selaras corong ${funnelStage} dan grounded pada context]",
       "textOverlay": "[Teks hook 6-10 kata utuh tanpa '...']",
-      "captionForPost": "[Caption Instagram yang menjelaskan isi post/hook sesuai aturan funnel]",
+      "captionForPost": "[Caption Instagram yang menjelaskan isi post/hook sesuai aturan funnel dan grounded pada context]",
       "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah gambar dibuat.",
       "messageAlignmentCheck": {
         "isAligned": true,
@@ -3831,50 +3845,50 @@ STRUKTUR JSON CANONICAL WAJIB:
         "tujuanKonten": "${funnelRules.goal}",
         "ideUtama": "${activeItem.headline || 'Topik Konten'} (TETAP UTUH TANPA TERPOTONG)",
         "audienceContext": "${funnelRules.audienceState} - ${activeContext.audience_context?.primary_audience || ''}",
-        "angle": "[Nama angle visual]",
+        "angle": "[Nama angle visual A]",
         "emosiUtama": "[Emosi spesifik sesuai corong ${funnelStage}]",
         "pesanVisual": "[Pesan yang tersampaikan lewat adegan visual]"
       },
-      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret]\\nSubject: [Deskripsi subjek orang/objek nyata, usia, gender, pakaian kasual/smart-casual realistis]\\nAction: [Aktivitas fisik konkret yang SINKRON dengan corong ${funnelStage}]\\nExpression: [Ekspresi mikro wajah yang SINKRON dengan corong ${funnelStage}]\\nEnvironment: [Ruangan/latar nyata, meja kerja, laptop, notebook, suasana kerja hangat]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas untuk teks headline]\\nLighting: [Cahaya alami lembut masuk dari jendela samping, soft warm ambient light]\\nCamera: [50mm / 35mm lens photography, eye-level, depth of field halus (subtle bokeh)]\\nVisual Style: [Clean editorial Instagram photography, otentik dokumenter estetis, bukan poster iklan ramai]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[Teks hook utuh tanpa '...']\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
+      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret selaras context]\\nSubject: [Subjek visual relevan dengan ContentItem; patuhi CharacterDNA jika ada, jangan karang persona/usia fiktif jika tidak ada]\\nAction: [Aktivitas visual konkret yang merepresentasikan konten authority]\\nExpression: [Hanya jika ada subjek manusia: ekspresi mikro wajah yang selaras corong; gunakan N/A jika subjek benda/objek]\\nEnvironment: [Environment yang secara kontekstual mendukung ContentItem, jangan asumsikan kantor/laptop jika tidak relevan]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas untuk teks headline]\\nLighting: [Cahaya alami lembut, pencahayaan natural berdimensi]\\nCamera: [50mm / 35mm lens photography, eye-level, depth of field halus (subtle bokeh)]\\nVisual Style: [Clean editorial Instagram photography, otentik dokumenter estetis, bukan poster iklan ramai atau foto stok generik]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[Teks hook utuh tanpa '...', maksimal 6-10 kata]\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
     },
     {
       "id": "B",
-      "name": "${funnelStage === 'BOFU' ? 'Product Demo & Results Hook' : funnelStage === 'MOFU' ? 'Solution Comparison Hook' : 'Everyday Creator Struggle'}",
+      "name": "${funnelStage === 'BOFU' ? 'Product / Solution Demonstration Hook' : funnelStage === 'MOFU' ? 'Solution Comparison Hook' : 'Everyday Creator Struggle'}",
       "funnelStage": "${funnelStage}",
-      "visualObjective": "[Visual objective selaras corong ${funnelStage}]",
+      "visualObjective": "[Visual objective selaras corong ${funnelStage} dan grounded pada context]",
       "textOverlay": "[Tulis hook pendek utuh 6-10 kata, tanpa ellipsis]",
-      "captionForPost": "[Tulis caption Instagram yang menjawab hook image sesuai funnel]",
+      "captionForPost": "[Tulis caption Instagram yang menjawab hook image sesuai funnel dan grounded pada context]",
       "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah gambar dibuat.",
       "messageAlignmentCheck": { "isAligned": true, "issue": "", "fixedTextOverlay": "[Tulis hook pendek utuh 6-10 kata, tanpa ellipsis]", "reason": "[Penjelasan keselarasan corong ${funnelStage}]" },
       "strategyBrief": { "funnelStage": "${funnelStage}", "tujuanKonten": "${funnelRules.goal}", "ideUtama": "${activeItem.headline || 'Topik Konten'}", "audienceContext": "${funnelRules.audienceState} - ${activeContext.audience_context?.primary_audience || ''}", "angle": "[Nama angle visual B]", "emosiUtama": "[Emosi spesifik]", "pesanVisual": "[Pesan visual]" },
-      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret]\\nSubject: [Deskripsi subjek]\\nAction: [Aktivitas fisik konkret]\\nExpression: [Ekspresi wajah mikro]\\nEnvironment: [Ruangan/latar]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas]\\nLighting: [Cahaya alami lembut]\\nCamera: [50mm lens photography]\\nVisual Style: [Clean editorial Instagram photography]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[hook pendek utuh tanpa ellipsis]\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
+      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret]\\nSubject: [Subjek visual terikat context]\\nAction: [Aktivitas visual konkret]\\nExpression: [Ekspresi mikro atau N/A]\\nEnvironment: [Environment relevan]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas]\\nLighting: [Cahaya alami lembut]\\nCamera: [50mm lens photography]\\nVisual Style: [Clean editorial Instagram photography]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[hook pendek utuh tanpa ellipsis]\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
     },
     {
       "id": "C",
       "name": "${funnelStage === 'BOFU' ? 'Direct Value & Decision Hook' : funnelStage === 'MOFU' ? 'Structured Workflow Hook' : 'Curiosity Hook'}",
       "funnelStage": "${funnelStage}",
-      "visualObjective": "[Visual objective selaras corong ${funnelStage}]",
+      "visualObjective": "[Visual objective selaras corong ${funnelStage} dan grounded pada context]",
       "textOverlay": "[Tulis hook pendek utuh 6-10 kata, tanpa ellipsis]",
-      "captionForPost": "[Tulis caption Instagram yang menjawab hook image sesuai funnel]",
+      "captionForPost": "[Tulis caption Instagram yang menjawab hook image sesuai funnel dan grounded pada context]",
       "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah gambar dibuat.",
       "messageAlignmentCheck": { "isAligned": true, "issue": "", "fixedTextOverlay": "[Tulis hook pendek utuh 6-10 kata, tanpa ellipsis]", "reason": "[Penjelasan keselarasan corong ${funnelStage}]" },
       "strategyBrief": { "funnelStage": "${funnelStage}", "tujuanKonten": "${funnelRules.goal}", "ideUtama": "${activeItem.headline || 'Topik Konten'}", "audienceContext": "${funnelRules.audienceState} - ${activeContext.audience_context?.primary_audience || ''}", "angle": "[Nama angle visual C]", "emosiUtama": "[Emosi spesifik]", "pesanVisual": "[Pesan visual]" },
-      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret]\\nSubject: [Deskripsi subjek]\\nAction: [Aktivitas fisik konkret]\\nExpression: [Ekspresi wajah mikro]\\nEnvironment: [Ruangan/latar]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas]\\nLighting: [Cahaya alami lembut]\\nCamera: [50mm lens photography]\\nVisual Style: [Clean editorial Instagram photography]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[hook pendek utuh tanpa ellipsis]\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
+      "finalPrompt": "Buatkan saya image untuk konten Instagram (format 4:5 vertical editorial):\\n\\nFunnel Stage: ${funnelStage}\\nVisual Objective: [Tujuan visual konkret]\\nSubject: [Subjek visual terikat context]\\nAction: [Aktivitas visual konkret]\\nExpression: [Ekspresi mikro atau N/A]\\nEnvironment: [Environment relevan]\\nComposition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas]\\nLighting: [Cahaya alami lembut]\\nCamera: [50mm lens photography]\\nVisual Style: [Clean editorial Instagram photography]\\nTypography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.\\nText Overlay: \\\"[hook pendek utuh tanpa ellipsis]\\\"\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic."
     }
   ]
 }
 
 URUTAN WAJIB STRUKTUR finalPrompt:
 1. Funnel Stage: ${funnelStage}
-2. Visual Objective: [Tujuan visual konkret]
-3. Subject: [Deskripsi subjek orang/objek nyata, usia, gender, pakaian kasual/smart-casual realistis]
-4. Action: [Aktivitas fisik konkret yang sedang dilakukan]
-5. Expression: [Ekspresi wajah mikro yang nyata, BUKAN istilah abstrak]
-6. Environment: [Ruangan/latar konkret, meja kerja, laptop, notebook, kopi, suasana kerja hangat]
+2. Visual Objective: [Tujuan visual konkret yang grounded pada context]
+3. Subject: [Subjek visual relevan dengan ContentItem dan ProductionContext; gunakan CharacterDNA jika ada; jangan karang persona demografis/usia jika tidak ada]
+4. Action: [Aktivitas fisik/visual konkret yang merepresentasikan konten authority]
+5. Expression: [Hanya jika ada subjek manusia: ekspresi mikro wajah nyata; jika objek/grafis gunakan N/A]
+6. Environment: [Latar/lingkungan yang secara kontekstual mendukung ContentItem, jangan asumsikan kantor/laptop jika tidak relevan]
 7. Composition: [Subjek di kanan tengah, ruang negatif lapang di kiri atas untuk teks headline]
 8. Lighting: [Cahaya alami lembut masuk dari jendela samping, soft warm ambient light]
 9. Camera: [50mm / 35mm lens photography, eye-level atau 45-degree angle, depth of field halus (subtle bokeh)]
-10. Visual Style: [Clean editorial Instagram photography, otentik dokumenter estetis, bukan poster iklan ramai]
+10. Visual Style: [Clean editorial Instagram photography, otentik dokumenter estetis, bukan poster iklan ramai atau foto stok generik]
 11. Typography: Headline besar 3-5 baris di kiri atas, editorial typography, high contrast, satu frasa penting boleh diberi subtle highlight, tidak ada teks kecil lain.
 12. Text Overlay: "[Teks hook utuh tanpa '...', maksimal 6-10 kata]"
 13. Negative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable text, distorted face, extra fingers, corporate cliche, overdesigned graphic.

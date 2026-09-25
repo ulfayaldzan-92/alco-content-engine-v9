@@ -2156,28 +2156,28 @@ const getInitialDraft = (
         if (normalizedExisting) return normalizedExisting;
         return JSON.stringify(activeItem.carousel_plan, null, 2);
       }
-      const draftTopic = activeItem?.headline || (activeItem as any)?.topik || (activeItem as any)?.title || 'Strategi & Eksekusi Konten';
-      const draftAudience = activeContext?.audience_context?.primary_audience || (activeItem as any)?.target_audience || 'Audiens';
-      const draftProblem = activeItem?.body ? activeItem.body.slice(0, 80) : `Tantangan utama seputar ${draftTopic}`;
-      const draftSolution = activeItem?.keterangan || `Pendekatan terstruktur untuk ${draftTopic}`;
-      const draftProof = activeItem?.tujuan || `Penerapan metode yang konsisten menghasilkan efisiensi nyata`;
-      const draftHook = activeItem?.headline || (activeItem as any)?.hook || `Memahami ${draftTopic} Secara Terstruktur`;
+      const draftTopic = (activeItem?.headline || (activeItem as any)?.topik || (activeItem as any)?.title || '').trim();
+      const draftAudience = (activeContext?.audience_context?.primary_audience || (activeItem as any)?.target_audience || '').trim();
+      const draftProblem = (activeItem?.body ? activeItem.body.slice(0, 80) : '').trim();
+      const draftSolution = (activeItem?.keterangan || '').trim();
+      const draftProof = ((activeItem as any)?.proof || (activeItem as any)?.proof_data || '').trim();
+      const draftHook = (activeItem?.headline || (activeItem as any)?.hook || '').trim();
 
       const initialPlan: CarouselPlan = {
-        content_goal: activeItem?.tujuan || funnelRules.goal,
+        content_goal: (activeItem?.tujuan || '').trim(),
         funnel_stage: funnelStage,
-        current_belief: activeItem?.headline ? `Melihat ${activeItem.headline} tanpa alur sistematis.` : `Menangani ${draftTopic} tanpa alur yang jelas.`,
-        desired_belief: `Memahami pentingnya alur ${funnelStage} untuk hasil komunikasi yang terarah dan konsisten.`,
-        core_promise: `Menguasai alur ${funnelStage} untuk ${draftTopic} secara terstruktur dan efisien.`,
+        current_belief: (activeItem as any)?.current_belief || '',
+        desired_belief: (activeItem as any)?.desired_belief || '',
+        core_promise: (activeItem as any)?.core_promise || '',
         primary_cta_type: funnelStage === 'BOFU' ? 'direct_offer' : 'engagement_save',
         primary_cta_text: safeCta,
         slide_count: 5,
         slide_count_reason: '5 Slide merupakan panjang optimal untuk alur narasi Hook → Problem → Reframe → How It Works / Value → CTA.',
-        belief_journey_summary: `Mengubah pola pikir ${draftAudience} agar memahami pentingnya alur terstruktur untuk ${draftTopic}.`,
+        belief_journey_summary: (activeItem as any)?.belief_journey_summary || '',
         messageAlignmentCheck: {
           isAligned: true,
           issue: '',
-          fixApplied: `Penyelarasan pesan dan alur narasi telah divalidasi sesuai corong ${funnelStage}.`
+          fixApplied: ''
         },
         visual_system_notes: 'Tema visual konsisten menggunakan format 4:5 vertical, tipografi kontras tinggi, ruang negatif lapang, dan aksen warna natural.',
         slides: [
@@ -2186,17 +2186,17 @@ const getInitialDraft = (
             role: 'hook',
             communication_job: 'Menghentikan scroll dengan alasan keputusan strategis / relatable problem',
             headline: draftHook,
-            body: activeItem?.body || `Banyak ${draftAudience} menghadapi kendala saat menangani ${draftTopic} tanpa alur yang terencana.`,
+            body: activeItem?.body || '',
             swipe_bridge: 'Kenapa hal ini sering terjadi? ➔',
             emotional_state: 'Empati & Refleksi Kritis',
-            visual_intent: 'Visual editorial portrait profesional menelaah catatan kerja dengan pencahayaan alami hangat.',
+            visual_intent: 'Visual editorial bersih dengan pencahayaan alami dan komposisi lapang.',
             visual_type: 'editorial-photo',
             text_zone: 'Upper Third / Left Aligned',
             negative_space_plan: 'Ruang bersih di bagian atas untuk headline besar',
             creative_strategy: {
               funnel_stage: funnelStage,
               slide_role: 'hook',
-              visual_objective: 'Visual editorial portrait profesional menelaah catatan kerja dengan pencahayaan alami hangat.',
+              visual_objective: 'Visual editorial bersih dengan pencahayaan alami dan komposisi lapang.',
               core_message: draftHook,
               audience_emotion: 'Empati & Refleksi Kritis',
               visual_concept: 'Editorial photographic framing dengan pencahayaan alami natural',
@@ -2204,22 +2204,22 @@ const getInitialDraft = (
             },
             visual_format: 'photography',
             visual_production: {
-              subject: 'Kreator / praktisi profesional sedang duduk di meja kerja kayu minimalis, menatap laptop dengan tatapan berpikir reflektif.',
-              action: 'Menatap layar laptop dengan tatapan berpikir reflektif sambil menelaah draf konten.',
+              subject: 'Komposisi visual netral dengan fokus tajam dan ruang lapang.',
+              action: 'Penataan visual tenang dan terarah.',
               composition: 'Subjek di kanan tengah, ruang kosong luas di kiri atas untuk headline.',
               layout: 'Format carousel Instagram 4:5 vertical, komposisi bersih dengan teks headline besar di kiri atas.',
-              visual_metaphor: 'Refleksi kejenuhan menghadapi proses kerja yang belum memiliki sistem terpadu.',
+              visual_metaphor: 'Fokus dan kejelasan visual.',
               typography: 'Headline tebal 34pt kontras tinggi, body copy 16pt sans-serif nyaman dibaca, label slide di pojok atas.',
-              background: 'Ruang kerja minimalis hangat dengan pencahayaan jendela alami lembut (#F9F8F6).',
+              background: 'Latar netral bersih dengan pencahayaan jendela alami lembut (#F9F8F6).',
               color_mood: `Nuansa profesional hangat (${funnelStage === 'TOFU' ? 'Sage Green & Warm Cream' : funnelStage === 'MOFU' ? 'Teal & Crisp Slate' : 'Deep Emerald'}).`,
               negative_space: 'Ruang lega 40% di area kiri atas untuk headline.',
               negative_prompt: 'hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers, corporate cliche, overdesigned graphic.'
             },
             production_prompt: `Layout: Format carousel Instagram 4:5 vertical, komposisi bersih dengan teks headline besar di kiri atas.
-Subject/Object Utama: Kreator / praktisi profesional sedang duduk di meja kerja kayu minimalis, menatap laptop dengan tatapan berpikir reflektif.
-Visual Metaphor: Refleksi kejenuhan menghadapi proses kerja yang belum memiliki sistem terpadu.
+Subject/Object Utama: Komposisi visual netral dengan fokus tajam dan ruang lapang.
+Visual Metaphor: Fokus dan kejelasan visual.
 Typography Hierarchy: Headline tebal 34pt kontras tinggi, body copy 16pt sans-serif nyaman dibaca, label slide di pojok atas.
-Background: Ruang kerja minimalis hangat dengan pencahayaan jendela alami lembut (#F9F8F6).
+Background: Latar netral bersih dengan pencahayaan jendela alami lembut (#F9F8F6).
 Color Mood: Nuansa profesional hangat (${funnelStage === 'TOFU' ? 'Sage Green & Warm Cream' : funnelStage === 'MOFU' ? 'Teal & Crisp Slate' : 'Deep Emerald'}).
 Negative Space: Ruang lega 40% di area kiri atas untuk headline.
 Image/Illustration Direction: Clean minimalist modern editorial photography.`,
@@ -2229,7 +2229,7 @@ Image/Illustration Direction: Clean minimalist modern editorial photography.`,
               'hook',
               draftHook,
               funnelStage,
-              'Visual editorial portrait profesional menelaah catatan kerja dengan pencahayaan alami hangat.',
+              'Visual editorial bersih dengan pencahayaan alami dan komposisi lapang.',
               'photography'
             ) ?? ''
           },
@@ -2237,51 +2237,51 @@ Image/Illustration Direction: Clean minimalist modern editorial photography.`,
             slide: 2,
             role: 'problem',
             communication_job: 'Fokus pada satu masalah utama yang dialami audiens saat ini',
-            headline: `Kendala Nyata: ${draftProblem}`,
-            body: `Banyak ${draftAudience} terjebak ketika menghadapi ${draftProblem} tanpa panduan terarah.`,
+            headline: draftProblem,
+            body: draftProblem,
             swipe_bridge: 'Mengapa pendekatan biasa belum memadai? ➔',
             emotional_state: 'Kesadaran Masalah Tunggal',
-            visual_intent: 'Perbandingan visual antara proses kerja yang tidak terarah versus alur kerja terstruktur.',
-            visual_type: 'comparison-split',
+            visual_intent: 'Infografis kartu informasi masalah dengan hierarki visual terstruktur.',
+            visual_type: 'infographic-card',
             text_zone: 'Center / Left Aligned',
-            negative_space_plan: 'Sisi kanan bersih untuk ilustrasi pembanding',
+            negative_space_plan: 'Sisi bersih untuk penataan informasi',
             creative_strategy: {
               funnel_stage: funnelStage,
               slide_role: 'problem',
-              visual_objective: `Infografis kartu pembanding masalah utama: alur kerja terputus vs alur terstruktur untuk ${draftTopic}.`,
-              core_message: `Kendala Nyata: ${draftProblem}`,
+              visual_objective: 'Infografis kartu informasi masalah dengan hierarki visual terstruktur.',
+              core_message: draftProblem,
               audience_emotion: 'Kesadaran Masalah Tunggal',
-              visual_concept: 'Kartu UI diagram alur dan hierarki tipografi modern bersih',
-              text_overlay: `Kendala Nyata: ${draftProblem}`
+              visual_concept: 'Kartu grafis terstruktur dengan hierarki tipografi modern bersih',
+              text_overlay: draftProblem
             },
             visual_format: 'infographic',
             visual_production: {
-              subject: 'Ilustrasi grafis perbandingan draf acak vs alur hierarki pesan terstruktur.',
-              action: 'Penataan visual kartu masalah dengan highlight lembut pada titik hambatan utama.',
+              subject: 'Elemen grafis terstruktur dengan hierarki informasi yang jelas.',
+              action: 'Penataan visual kartu informasi dengan penekanan pada titik fokus utama.',
               composition: 'Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline.',
-              layout: 'Split composition dua kartu perbandingan berdampingan.',
-              visual_metaphor: 'Transformasi dari proses yang tidak terarah menjadi alur yang terorganisir rapi.',
-              typography: 'Headline 28pt bold, bullet perbandingan 15pt dengan ikon cross merah dan check hijau.',
+              layout: 'Tata letak kartu informasi bersih dan terorganisir.',
+              visual_metaphor: 'Kejelasan struktur dan pemetaan informasi.',
+              typography: 'Headline 28pt bold, teks informasi 15pt nyaman dibaca.',
               background: 'Neutral off-white canvas (#F8F7F4).',
               color_mood: 'Nuansa analitis & informatif.',
-              negative_space: 'Margin 32px di sekeliling kartu pembanding.',
+              negative_space: 'Margin 32px di sekeliling kartu informasi.',
               negative_prompt: 'photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads.'
             },
-            production_prompt: `Layout: Split composition dua kartu perbandingan berdampingan.
-Subject/Object Utama: Ilustrasi grafis perbandingan draf acak vs alur hierarki pesan terstruktur.
-Visual Metaphor: Transformasi dari proses yang tidak terarah menjadi alur yang terorganisir rapi.
-Typography Hierarchy: Headline 28pt bold, bullet perbandingan 15pt dengan ikon cross merah dan check hijau.
+            production_prompt: `Layout: Tata letak kartu informasi bersih dan terorganisir.
+Subject/Object Utama: Elemen grafis terstruktur dengan hierarki informasi yang jelas.
+Visual Metaphor: Kejelasan struktur dan pemetaan informasi.
+Typography Hierarchy: Headline 28pt bold, teks informasi 15pt nyaman dibaca.
 Background: Neutral off-white canvas (#F8F7F4).
 Color Mood: Nuansa analitis & informatif.
-Negative Space: Margin 32px di sekeliling kartu pembanding.
+Negative Space: Margin 32px di sekeliling kartu informasi.
 Image/Illustration Direction: Clean minimalist infographic diagram UI.`,
             slide_image_prompt: sanitizeAndGenerateSlideImagePrompt(
               undefined,
               2,
               'problem',
-              `Kendala Nyata: ${draftProblem}`,
+              draftProblem,
               funnelStage,
-              'Perbandingan visual antara proses kerja yang tidak terarah versus alur kerja terstruktur.',
+              'Infografis kartu informasi masalah dengan hierarki visual terstruktur.',
               'infographic'
             ) ?? ''
           },
@@ -2289,39 +2289,39 @@ Image/Illustration Direction: Clean minimalist infographic diagram UI.`,
             slide: 3,
             role: 'reframe',
             communication_job: 'Menjelaskan mengapa metode lama gagal dan menyajikan sudut pandang sistemik',
-            headline: `Sudut Pandang Baru: Mengurai ${draftTopic}`,
-            body: `Kunci keberhasilan bukan bekerja lebih keras tanpa arah, melainkan menyelaraskan alur ${funnelStage} dengan kebutuhan nyata ${draftAudience}.`,
+            headline: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
+            body: '',
             swipe_bridge: 'Bagaimana pendekatan ini diterapkan? ➔',
             emotional_state: 'Pencerahan (Aha Moment)',
-            visual_intent: `Infografis diagram pilar fondasi untuk pemahaman menyeluruh seputar ${draftTopic}.`,
+            visual_intent: 'Infografis diagram pilar fondasi dengan tipografi kontras tinggi.',
             visual_type: 'minimal-diagram',
             text_zone: 'Center Aligned',
-            negative_space_plan: 'Latar belakang netral dengan aksen hijau lembut',
+            negative_space_plan: 'Latar belakang netral dengan aksen lembut',
             creative_strategy: {
               funnel_stage: funnelStage,
               slide_role: 'reframe',
-              visual_objective: `Infografis kartu pencerahan fondasi strategis seputar ${draftTopic} dengan tipografi kontras tinggi.`,
-              core_message: `Sudut Pandang Baru: Mengurai ${draftTopic}`,
+              visual_objective: 'Infografis diagram fondasi konseptual dengan tipografi kontras tinggi.',
+              core_message: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
               audience_emotion: 'Pencerahan (Aha Moment)',
-              visual_concept: 'Kartu UI diagram alur dan hierarki tipografi modern bersih',
-              text_overlay: `Sudut Pandang Baru: Mengurai ${draftTopic}`
+              visual_concept: 'Diagram geometris minimalis dan hierarki tipografi modern bersih',
+              text_overlay: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : ''
             },
             visual_format: 'infographic',
             visual_production: {
-              subject: 'Tiga lapisan kartu strategi yang saling terhubung secara harmonis.',
-              action: 'Penataan tata letak visual bertingkat dengan penunjuk alur dan kartu berbayang halus.',
+              subject: 'Diagram pilar konseptual yang tertata secara seimbang.',
+              action: 'Penataan tata letak visual bertingkat dengan hierarki jelas.',
               composition: 'Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline.',
-              layout: 'Center card composition dengan diagram 3 pilar utama.',
-              visual_metaphor: 'Pilar fondasi komunikasi yang kokoh dan mudah dipahami.',
+              layout: 'Center card composition dengan diagram terstruktur.',
+              visual_metaphor: 'Fondasi pemikiran yang terorganisir rapi.',
               typography: 'Headline 28pt bold, body deskripsi 16pt, nomor urut minimalis 01-02-03.',
               background: 'Warm neutral light texture (#FAF9F6).',
               color_mood: 'Pencerahan & kejelasan strategi.',
               negative_space: 'Ruang bernapas lapang di sekeliling diagram tengah.',
               negative_prompt: 'photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads.'
             },
-            production_prompt: `Layout: Center card composition dengan diagram 3 pilar utama.
-Subject/Object Utama: Tiga lapisan kartu strategi yang saling terhubung secara harmonis.
-Visual Metaphor: Pilar fondasi komunikasi yang kokoh dan mudah dipahami.
+            production_prompt: `Layout: Center card composition dengan diagram terstruktur.
+Subject/Object Utama: Diagram pilar konseptual yang tertata secara seimbang.
+Visual Metaphor: Fondasi pemikiran yang terorganisir rapi.
 Typography Hierarchy: Headline 28pt bold, body deskripsi 16pt, nomor urut minimalis 01-02-03.
 Background: Warm neutral light texture (#FAF9F6).
 Color Mood: Pencerahan & kejelasan strategi.
@@ -2331,61 +2331,61 @@ Image/Illustration Direction: Modern minimalist 3D isometric or flat geometric d
               undefined,
               3,
               'reframe',
-              `Sudut Pandang Baru: Mengurai ${draftTopic}`,
+              draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
               funnelStage,
-              `Infografis kartu pencerahan fondasi strategis seputar ${draftTopic} dengan tipografi kontras tinggi.`,
+              'Infografis diagram pilar fondasi dengan tipografi kontras tinggi.',
               'infographic'
             ) ?? ''
           },
           {
             slide: 4,
             role: 'learn',
-            communication_job: 'Menyajikan solusi terpadu dan pembuktian nilai efisiensi kerja nyata',
-            headline: `Solusi & Pembuktian: ${draftSolution}`,
-            body: `Dengan kerangka kerja yang jelas, ${draftProof}, sehingga hasil yang dicapai lebih konsisten dan terukur.`,
+            communication_job: 'Menyajikan inti solusi / pembahasan utama yang relevan',
+            headline: draftSolution,
+            body: draftSolution ? (draftProof ? `${draftSolution}. ${draftProof}` : draftSolution) : '',
             swipe_bridge: 'Mulai terapkan langkahnya ➔',
             emotional_state: 'Optimisme & Kejelasan Sistem',
-            visual_intent: `Tampilan alur kerja praktis dan langkah penerapan ${draftSolution}.`,
+            visual_intent: 'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
             visual_type: 'step-framework',
             text_zone: 'Upper Third',
-            negative_space_plan: 'Ruang lega di sekitar checklist framework',
+            negative_space_plan: 'Ruang lega di sekitar kerangka kerja visual',
             creative_strategy: {
               funnel_stage: funnelStage,
               slide_role: 'learn',
-              visual_objective: `Tampilan alur kerja terstruktur yang mendemonstrasikan implementasi ${draftSolution}.`,
-              core_message: `Solusi & Pembuktian: ${draftSolution}`,
+              visual_objective: 'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
+              core_message: draftSolution,
               audience_emotion: 'Optimisme & Kejelasan Sistem',
-              visual_concept: 'Kartu UI diagram alur dan hierarki tipografi modern bersih',
-              text_overlay: `Solusi & Pembuktian: ${draftSolution}`
+              visual_concept: 'Kartu tata letak terstruktur dengan hierarki tipografi modern bersih',
+              text_overlay: draftSolution
             },
             visual_format: 'infographic',
             visual_production: {
-              subject: 'Checklist framework langkah kerja dengan indikator verifikasi hijau.',
+              subject: 'Kerangka kerja visual terstruktur dengan penanda tahapan.',
               action: 'Tata letak kartu proses bertingkat dengan penanda step yang jelas dan ruang bernapas lega.',
               composition: 'Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline.',
-              layout: 'Card list 3 langkah praktis bertingkat.',
-              visual_metaphor: 'Percepatan alur kerja yang efisien dan minim hambatan.',
+              layout: 'Card list bertingkat yang rapi dan terarah.',
+              visual_metaphor: 'Struktur bertahap yang sistematis.',
               typography: 'Headline 28pt bold, poin langkah 16pt dengan icon badge.',
               background: 'Clean light cream (#F7F6F2).',
               color_mood: 'Kepercayaan, kredibilitas, dan optimisme.',
               negative_space: 'Padding internal 24px di setiap card langkah.',
               negative_prompt: 'photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads.'
             },
-            production_prompt: `Layout: Card list 3 langkah praktis bertingkat.
-Subject/Object Utama: Checklist framework langkah kerja dengan indikator verifikasi hijau.
-Visual Metaphor: Percepatan alur kerja yang efisien dan minim hambatan.
+            production_prompt: `Layout: Card list bertingkat yang rapi dan terarah.
+Subject/Object Utama: Kerangka kerja visual terstruktur dengan penanda tahapan.
+Visual Metaphor: Struktur bertahap yang sistematis.
 Typography Hierarchy: Headline 28pt bold, poin langkah 16pt dengan icon badge.
 Background: Clean light cream (#F7F6F2).
 Color Mood: Kepercayaan, kredibilitas, dan optimisme.
 Negative Space: Padding internal 24px di setiap card langkah.
-Image/Illustration Direction: High-contrast product UI framework style.`,
+Image/Illustration Direction: Clean minimalist structured framework layout.`,
             slide_image_prompt: sanitizeAndGenerateSlideImagePrompt(
               undefined,
               4,
               'learn',
-              `Solusi & Pembuktian: ${draftSolution}`,
+              draftSolution,
               funnelStage,
-              `Tampilan alur kerja terstruktur yang mendemonstrasikan implementasi ${draftSolution}.`,
+              'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
               'infographic'
             ) ?? ''
           },
@@ -2393,8 +2393,8 @@ Image/Illustration Direction: High-contrast product UI framework style.`,
             slide: 5,
             role: 'cta',
             communication_job: 'Mendorong aksi penutup berbasis value yang sesuai dengan tahap corong',
-            headline: `Langkah Lanjutan: ${safeCta}`,
-            body: `Ambil langkah berikutnya untuk mendalami ${draftTopic} dan menerapkan strategi ini secara bertahap.`,
+            headline: safeCta,
+            body: '',
             swipe_bridge: safeCta,
             emotional_state: 'Dorongan Aksi Berbasis Value',
             visual_intent: 'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
@@ -2405,10 +2405,10 @@ Image/Illustration Direction: High-contrast product UI framework style.`,
               funnel_stage: funnelStage,
               slide_role: 'cta',
               visual_objective: 'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
-              core_message: `Langkah Lanjutan: ${safeCta}`,
+              core_message: safeCta,
               audience_emotion: 'Dorongan Aksi Berbasis Value',
               visual_concept: 'Kartu UI penutup dan tombol aksi kontras tinggi',
-              text_overlay: `Langkah Lanjutan: ${safeCta}`
+              text_overlay: safeCta
             },
             visual_format: 'infographic',
             visual_production: {
@@ -2416,7 +2416,7 @@ Image/Illustration Direction: High-contrast product UI framework style.`,
               action: 'Komposisi terpusat dengan headline ajakan nilai di atas dan tombol pill CTA elegan di tengah.',
               composition: 'Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline.',
               layout: 'Clean closing card layout dengan tombol CTA pill besar yang dominan di tengah.',
-              visual_metaphor: 'Gerbang menuju implementasi strategi alur konten yang terstruktur.',
+              visual_metaphor: 'Arah lanjutan yang terfokus dan terarah.',
               typography: 'Headline 32pt bold, body naskah 16pt, CTA button text 18pt bold.',
               background: 'Subtle warm emerald gradient ambient (#F0FDF4 ke #FFFFFF).',
               color_mood: 'Tegas, terpercaya, dan berfokus pada value.',
@@ -2425,7 +2425,7 @@ Image/Illustration Direction: High-contrast product UI framework style.`,
             },
             production_prompt: `Layout: Clean closing card layout dengan tombol CTA pill besar yang dominan di tengah.
 Subject/Object Utama: Kartu ajakan tindakan berbasis value dengan tipografi headline kuat dan button CTA berbayang halus.
-Visual Metaphor: Gerbang menuju implementasi strategi alur konten yang terstruktur.
+Visual Metaphor: Arah lanjutan yang terfokus dan terarah.
 Typography Hierarchy: Headline 32pt bold, body naskah 16pt, CTA button text 18pt bold.
 Background: Subtle warm emerald gradient ambient (#F0FDF4 ke #FFFFFF).
 Color Mood: Tegas, terpercaya, dan berfokus pada value.
@@ -2435,14 +2435,14 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
               undefined,
               5,
               'cta',
-              `Langkah Lanjutan: ${safeCta}`,
+              safeCta,
               funnelStage,
               'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
               'infographic'
             ) ?? ''
           }
         ],
-        captionForPost: buildFunnelAlignedCarouselCaption(funnelStage, activeItem, undefined, safeCta),
+        captionForPost: (activeItem?.caption || '').trim(),
         captionInstruction: "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
       };
       return JSON.stringify(initialPlan, null, 2);

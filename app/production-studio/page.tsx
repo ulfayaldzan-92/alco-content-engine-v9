@@ -1168,11 +1168,18 @@ const validateAndNormalizeCarouselPlan = (
     return null;
   }
 
-  const defaultCaptionInstruction = 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.';
-  let captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
-  if (!captionForPost || captionForPost.length < 25 || captionForPost.includes('[Tulis caption') || captionForPost.includes('...')) {
-    captionForPost = buildFunnelAlignedCarouselCaption(funnelStage, activeItem, validatedSlides, primaryCtaText, activeContext);
+  const captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
+  if (
+    !captionForPost ||
+    captionForPost.length < 25 ||
+    captionForPost.includes('[Tulis caption') ||
+    captionForPost.includes('...') ||
+    (captionForPost.startsWith('[') && captionForPost.endsWith(']')) ||
+    captionForPost.toLowerCase().includes('lorem ipsum')
+  ) {
+    return null;
   }
+  const defaultCaptionInstruction = 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.';
   const captionInstruction = String(parsed.captionInstruction || parsed.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;
 
   const slidePlans: CarouselSlideProductionPlan[] = validatedSlides.map((slide) => ({
@@ -1406,6 +1413,11 @@ ${formattedContext}
 
     Funnel Stage TIDAK BOLEH menciptakan fakta bisnis baru.
 
+12. CAPTION (captionForPost):
+    - Caption harus grounded HANYA pada ProductionContext dan narasi Stage 1.
+    - Jika ContentItem.caption tersedia, perlakukan sebagai authority utama.
+    - DILARANG menambah benefit, proof, result, feature, metric, urgency, atau claim baru.
+
 ### OUTPUT FORMAT DIRECTION (STAGE 1: CONTENT PLAN):
 Hasilkan 1 (SATU) Content Plan Carousel yang utuh dan terstruktur untuk tahap corong ${funnelStage} dalam format JSON object canonical murni (BUKAN array, tanpa markdown pembungkus).
 PENTING: Tahap 1 HANYA menghasilkan rencana naskah/narasi konten (Content Plan). JANGAN sertakan instruksi visual, prompt gambar, atau sintaks Midjourney/Flux di tahap ini.
@@ -1433,6 +1445,7 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
   "slide_count": 5,
   "slide_count_reason": "5 Slide optimal untuk alur narasi Hook → Problem → Reframe → Solution → CTA.",
   "belief_journey_summary": "[Ringkasan transformasi pola pikir audiens dari slide awal hingga akhir]",
+  "captionForPost": "[Caption lengkap postingan Instagram yang merangkum narasi slide 1-5, grounded HANYA pada ProductionContext + narasi Stage 1. Jika ContentItem.caption tersedia, jadikan authority utama. Dilarang menambah benefit, proof, result, feature, metric, urgency, atau claim baru]",
   "messageAlignmentCheck": {
     "isAligned": true,
     "issue": "",
@@ -1603,8 +1616,6 @@ UNTUK SETIAP SLIDE TARGET DI "slides", BERIKAN PETUNJUK VISUAL & SLIDE IMAGE PRO
 WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 2 (TANPA MARKDOWN):
 {
   "visual_system_notes": "Sistem visual 4:5 vertical editorial selaras corong ${funnelStage} dan identitas visual project.",
-  "captionForPost": "[Caption Instagram yang merangkum pesan carousel sesuai funnel ${funnelStage}]",
-  "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat.",
   "slides": [
     {
       "slide": ${batchSlideNumbers && batchSlideNumbers.length > 0 ? batchSlideNumbers[0] : 1},
@@ -1655,6 +1666,19 @@ function validateCarouselStage1ContentPlan(
   const corePromise = String(parsed.core_promise || parsed.corePromise || '').trim();
   const primaryCtaType = String(parsed.primary_cta_type || parsed.primaryCtaType || '').trim();
   const primaryCtaText = String(parsed.primary_cta_text || parsed.primaryCtaText || '').trim();
+
+  // Require captionForPost: fail-closed on empty, placeholder, or invalid caption
+  const captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
+  if (
+    !captionForPost ||
+    captionForPost.length < 25 ||
+    captionForPost.includes('[Tulis caption') ||
+    captionForPost.includes('...') ||
+    (captionForPost.startsWith('[') && captionForPost.endsWith(']')) ||
+    captionForPost.toLowerCase().includes('lorem ipsum')
+  ) {
+    return null;
+  }
 
   if (!contentGoal || !currentBelief || !desiredBelief || !corePromise || !primaryCtaType || !primaryCtaText) {
     return null;
@@ -1720,6 +1744,7 @@ function validateCarouselStage1ContentPlan(
     core_promise: corePromise,
     primary_cta_type: primaryCtaType,
     primary_cta_text: primaryCtaText,
+    captionForPost,
     slide_count: 5,
     slides: validatedSlides,
   };
@@ -1886,8 +1911,8 @@ const mergeCarouselPlanStages = (
   const mergedPlan = {
     ...validStage1,
     visual_system_notes: validStage2.visual_system_notes || 'Tema visual konsisten 4:5 vertical editorial.',
-    captionForPost: validStage1.captionForPost || validStage2.captionForPost || buildFunnelAlignedCarouselCaption(validStage1.funnel_stage, activeItem, mergedSlides as CarouselSlide[], validStage1.primary_cta_text, activeContext),
-    captionInstruction: validStage1.captionInstruction || validStage2.captionInstruction || 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.',
+    captionForPost: validStage1.captionForPost,
+    captionInstruction: 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.',
     slides: mergedSlides,
   };
 

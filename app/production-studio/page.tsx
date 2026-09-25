@@ -1318,27 +1318,116 @@ ${funnelPromptBlock}
 
 ${formattedContext}
 
+### CAROUSEL STAGE 1 AUTHORITY CONTRACT — STRICT
+
+1. Semua isi naratif WAJIB diturunkan hanya dari:
+   - PROJECT FACTS / ProductionContext
+   - SELECTED CONTENT ITEM
+   - FunnelStrategy / Funnel Rules
+   - revisionDirective jika user memberikan revisi eksplisit
+
+2. DILARANG menciptakan fakta baru tentang:
+   - audiens
+   - pain point
+   - kebutuhan
+   - keberatan
+   - produk
+   - fitur
+   - workflow
+   - capability
+   - benefit
+   - proof
+   - statistik
+   - testimoni
+   - hasil bisnis
+
+3. current_belief:
+   - hanya boleh diturunkan langsung dari pain_points, objections,
+     body/headline ContentItem, atau strategic context.
+   - jangan menciptakan asumsi psikologis baru.
+   - jangan otomatis menyatakan audiens "salah", "gagal",
+     "belum sadar", atau "menggunakan cara lama" jika authority
+     tidak menyatakan hal tersebut.
+
+4. desired_belief:
+   - hanya boleh merupakan perubahan pemahaman yang masuk akal
+     dari positioning, core_message, objective, main_offer,
+     offer_benefits, atau ContentItem.
+   - jangan menambahkan promise baru.
+
+5. core_promise:
+   - harus dibatasi oleh main_offer, USP, offer_benefits,
+     positioning, core_message, dan selected ContentItem.
+   - tidak boleh menjanjikan hasil yang tidak tercantum di authority.
+
+6. PROBLEM:
+   - Slide 2 hanya boleh menggunakan masalah yang tersedia
+     dalam authority.
+   - jika authority tidak menyediakan pain point spesifik,
+     gunakan masalah yang secara eksplisit terdapat pada
+     headline/body ContentItem.
+   - jangan menciptakan pain point baru.
+
+7. REFRAME / WHY CURRENT METHOD FAILS:
+   - jangan otomatis menyatakan "metode lama gagal".
+   - hanya boleh membahas kegagalan metode tertentu jika metode
+     tersebut DAN kelemahannya memang disebut oleh authority.
+   - jika tidak ada authority tentang metode lama,
+     Slide 3 cukup memberikan REFRAME / sudut pandang baru
+     berdasarkan core_message, positioning, atau ContentItem.
+
+8. SOLUTION / MECHANISM / VALUE:
+   - hanya gunakan solution, mechanism, feature, workflow,
+     capability, USP atau benefit yang eksplisit tersedia
+     di ProductionContext.
+   - jangan menciptakan fitur atau workflow untuk mengisi slide.
+
+9. PROOF:
+   - proof bukan field wajib.
+   - gunakan proof HANYA jika authority memiliki proof_data,
+     testimonial, case study, statistic, metric, atau evidence
+     eksplisit.
+   - jika proof tidak tersedia, jangan menciptakan proof.
+   - Slide 4 boleh berfokus pada solusi/value yang authoritative
+     tanpa proof.
+
+10. CTA:
+    - CTA harus berasal dari CTA ContentItem atau selaras dengan
+      main_offer dan funnel rules.
+    - jangan membuat diskon, urgency, bonus, guarantee,
+      scarcity, demo, trial, consultation, link, atau offer baru
+      jika tidak tersedia di authority.
+
+11. Funnel Stage hanya menentukan:
+    - urutan komunikasi
+    - intensitas pesan
+    - kesiapan keputusan
+    - gaya CTA
+
+    Funnel Stage TIDAK BOLEH menciptakan fakta bisnis baru.
+
 ### OUTPUT FORMAT DIRECTION (STAGE 1: CONTENT PLAN):
 Hasilkan 1 (SATU) Content Plan Carousel yang utuh dan terstruktur untuk tahap corong ${funnelStage} dalam format JSON object canonical murni (BUKAN array, tanpa markdown pembungkus).
 PENTING: Tahap 1 HANYA menghasilkan rencana naskah/narasi konten (Content Plan). JANGAN sertakan instruksi visual, prompt gambar, atau sintaks Midjourney/Flux di tahap ini.
 
 STRUKTUR NARASI CAROUSEL WAJIB:
-Hook → Problem → Why Current Method Fails / Reframe → Solution / Mechanism → CTA
+Hook → Problem → Reframe → Authoritative Solution / Value → CTA
+"Why Current Method Fails" hanya boleh digunakan sebagai bentuk Reframe jika kegagalan metode tersebut memang didukung authority.
 
 ATURAN STRUKTUR UNTUK 5 SLIDE (DEFAULT):
 - Slide 1: Hook (Peran: "hook") - Hook spesifik sesuai pain point audiens project, BUKAN langsung hard selling atau ajakan beli.
 - Slide 2: Problem (Peran: "problem") - Fokus pada SATU masalah konkret yang dihadapi target audiens.
-- Slide 3: Why Current Method Fails / Reframe (Peran: "reframe") - Menjelaskan mengapa metode lama gagal dan menyajikan sudut pandang sistemik yang relevan.
-- Slide 4: Solution + Value/Proof (Peran: "learn") - Solusi terstruktur dan pembuktian nilai nyata berbasis fitur/alur kerja yang relevan dengan positioning brand.
+- Slide 3: Reframe (Peran: "reframe") - Memberikan sudut pandang baru yang diturunkan dari positioning/core_message/ContentItem. Jangan menyatakan metode tertentu gagal kecuali authority secara eksplisit mendukung klaim tersebut.
+- Slide 4: Authoritative Solution / Value (Peran: "learn") - Gunakan hanya solusi, mechanism, feature, workflow, capability, USP, atau benefit yang tersedia di authority. Proof hanya boleh digunakan jika evidence tersedia. Jika tidak ada proof, JANGAN membuat proof. Jika tidak ada feature/workflow spesifik, jangan menciptakannya. Gunakan value atau solusi yang memang tersedia di authority.
 - Slide 5: CTA (Peran: "cta") - Ajakan bertindak berbasis value yang relevan dengan offer (bukan sekadar "Link di bio").
 
 WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUAL):
 {
   "content_goal": "${funnelRules.goal}",
   "funnel_stage": "${funnelStage}",
-  "current_belief": "[Keyakinan lama audiens yang keliru atau membatasi]",
-  "desired_belief": "[Keyakinan baru yang ingin ditanamkan setelah membaca carousel]",
-  "core_promise": "[Janji nilai utama yang ditawarkan carousel ini sesuai context project]",
+  "current_belief": "[Pemahaman/kondisi awal audiens yang SECARA LANGSUNG didukung pain point, objection, headline, body, atau authority project]",
+  "desired_belief": "[Pemahaman baru yang diturunkan dari positioning/core_message/objective authority tanpa menambahkan janji baru]",
+  "core_promise": "[Value proposition yang dibatasi oleh main_offer/USP/offer_benefits/core_message authority]",
   "primary_cta_type": "${funnelStage === 'BOFU' ? 'direct_offer' : 'engagement_save'}",
   "primary_cta_text": "[Teks CTA utama berbasis value yang sesuai corong ${funnelStage}]",
   "slide_count": 5,
@@ -1354,8 +1443,8 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
       "slide": 1,
       "role": "hook",
       "communication_job": "Menghentikan scroll dengan relatable problem sesuai konteks project",
-      "headline": "[Hook spesifik sesuai pain point audiens project]",
-      "body": "[1-2 kalimat pengantar yang relevan dengan topik project]",
+      "headline": "[Hook spesifik grounded pada headline/body ContentItem, pain point, objective, atau core message authority; jangan ciptakan pain point baru]",
+      "body": "[1-2 kalimat pengantar yang relevan dengan topik project dan grounded pada authority]",
       "swipe_bridge": "[Kalimat jembatan untuk swipe] ➔",
       "emotional_state": "Empati & Refleksi Kritis",
       "core_message": "[Pesan inti hook slide 1]",
@@ -1365,8 +1454,8 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
       "slide": 2,
       "role": "problem",
       "communication_job": "Fokus pada satu masalah konkret yang dihadapi target audiens",
-      "headline": "[Masalah konkret yang dihadapi target audiens]",
-      "body": "[Penjelasan satu masalah konkret tanpa mencampur aduk isu lain]",
+      "headline": "[Masalah yang eksplisit tersedia pada authority project / ContentItem]",
+      "body": "[Penjelasan masalah konkret berdasarkan authority tanpa mencampur aduk isu lain atau membuat dampak/konsekuensi bisnis baru]",
       "swipe_bridge": "[Kalimat jembatan mengapa cara lama tidak cukup] ➔",
       "emotional_state": "Kesadaran Masalah Tunggal",
       "core_message": "[Pesan inti masalah slide 2]",
@@ -1375,9 +1464,9 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
     {
       "slide": 3,
       "role": "reframe",
-      "communication_job": "Menjelaskan mengapa metode lama gagal dan memberikan sudut pandang baru",
-      "headline": "[Reframing / mengapa cara lama gagal sesuai konteks project]",
-      "body": "[Penjelasan sudut pandang baru yang sistemik dan tidak generik]",
+      "communication_job": "Menjelaskan sudut pandang baru yang diturunkan dari authority tanpa klaim kegagalan metode kecuali didukung authority",
+      "headline": "[Reframe berbasis positioning/core_message/ContentItem; hanya sebut kegagalan metode jika authority mendukungnya]",
+      "body": "[Penjelasan sudut pandang baru yang sistemik berdasarkan authority, tanpa mengasumsikan kegagalan cara lama kecuali eksplisit di authority]",
       "swipe_bridge": "[Kalimat jembatan menuju solusi] ➔",
       "emotional_state": "Pencerahan (Aha-Moment)",
       "core_message": "[Pesan inti reframe slide 3]",
@@ -1386,9 +1475,9 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
     {
       "slide": 4,
       "role": "learn",
-      "communication_job": "Menyajikan solusi terstruktur dan nilai nyata berbasis fitur/workflow",
-      "headline": "[Solusi / framework / alur kerja yang relevan dengan positioning brand]",
-      "body": "[Penjelasan solusi terstruktur dan nilai nyata berbasis fitur/workflow]",
+      "communication_job": "Menyajikan solusi/value yang eksplisit tersedia di authority tanpa menciptakan fitur, workflow, atau proof baru",
+      "headline": "[Solusi/value/mechanism yang EKSPLISIT tersedia dalam authority; jangan menciptakan framework, feature, workflow, capability, atau proof baru]",
+      "body": "[Penjelasan value/solusi berdasarkan authority yang tersedia; proof hanya jika evidence eksplisit tersedia]",
       "swipe_bridge": "[Kalimat jembatan menuju aksi penutup] ➔",
       "emotional_state": "Optimis & Paham Nilai Nyata",
       "core_message": "[Pesan inti solusi slide 4]",
@@ -1399,7 +1488,7 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
       "role": "cta",
       "communication_job": "Mendorong aksi penutup berbasis value yang sesuai corong ${funnelStage}",
       "headline": "[Ajakan bertindak berbasis value yang relevan dengan offer]",
-      "body": "[Penjelasan manfaat tindakan penutup selaras dengan penawaran project]",
+      "body": "[Penjelasan langkah berikutnya menggunakan CTA/offer/value yang tersedia di authority tanpa promise baru]",
       "swipe_bridge": "[Teks CTA penutup]",
       "emotional_state": "Terdorong Bertindak Berbasis Value",
       "core_message": "[Pesan inti CTA slide 5]",

@@ -52,6 +52,7 @@ import { translateCarouselProductionPrompts } from '../lib/prompt-translation';
 import {
   buildExecutionPromptAuthority,
   ExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
 } from '../lib/execution-prompt-authority';
 import {
   saveProductionPackage,
@@ -1407,7 +1408,139 @@ async function runCarouselProductionPathTests(): Promise<void> {
     'CarouselPanel.tsx must destructure carouselPlan from props'
   );
 
-  console.log('\nALL 50 CAROUSEL PRODUCTION PATH TESTS AND 5 STATIC REGRESSION GUARDS PASSED SUCCESSFULLY!');
+  // Helper to extract a source block between two unique boundary markers
+  function extractSourceBlock(source: string, startMarker: string, endMarker: string): string {
+    const startIndex = source.indexOf(startMarker);
+    if (startIndex === -1) {
+      throw new Error(`FAIL: startMarker not found: "${startMarker}"`);
+    }
+    const endIndex = source.indexOf(endMarker, startIndex + startMarker.length);
+    if (endIndex === -1) {
+      throw new Error(`FAIL: endMarker not found: "${endMarker}"`);
+    }
+    return source.substring(startIndex, endIndex);
+  }
+
+  // --- PHASE 5B.2-E: CAROUSEL AUTHORITY ARCHITECTURE REGRESSION GUARDS ---
+  console.log('\n--- RUNNING PHASE 5B.2-E CAROUSEL AUTHORITY REGRESSION GUARDS ---');
+
+  // Guard 6: Stage 1 Caption Authority
+  console.log('Guard 6: Verify Stage 1 Caption Authority');
+  const stage1Block = extractSourceBlock(
+    pageFile,
+    'function buildCarouselStage1Prompt(',
+    'function buildCarouselStage2Prompt('
+  );
+  assert(
+    stage1Block.includes('Existing ContentItem Caption:'),
+    'buildCarouselStage1Prompt must include "Existing ContentItem Caption:"'
+  );
+  assert(
+    stage1Block.includes('captionForPost'),
+    'buildCarouselStage1Prompt must produce captionForPost'
+  );
+  assert(
+    stage1Block.includes('activeItem?.caption'),
+    'buildCarouselStage1Prompt must provide activeItem.caption as authority'
+  );
+
+  // Guard 7: Stage 2 Visual-Only
+  console.log('Guard 7: Verify Stage 2 is visual-only');
+  const stage2Block = extractSourceBlock(
+    pageFile,
+    'function buildCarouselStage2Prompt(',
+    'function validateCarouselStage1ContentPlan('
+  );
+  assert(
+    !stage2Block.includes('"captionForPost"'),
+    'buildCarouselStage2Prompt must NOT include "captionForPost"'
+  );
+  assert(
+    !stage2Block.includes('"captionInstruction"'),
+    'buildCarouselStage2Prompt must NOT include "captionInstruction"'
+  );
+
+  // Guard 8: Merge Ownership
+  console.log('Guard 8: Verify Merge Ownership enforces validStage1 caption');
+  const mergeBlock = extractSourceBlock(
+    pageFile,
+    'const mergeCarouselPlanStages =',
+    'function buildFunnelAlignedVideoCaption('
+  );
+  assert(
+    mergeBlock.includes('captionForPost: validStage1.captionForPost'),
+    'mergeCarouselPlanStages must assign captionForPost from validStage1.captionForPost'
+  );
+  assert(
+    !mergeBlock.includes('validStage2.captionForPost'),
+    'mergeCarouselPlanStages must NOT use validStage2.captionForPost'
+  );
+  assert(
+    !mergeBlock.includes('buildFunnelAlignedCarouselCaption'),
+    'mergeCarouselPlanStages must NOT call buildFunnelAlignedCarouselCaption'
+  );
+
+  // Guard 9: Normalizer Fail-Closed
+  console.log('Guard 9: Verify validateAndNormalizeCarouselPlan does not use synthetic caption fallback');
+  const normalizerBlock = extractSourceBlock(
+    pageFile,
+    'const validateAndNormalizeCarouselPlan =',
+    'function buildFunnelAlignedCarouselCaption('
+  );
+  assert(
+    !normalizerBlock.includes('buildFunnelAlignedCarouselCaption'),
+    'validateAndNormalizeCarouselPlan must NOT use buildFunnelAlignedCarouselCaption as fallback'
+  );
+
+  // Guard 10: Initial Draft Regression
+  console.log('Guard 10: Verify getInitialDraft carousel case has no synthetic fallbacks');
+  const initialDraftCarouselBlock = extractSourceBlock(
+    pageFile,
+    "case 'carousel': {",
+    "case 'video': {"
+  );
+  assert(
+    !initialDraftCarouselBlock.includes('Strategi & Eksekusi Konten'),
+    'initial draft carousel must not contain "Strategi & Eksekusi Konten"'
+  );
+  assert(
+    !initialDraftCarouselBlock.includes('Penerapan metode yang konsisten menghasilkan efisiensi nyata'),
+    'initial draft carousel must not contain "Penerapan metode yang konsisten menghasilkan efisiensi nyata"'
+  );
+  assert(
+    !initialDraftCarouselBlock.includes('Mengapa pendekatan biasa belum memadai?'),
+    'initial draft carousel must not contain "Mengapa pendekatan biasa belum memadai?"'
+  );
+  assert(
+    !initialDraftCarouselBlock.includes('Sudut Pandang Baru: Mengurai'),
+    'initial draft carousel must not contain "Sudut Pandang Baru: Mengurai"'
+  );
+  assert(
+    !initialDraftCarouselBlock.includes('buildFunnelAlignedCarouselCaption('),
+    'initial draft carousel must not call buildFunnelAlignedCarouselCaption('
+  );
+  assert(
+    initialDraftCarouselBlock.includes("const carouselCta = (activeItem?.cta || '').trim();"),
+    'initial draft carousel must define: const carouselCta = (activeItem?.cta || \'\').trim();'
+  );
+
+  // Guard 11: UI Authority Regression
+  console.log('Guard 11: Verify CarouselPanel UI authority rules');
+  assert(
+    carouselPanelFile.includes('Draft Awal • Belum Dioptimalkan'),
+    'CarouselPanel must render "Draft Awal • Belum Dioptimalkan" badge when not authoritative'
+  );
+  assert(
+    !carouselPanelFile.includes('plan.messageAlignmentCheck || { isAligned: true }'),
+    'CarouselPanel must NOT contain fallback "plan.messageAlignmentCheck || { isAligned: true }"'
+  );
+  assert(
+    carouselPanelFile.includes('isCarouselOutputAuthoritative') &&
+      carouselPanelFile.includes('{isCarouselOutputAuthoritative && ('),
+    'CarouselPanel completion UI must depend on isCarouselOutputAuthoritative'
+  );
+
+  console.log('\nALL 50 CAROUSEL PRODUCTION PATH TESTS AND 11 STATIC REGRESSION GUARDS PASSED SUCCESSFULLY!');
 }
 
 runCarouselProductionPathTests().catch((err) => {

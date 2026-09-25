@@ -2077,7 +2077,7 @@ Image/Illustration Direction: Clean minimalist modern editorial photography.`,
               funnelStage,
               'Visual editorial portrait profesional menelaah catatan kerja dengan pencahayaan alami hangat.',
               'photography'
-            )
+            ) ?? ''
           },
           {
             slide: 2,
@@ -2129,7 +2129,7 @@ Image/Illustration Direction: Clean minimalist infographic diagram UI.`,
               funnelStage,
               'Perbandingan visual antara proses kerja yang tidak terarah versus alur kerja terstruktur.',
               'infographic'
-            )
+            ) ?? ''
           },
           {
             slide: 3,
@@ -2181,7 +2181,7 @@ Image/Illustration Direction: Modern minimalist 3D isometric or flat geometric d
               funnelStage,
               `Infografis kartu pencerahan fondasi strategis seputar ${draftTopic} dengan tipografi kontras tinggi.`,
               'infographic'
-            )
+            ) ?? ''
           },
           {
             slide: 4,
@@ -2233,7 +2233,7 @@ Image/Illustration Direction: High-contrast product UI framework style.`,
               funnelStage,
               `Tampilan alur kerja terstruktur yang mendemonstrasikan implementasi ${draftSolution}.`,
               'infographic'
-            )
+            ) ?? ''
           },
           {
             slide: 5,
@@ -2285,7 +2285,7 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
               funnelStage,
               'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
               'infographic'
-            )
+            ) ?? ''
           }
         ],
         captionForPost: buildFunnelAlignedCarouselCaption(funnelStage, activeItem, undefined, safeCta),

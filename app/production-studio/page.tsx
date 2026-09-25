@@ -796,18 +796,32 @@ const validateAndNormalizeImageAngles = (
   }, null, 2);
 };
 
+// Helper function for Carousel-specific strict prompt line extraction (strictly ONE line per label)
+const extractCarouselPromptLine = (field: string, text: string): string => {
+  const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`^[ \\t]*${escapedField}:[ \\t]*(.*)$`, 'im');
+  const match = text.match(regex);
+  return match ? match[1].trim() : '';
+};
+
 // Helper function to build / sanitize ready-to-use 14-field slide image prompt for image generators / designers
 const sanitizeAndGenerateSlideImagePrompt = (
   rawPrompt: string | undefined,
   slideNumber: number,
   role: string,
   headline: string,
-  funnelStage: 'TOFU' | 'MOFU' | 'BOFU',
+  funnelStage: string,
   visualIntent?: string,
   visualFormat?: VisualFormatType,
   activeContext?: any
-): string => {
-  const normRole = (role || 'hook').toLowerCase().trim();
+): string | null => {
+  // 1. Role validation - strict canonical role check
+  const normRole = (role || '').toLowerCase().trim();
+  const allowedRoles = ['hook', 'problem', 'reframe', 'learn', 'cta'];
+  if (!allowedRoles.includes(normRole)) {
+    return null;
+  }
+
   let capitalizedRole = 'Hook';
   if (normRole === 'hook') {
     capitalizedRole = 'Hook';
@@ -815,417 +829,105 @@ const sanitizeAndGenerateSlideImagePrompt = (
     capitalizedRole = 'Problem';
   } else if (normRole === 'reframe') {
     capitalizedRole = 'Reframe';
-  } else if (normRole.includes('fails') || normRole.includes('why')) {
-    capitalizedRole = 'Why Current Method Fails';
-  } else if (normRole === 'learn' || normRole === 'solution' || normRole.includes('how')) {
+  } else if (normRole === 'learn') {
     capitalizedRole = 'How It Works / Value';
-  } else if (normRole === 'proof' || normRole === 'proof_value') {
-    capitalizedRole = 'Proof / Value';
   } else if (normRole === 'cta') {
     capitalizedRole = 'CTA';
-  } else {
-    capitalizedRole = normRole.charAt(0).toUpperCase() + normRole.slice(1);
   }
 
-  const hardSellingTriggers = [
-    'beli', 'diskon', 'promo', 'order', 'checkout', 'daftar sekarang',
-    'terakhir', 'bonus', 'eksklusif', 'peluang emas', 'slot terbatas',
-    'harga khusus', 'klik link', 'dm sekarang', 'garansi', 'buruan beli', 'kenapa harus beli'
-  ];
-
-  // Clean Text Overlay: ensure it syncs with slide headline and enforces narrative structure
-  let textOverlay = (headline || '').trim();
-  const overlayLower = textOverlay.toLowerCase();
-
-  // Slide 1: Hook must open with decision-reason or relatable curiosity, NEVER direct hard selling even in BOFU
-  if (normRole === 'hook' || slideNumber === 1) {
-    if (hardSellingTriggers.some(t => overlayLower.includes(t)) || /beli|promo|diskon/i.test(overlayLower)) {
-      textOverlay = textOverlay ? textOverlay.replace(new RegExp(hardSellingTriggers.join('|'), 'gi'), '').trim() : '';
-      if (!textOverlay || textOverlay.length < 5) {
-        textOverlay = headline && !hardSellingTriggers.some(t => headline.toLowerCase().includes(t)) ? headline : 'Refleksi Strategis & Alur Pesan';
-      }
-    }
-  } else if (normRole === 'problem' || slideNumber === 2) {
-    // Slide 2: Problem must focus on single specific obstacle
-    if (/beli|promo|diskon/i.test(overlayLower) || overlayLower.length < 5) {
-      textOverlay = headline || "Tantangan Utama dalam Eksekusi";
-    }
-  } else if (normRole === 'reframe' || normRole.includes('fails') || slideNumber === 3) {
-    // Slide 3: Reframe / Why current method fails - FORBID generic "Solusi: Optimasi Alur BOFU"
-    if (/solusi:\s*optimasi|optimasi\s*strategi|optimasi\s*alur/i.test(overlayLower) || overlayLower.length < 5) {
-      textOverlay = headline || "Sudut Pandang Baru & Kerangka Alur";
-    }
-  } else if (normRole === 'learn' || normRole === 'solution' || normRole === 'proof' || slideNumber === 4) {
-    // Slide 4: How It Works / Solution & Proof/Value - must be grounded in feature/workflow value
-    if (/hasil.*melampaui|testimoni terverifikasi|ratusan pengguna terbukti sukses/i.test(overlayLower) || overlayLower.length < 5) {
-      textOverlay = headline || "Metode Terstruktur & Implementasi Nilai";
-    }
-  } else if (normRole === 'cta' || slideNumber >= 5) {
-    // Final Slide: Value-based CTA, forbid weak "Link Bio!"
-    if (/^link\s*(di\s*)?bio!?$/i.test(overlayLower) || /^klik\s*link!?$/i.test(overlayLower) || overlayLower.length < 5) {
-      textOverlay = headline || (funnelStage === 'BOFU' ? "Pelajari Langkah Selanjutnya" : "Simpan & Terapkan Langkah Ini");
-    }
+  // 2. Funnel validation - strictly TOFU | MOFU | BOFU
+  const normFunnel = String(funnelStage || '').toUpperCase().trim();
+  if (normFunnel !== 'TOFU' && normFunnel !== 'MOFU' && normFunnel !== 'BOFU') {
+    return null;
   }
 
-  // Determine format (photography | infographic | hybrid)
-  const format: VisualFormatType = visualFormat || (
-    normRole === 'hook' || slideNumber === 1
-      ? 'photography'
-      : (funnelStage === 'MOFU' || normRole === 'problem' || normRole === 'reframe' || normRole.includes('fails') || normRole === 'learn' || normRole === 'solution')
-      ? 'infographic'
-      : 'infographic'
-  );
+  // 3. Visual format validation - strictly photography | infographic | hybrid
+  const format = String(visualFormat || '').toLowerCase().trim();
+  if (format !== 'photography' && format !== 'infographic' && format !== 'hybrid') {
+    return null;
+  }
 
-  // Extract from rawPrompt if available
-  const p = rawPrompt || '';
-  const extractedObjective = extractPromptField('Visual Objective', p);
-  const extractedSubject = extractPromptField('Subject/Object', p) || extractPromptField('Subject', p);
-  const extractedAction = extractPromptField('Action/Scene', p) || extractPromptField('Action', p);
-  const extractedExpression = extractPromptField('Expression/Emotion', p) || extractPromptField('Expression', p);
-  const extractedEnvironment = extractPromptField('Environment', p);
-  const extractedComposition = extractPromptField('Composition', p);
-  const extractedLighting = extractPromptField('Lighting', p);
-  const extractedCamera = extractPromptField('Camera/Graphic Style', p) || extractPromptField('Camera', p);
+  // 4. Text Overlay validation - strictly authoritative headline as-is, no synthetic copies
+  const textOverlay = (headline || '').trim();
+  if (!textOverlay || textOverlay === '...' || textOverlay === '…' || textOverlay.includes('[Tulis') || textOverlay.length < 3) {
+    return null;
+  }
 
-  // Defaults per role, funnel, and visual format
-  let visualObjective = extractedObjective;
-  let subjectObject = extractedSubject;
-  let actionScene = extractedAction;
-  let expressionEmotion = extractedExpression;
-  let environment = extractedEnvironment;
-  let composition = extractedComposition || (format === 'infographic'
+  // 5. Raw prompt authority requirement
+  if (!rawPrompt) {
+    return null;
+  }
+  const p = rawPrompt.trim();
+  if (!p) {
+    return null;
+  }
+
+  // 6. Extract and validate required authoritative semantic fields (FAIL CLOSED if any is missing or placeholder)
+  const visualObjective = extractCarouselPromptLine('Visual Objective', p) || (visualIntent ? visualIntent.trim() : '');
+  const subjectObject = extractCarouselPromptLine('Subject/Object', p) || extractCarouselPromptLine('Subject', p);
+  const actionScene = extractCarouselPromptLine('Action/Scene', p) || extractCarouselPromptLine('Action', p);
+  const expressionEmotion = extractCarouselPromptLine('Expression/Emotion', p) || extractCarouselPromptLine('Expression', p);
+  const environment = extractCarouselPromptLine('Environment', p);
+
+  if (!visualObjective || !subjectObject || !actionScene || !expressionEmotion || !environment) {
+    return null;
+  }
+
+  if (
+    visualObjective === '...' || visualObjective.includes('[') ||
+    subjectObject === '...' || subjectObject.includes('[') ||
+    actionScene === '...' || actionScene.includes('[') ||
+    expressionEmotion === '...' || expressionEmotion.includes('[') ||
+    environment === '...' || environment.includes('[')
+  ) {
+    return null;
+  }
+
+  // 7. Extract safe visual styling fields with safe mechanical fallbacks
+  const extractedComposition = extractCarouselPromptLine('Composition', p);
+  const extractedLighting = extractCarouselPromptLine('Lighting', p);
+  const extractedCamera = extractCarouselPromptLine('Camera/Graphic Style', p) || extractCarouselPromptLine('Camera', p);
+  const extractedVisualStyle = extractCarouselPromptLine('Visual Style', p);
+  const extractedTypography = extractCarouselPromptLine('Typography', p);
+  const extractedNegativePrompt = extractCarouselPromptLine('Negative Prompt', p);
+
+  const composition = extractedComposition || (format === 'infographic'
     ? "Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline."
     : "Subjek di kanan tengah, ruang kosong luas di kiri atas untuk headline.");
-  let lighting = extractedLighting || (format === 'infographic'
+
+  const lighting = extractedLighting || (format === 'infographic'
     ? "Clean flat ambient studio lighting dengan subtle soft drop shadow pada kartu grafis."
     : "Cahaya alami lembut dari jendela samping.");
+
   let cameraGraphicStyle = extractedCamera || (format === 'infographic'
     ? "High-resolution modern 2D graphic design / clean vector UI render / minimalist typography poster layout."
     : "50mm editorial photography, shallow depth of field.");
-  let visualStyle = format === 'infographic'
+
+  const visualStyle = extractedVisualStyle || (format === 'infographic'
     ? "Clean modern editorial infographic design, minimalis, rapi, bebas dari kesan poster iklan ramai."
     : format === 'hybrid'
     ? "Clean hybrid editorial Instagram content, perpaduan foto autentik dengan kartu grafis terstruktur."
-    : "Clean editorial Instagram photography, natural, otentik, tidak seperti iklan komersial kaku.";
-  let negativePrompt = format === 'infographic'
+    : "Clean editorial Instagram photography, natural, otentik, tidak seperti iklan komersial kaku.");
+
+  const typography = extractedTypography || "Headline besar 3-5 baris di kiri atas, high contrast, tidak ada teks kecil lain.";
+
+  let negativePrompt = extractedNegativePrompt || (format === 'infographic'
     ? "photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads, 3d glossy render."
-    : "hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers, corporate cliche, overdesigned graphic.";
+    : "hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers, corporate cliche, overdesigned graphic.");
 
-  // Sanitize / build based on role & funnel & format
-  if (normRole === 'hook' || slideNumber === 1) {
-    if (funnelStage === 'TOFU') {
-      if (!visualObjective || /keputusan|beli|offer|demo|social proof/i.test(visualObjective)) {
-        visualObjective = "Membuat audiens berhenti scroll karena merasa relate dengan kendala penulisan pesan sehari-hari.";
-      }
-      if (!subjectObject || /pemilik bisnis mapan|dashboard hasil/i.test(subjectObject)) {
-        subjectObject = format === 'infographic'
-          ? "Layout kartu visual perbandingan teks headline dengan hierarki visual kontras tinggi."
-          : "Seorang kreator muda berpakaian kasual rapi duduk di meja kerja hangat dengan laptop terbuka.";
-      }
-      if (!actionScene || /melihat dashboard|membeli/i.test(actionScene)) {
-        actionScene = format === 'infographic'
-          ? "Komposisi tipografi dinamis yang menonjolkan pertanyaan reflektif utama secara tajam."
-          : "Ia membaca ulang draft caption di layar laptop sambil menopang dagu.";
-      }
-      if (!expressionEmotion || /yakin|percaya|puas|senyum sukses/i.test(expressionEmotion)) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Fokus pada kejelasan tipografi dan tata letak grafis bersih."
-          : "Bingung ringan, alis sedikit terangkat, senyum kecut reflektif.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean neutral off-white digital canvas (#F9F8F6)." : "Home office hangat, notebook dan cangkir kopi di meja.";
-    } else if (funnelStage === 'MOFU') {
-      if (!visualObjective || /caption kaku|beli sekarang/i.test(visualObjective)) {
-        visualObjective = "Menarik atensi audiens yang ingin belajar dengan menyoroti momen perbandingan insight alur kerja.";
-      }
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Skema visual perbandingan dua kartu alur kerja: alur acak tanpa pola vs diagram narasi terstruktur."
-          : "Tangan seorang profesional kreatif sedang menandai poin diagram alur penting dengan pulpen di atas jurnal kerja terbuka di samping laptop.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Alur panah arah dan kartu perbandingan tersusun dengan hierarki visual yang jelas dan bersih."
-          : "Jari tangan menunjuk ke catatan diagram checklist sederhana di notebook sambil membandingkan alur kerja di layar tablet digital.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Fokus pada kejelasan arsitektur informasi dan tipografi bernas."
-          : "Tatapan fokus, mulai paham, ekspresi 'aha moment' yang tenang saat menemukan keteraturan sistem baru.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Modern minimalist workspace background (#FAF9F6)." : "Workspace minimalis estetik, meja kayu bersih dengan laptop tipis, notebook jurnal terbuka, dan tablet digital.";
-    } else {
-      // BOFU Hook
-      if (!visualObjective || /caption terasa kaku|bingung ringan|beli sekarang/i.test(visualObjective)) {
-        visualObjective = "Menghentikan scroll dengan memicu refleksi kritis terhadap cara kerja saat ini: mengapa butuh sistem alur konten, bukan tebakan acak.";
-      }
-      if (!subjectObject || /bingung|kreator bingung/i.test(subjectObject)) {
-        subjectObject = format === 'infographic'
-          ? "Kartu visual evaluasi keputusan strategis: diagram perbandingan waktu produksi manual vs workflow terpadu."
-          : "Seorang praktisi profesional / kreator usia 28-32 tahun, rapi modern smart casual.";
-      }
-      if (!actionScene || /menopang dagu/i.test(actionScene)) {
-        actionScene = format === 'infographic'
-          ? "Tata letak kartu split yang memperlihatkan kontras efisiensi kerja secara lugas dan profesional."
-          : "Sedang membandingkan dua pendekatan kerja di layar laptop: jadwal produksi yang berantakan vs sistem konten terstruktur.";
-      }
-      if (!expressionEmotion || /bingung/i.test(expressionEmotion)) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Fokus pada kejelasan data dan kredibilitas visual."
-          : "Tatapan analitis tajam, tenang, dan siap mengevaluasi keputusan strategi kerja.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean architectural light background (#F8F7F4)." : "Studio kerja modern yang terang, laptop menampilkan perbandingan alur kerja terstruktur.";
-    }
-  } else if (normRole === 'problem' || slideNumber === 2) {
-    if (funnelStage === 'TOFU') {
-      if (!visualObjective || /beli|offer/i.test(visualObjective)) {
-        visualObjective = "Menggambarkan satu konflik spesifik: draf tulisan yang tidak memiliki alur hierarki yang jelas.";
-      }
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Kartu diagram pembanding: teks panjang tak beraturan vs hierarki pesan yang ringkas."
-          : "Seorang kreator muda berpakaian sweater rajut santai di sudut meja kafe minimalis.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Penataan visual kartu masalah dengan highlight lembut pada titik hambatan utama."
-          : "Sedang memeriksa draf tulisan di smartphone dan laptop secara berulang dengan gestur menimbang-nimbang.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Fokus visual hierarki masalah tunggal."
-          : "Ekspresi reflektif, alis sedikit terangkat dan bibir agak miring.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean off-white infographic background." : "Sudut kafe minimalis hangat, meja kayu kecil, secangkir kopi hangat.";
-    } else if (funnelStage === 'MOFU') {
-      if (!visualObjective) visualObjective = "Menyoroti akar hambatan: menulis tanpa struktur funnel membuat pesan tidak sampai ke target audiens.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Infografis split column: Kolom Masalah (Posting Rutin Tanpa Arah) vs Kolom Dampak (Audiens Melewatkan Pesan)."
-          : "Seorang kreator muda di studio kerja rapi dengan tablet grafis dan lembar catatan diagram.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Alur diagram terarah dengan badge penanda hambatan berwarna kontras lembut."
-          : "Sedang membandingkan diagram alur lama yang dicoret dengan skema alur baru yang bersih di layar tablet kerja.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Struktur visual analitis yang mudah dipahami."
-          : "Ekspresi fokus, menyadari akar inefisiensi pada proses lama.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Neutral light studio canvas (#F9F8F6)." : "Meja kerja kayu terang dengan notebook, tablet grafis, laptop, dan pencahayaan studio hangat.";
-    } else {
-      // BOFU Problem
-      if (!visualObjective) visualObjective = "Memperlihatkan biaya inefisiensi dan energi yang terbuang saat memproduksi konten harian secara manual tanpa sistem terpadu.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Diagram visual bottleneck produksi: waktu yang terbuang untuk ide dadakan vs kalender terpadu."
-          : "Praktisi profesional meninjau tumpukan catatan acak dan kalender kerja manual di meja.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Grafik alur kerja yang memperlihatkan titik-titik inefisiensi proses manual secara rapi."
-          : "Menunjukkan perbandingan waktu kerja yang tersita untuk memikirkan ide dadakan setiap hari.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Data visual yang rapi dan lugas."
-          : "Ekspresi analitis, tegas, dan menyadari perlunya otomasi alur kerja.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean slate light background." : "Ruang kerja privat kontemporer dengan pencahayaan arsitektural modern.";
-    }
-  } else if (normRole === 'reframe' || normRole.includes('fails') || slideNumber === 3) {
-    // Slide 3: Reframe
-    if (funnelStage === 'TOFU') {
-      if (!visualObjective) visualObjective = "Memberikan pencerahan ringan bahwa yang dibutuhkan bukan menulis lebih banyak kata, melainkan menyusun satu alur yang terarah.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Diagram pencerahan 3 pilar alur konten sederhana (Ide -> Struktur -> Eksekusi)."
-          : "Kreator muda sedang menulis poin penting di buku catatan dengan secangkir teh hangat di meja.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Tata letak 3 kartu langkah berurutan dengan nomor minimalis 01-02-03."
-          : "Tersenyum kecil lega sambil menggarisbawahi kalimat pencerahan di buku catatan.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Kejelasan arsitektur pencerahan sistemik."
-          : "Lega, tercerahkan, tatapan optimis menemukan cara pandang baru yang masuk akal.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Warm off-white background (#FAF9F6)." : "Meja kayu hangat dekat jendela dengan secangkir teh dan buku catatan terbuka.";
-    } else if (funnelStage === 'MOFU') {
-      if (!visualObjective) visualObjective = "Menyajikan paradigma baru: satu sistem terpadu yang menghubungkan ide, struktur narasi, dan eksekusi konten.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Skema visual infografis 3 pilar: 1. Validasi Ide, 2. Formula Alur, 3. Eksekusi Cepat."
-          : "Tangan profesional kreatif sedang menata 3 kartu pilar strategi di samping laptop tipis.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Struktur kartu tersusun rapi dengan indikator koneksi antar-pilar yang harmonis."
-          : "Menyusun skema 3 tahapan alur terstruktur yang saling terhubung secara harmonis.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Kejelasan arsitektur solusi sistematis."
-          : "Penuh pencerahan, tatapan antusias melihat kejelasan struktur yang mudah diterapkan.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean minimal editorial infographic canvas." : "Ruang studio kerja minimalis dengan pencahayaan studio hangat.";
-    } else {
-      // BOFU Reframe
-      if (!visualObjective) visualObjective = "Menegaskan perubahan paradigma: beralih dari draf dadakan ke satu alur sistematis dari ide sampai konten siap publish.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Bagan alur komprehensif sistem solusi konten: integrasi kalender ide, generator prompt terstruktur, dan studio produksi."
-          : "Seorang praktisi profesional sedang mengoperasikan sistem solusi konten terpadu di laptop modern.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Visualisasi alur modular yang saling terhubung dalam satu dasbor terpadu."
-          : "Menunjukkan demonstrasi diagram alur kerja terpadu yang menghubungkan kalender, prompt, dan studio produksi.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Estetika dasbor sistematis modern."
-          : "Ekspresi puas, percaya diri, dan mantap melihat efisiensi sistem yang nyata.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Modern slate-neutral canvas." : "Workspace modern berkelas dengan perangkat teknologi terkini.";
-    }
-  } else if (normRole === 'learn' || normRole === 'solution' || normRole === 'proof' || slideNumber === 4) {
-    // Slide 4: How It Works / Value
-    if (funnelStage === 'TOFU') {
-      if (!visualObjective) visualObjective = "Memberikan 3 poin evaluasi atau checklist sederhana yang langsung bisa dipahami audiens.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Checklist framework 3 langkah evaluasi draf tulisan dengan icon checkmark minimalis."
-          : "Catatan jurnal rapi berisi 3 poin checklist evaluasi diri dengan pulpen di samping laptop.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Tiga baris kartu checklist bertingkat dengan padding lapang dan tipografi kontras tinggi."
-          : "Subjek menandai checklist pertama di jurnal kerja sambil membaca ringkasan di layar laptop.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Keteraturan checklist yang mudah dieksekusi."
-          : "Termotivasi, tenang, dan siap menerapkan kebiasaan baru yang lebih baik.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean light cream canvas (#F7F6F2)." : "Home workspace santai dengan tanaman hias dan pencahayaan alami.";
-    } else if (funnelStage === 'MOFU') {
-      if (!visualObjective) visualObjective = "Menjelaskan framework alur kerja terstruktur yang memangkas waktu produksi dan menjaga konsistensi pesan.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Framework card UI 3 tahap: [Input Ide -> Formula Funnel -> Output Siap Posting] dengan badge verifikasi hijau."
-          : "Seorang profesional muda usia 27-30 tahun sedang meninjau langkah-langkah framework di layar tablet.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Tata letak kartu proses bertingkat dengan penanda step yang jelas dan ruang bernapas lega."
-          : "Sedang meninjau langkah-langkah checklist alur konten di layar tablet sambil membuat anotasi ringkas.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Kejelasan langkah kerja dan efisiensi terukur."
-          : "Ekspresi fokus tenang dan antusias melihat kemudahan proses alur kerja baru.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean modern UI layout canvas (#F9F8F6)." : "Ruang kerja minimalis kontemporer, meja kayu bersih, laptop, secangkir teh hangat di dekat jendela.";
-    } else {
-      // BOFU How It Works / Proof Value
-      if (!visualObjective) visualObjective = "Menampilkan bukti berbasis nilai produk nyata: antarmuka kalender ide, generator prompt terstruktur, dan studio produksi yang menyatu.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Tampilan kartu pembuktian nilai: 3 metrik efisiensi kerja nyata (Waktu Produksi Singkat, Struktur Teruji, Output Konsisten)."
-          : "Praktisi profesional meninjau tampilan alur kerja terintegrasi di monitor kerja.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Struktur 3 kartu nilai dengan badge fitur konkret dan indikator performa kerja yang rapi."
-          : "Memperlihatkan workflow konten siap pakai yang memangkas waktu produksi harian secara signifikan.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Kredibilitas nilai fitur teruji."
-          : "Percaya diri, tenang, dan puas melihat efektivitas kerja yang nyata.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Professional corporate light canvas." : "Ruang eksekutif modern dengan pencahayaan elegan dan suasana kerja terstruktur.";
-    }
-  } else {
-    // CTA / Last slide: Value-based CTA
-    if (funnelStage === 'TOFU') {
-      if (!visualObjective) visualObjective = "Mengajak audiens menyimpan konten untuk dibaca ulang atau membagikan ke teman tanpa rasa dipaksa jualan.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Kartu penutup minimalis dengan tombol aksi 'Simpan & Terapkan' berwarna kontras dan icon bookmark."
-          : "Tangan kreator memegang smartphone di atas meja kerja kayu dengan secangkir teh hangat.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Komposisi terpusat dengan headline ajakan nilai di atas dan tombol pill CTA elegan di tengah."
-          : "Menyentuh ikon simpan postingan di layar smartphone dengan antarmuka yang bersih.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Ajakan bertindak yang ramah dan bernilai."
-          : "Hangat, apresiatif, dan terhubung secara tulus tanpa tekanan.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Clean light pastel canvas (#F0FDF4)." : "Meja kerja kayu hangat dengan pencahayaan lembut (#F9F8F6).";
-    } else if (funnelStage === 'MOFU') {
-      if (!visualObjective) visualObjective = "Mengajak audiens merapikan sistem konten mereka sekarang dengan panduan terstruktur.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Kartu penutup editorial elegan dengan ringkasan 1-kalimat nilai dan tombol CTA 'Rapikan Alur Sekarang'."
-          : "Kartu penutup editorial elegan dengan tombol aksi terstruktur dan perangkat digital.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Komposisi kartu CTA terpusat dengan padding lapang dan tombol aksi kontras tinggi."
-          : "Tangan memegang tablet atau smartphone yang menampilkan halaman panduan lengkap.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Dorongan nilai positif yang memotivasi."
-          : "Terdorong membangun sistem kerja yang rapi dan konsisten.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Warm modern background (#FAF9F6)." : "Workspace modern bersih dengan pencahayaan studio netral.";
-    } else {
-      // BOFU: Value-based CTA
-      if (!visualObjective) visualObjective = "Menegaskan nilai transformasi sistem konten dan memberikan dorongan keputusan aksi berbasis value yang percaya diri.";
-      if (!subjectObject) {
-        subjectObject = format === 'infographic'
-          ? "Kartu penutup ringkasan dengan penegasan nilai utama dan tombol aksi penutup yang jelas."
-          : "Seorang pebisnis / kreator mapan usia 28-32 tahun, gaya modern profesional.";
-      }
-      if (!actionScene) {
-        actionScene = format === 'infographic'
-          ? "Komposisi premium closing card dengan tombol aksi dominan dan teks pendukung akses profil."
-          : "Sedang mengonfirmasi akses sistem solusi konten terpadu di laptop tipis.";
-      }
-      if (!expressionEmotion) {
-        expressionEmotion = format === 'infographic'
-          ? "N/A - Keputusan mantap dan percaya diri."
-          : "Ekspresi percaya diri, mantap, dan siap melangkah membangun sistem konten yang berkelanjutan.";
-      }
-      if (!environment) environment = format === 'infographic' ? "Premium light architectural background." : "Meja meeting minimalis bergaya Scandinavian, laptop tipis menampilkan alur sistem konten lengkap.";
-    }
-  }
-
-  // Enforce infographic rules: no camera lenses, no human expressions
+  // 8. Safe infographic sanitation (styling only, no semantic data alteration)
   if (format === 'infographic') {
     if (/50mm|35mm|lens|f\/1\.|bokeh/i.test(cameraGraphicStyle)) {
       cameraGraphicStyle = "High-resolution modern 2D graphic design / clean vector UI render / minimalist typography poster layout.";
     }
-    if (!expressionEmotion.startsWith('N/A')) {
-      expressionEmotion = "N/A - Fokus pada kejelasan visual hierarki diagram bersih dan kartu UI.";
-    }
     if (!negativePrompt.includes('photography')) {
-      negativePrompt = "photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads.";
+      negativePrompt = "photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads, 3d glossy render.";
     }
   }
 
   return `Buatkan saya image untuk slide carousel Instagram 4:5.
 
-Funnel Stage: ${funnelStage}
+Funnel Stage: ${normFunnel}
 Slide Role: ${capitalizedRole}
 Visual Objective: ${visualObjective}
 Subject/Object: ${subjectObject}
@@ -1236,7 +938,7 @@ Composition: ${composition}
 Lighting: ${lighting}
 Camera/Graphic Style: ${cameraGraphicStyle}
 Visual Style: ${visualStyle}
-Typography: Headline besar 3-5 baris di kiri atas, high contrast, tidak ada teks kecil lain.
+Typography: ${typography}
 Text Overlay: '${textOverlay}'${getBrandVisualRulesBlock(activeContext)}
 Negative Prompt: ${negativePrompt}`;
 };
@@ -1412,6 +1114,10 @@ const validateAndNormalizeCarouselPlan = (
       visualFormat,
       activeContext
     );
+
+    if (!slideImagePrompt) {
+      return null;
+    }
 
     validatedSlides.push({
       slide: slideNumber,

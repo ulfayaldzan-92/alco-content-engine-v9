@@ -2159,9 +2159,19 @@ const getInitialDraft = (
       const draftTopic = (activeItem?.headline || (activeItem as any)?.topik || (activeItem as any)?.title || '').trim();
       const draftAudience = (activeContext?.audience_context?.primary_audience || (activeItem as any)?.target_audience || '').trim();
       const draftProblem = (activeItem?.body ? activeItem.body.slice(0, 80) : '').trim();
-      const draftSolution = (activeItem?.keterangan || '').trim();
-      const draftProof = ((activeItem as any)?.proof || (activeItem as any)?.proof_data || '').trim();
+      const explicitSolution = (activeItem as any)?.solusi ?? (activeItem as any)?.solution;
+      const draftSolution = typeof explicitSolution === 'string' ? explicitSolution.trim() : '';
+      const rawProof = (activeItem as any)?.proof;
+      const rawProofData = (activeItem as any)?.proof_data;
+      const draftProof = (
+        typeof rawProof === 'string'
+          ? rawProof
+          : typeof rawProofData === 'string'
+          ? rawProofData
+          : ''
+      ).trim();
       const draftHook = (activeItem?.headline || (activeItem as any)?.hook || '').trim();
+      const carouselCta = (activeItem?.cta || '').trim();
 
       const initialPlan: CarouselPlan = {
         content_goal: (activeItem?.tujuan || '').trim(),
@@ -2170,7 +2180,7 @@ const getInitialDraft = (
         desired_belief: (activeItem as any)?.desired_belief || '',
         core_promise: (activeItem as any)?.core_promise || '',
         primary_cta_type: funnelStage === 'BOFU' ? 'direct_offer' : 'engagement_save',
-        primary_cta_text: safeCta,
+        primary_cta_text: carouselCta,
         slide_count: 5,
         slide_count_reason: '5 Slide merupakan panjang optimal untuk alur narasi Hook → Problem → Reframe → How It Works / Value → CTA.',
         belief_journey_summary: (activeItem as any)?.belief_journey_summary || '',
@@ -2187,7 +2197,7 @@ const getInitialDraft = (
             communication_job: 'Menghentikan scroll dengan alasan keputusan strategis / relatable problem',
             headline: draftHook,
             body: activeItem?.body || '',
-            swipe_bridge: 'Kenapa hal ini sering terjadi? ➔',
+            swipe_bridge: '',
             emotional_state: 'Empati & Refleksi Kritis',
             visual_intent: 'Visual editorial bersih dengan pencahayaan alami dan komposisi lapang.',
             visual_type: 'editorial-photo',
@@ -2239,7 +2249,7 @@ Image/Illustration Direction: Clean minimalist modern editorial photography.`,
             communication_job: 'Fokus pada satu masalah utama yang dialami audiens saat ini',
             headline: draftProblem,
             body: draftProblem,
-            swipe_bridge: 'Mengapa pendekatan biasa belum memadai? ➔',
+            swipe_bridge: '',
             emotional_state: 'Kesadaran Masalah Tunggal',
             visual_intent: 'Infografis kartu informasi masalah dengan hierarki visual terstruktur.',
             visual_type: 'infographic-card',
@@ -2288,10 +2298,10 @@ Image/Illustration Direction: Clean minimalist infographic diagram UI.`,
           {
             slide: 3,
             role: 'reframe',
-            communication_job: 'Menjelaskan mengapa metode lama gagal dan menyajikan sudut pandang sistemik',
-            headline: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
+            communication_job: 'Menyajikan sudut pandang struktural dan pemetaan konseptual',
+            headline: draftTopic || '',
             body: '',
-            swipe_bridge: 'Bagaimana pendekatan ini diterapkan? ➔',
+            swipe_bridge: '',
             emotional_state: 'Pencerahan (Aha Moment)',
             visual_intent: 'Infografis diagram pilar fondasi dengan tipografi kontras tinggi.',
             visual_type: 'minimal-diagram',
@@ -2301,10 +2311,10 @@ Image/Illustration Direction: Clean minimalist infographic diagram UI.`,
               funnel_stage: funnelStage,
               slide_role: 'reframe',
               visual_objective: 'Infografis diagram fondasi konseptual dengan tipografi kontras tinggi.',
-              core_message: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
+              core_message: draftTopic || '',
               audience_emotion: 'Pencerahan (Aha Moment)',
               visual_concept: 'Diagram geometris minimalis dan hierarki tipografi modern bersih',
-              text_overlay: draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : ''
+              text_overlay: draftTopic || ''
             },
             visual_format: 'infographic',
             visual_production: {
@@ -2331,7 +2341,7 @@ Image/Illustration Direction: Modern minimalist 3D isometric or flat geometric d
               undefined,
               3,
               'reframe',
-              draftTopic ? `Sudut Pandang Baru: Mengurai ${draftTopic}` : '',
+              draftTopic || '',
               funnelStage,
               'Infografis diagram pilar fondasi dengan tipografi kontras tinggi.',
               'infographic'
@@ -2341,9 +2351,9 @@ Image/Illustration Direction: Modern minimalist 3D isometric or flat geometric d
             slide: 4,
             role: 'learn',
             communication_job: 'Menyajikan inti solusi / pembahasan utama yang relevan',
-            headline: draftSolution,
+            headline: draftSolution || '',
             body: draftSolution ? (draftProof ? `${draftSolution}. ${draftProof}` : draftSolution) : '',
-            swipe_bridge: 'Mulai terapkan langkahnya ➔',
+            swipe_bridge: '',
             emotional_state: 'Optimisme & Kejelasan Sistem',
             visual_intent: 'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
             visual_type: 'step-framework',
@@ -2353,10 +2363,10 @@ Image/Illustration Direction: Modern minimalist 3D isometric or flat geometric d
               funnel_stage: funnelStage,
               slide_role: 'learn',
               visual_objective: 'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
-              core_message: draftSolution,
+              core_message: draftSolution || '',
               audience_emotion: 'Optimisme & Kejelasan Sistem',
               visual_concept: 'Kartu tata letak terstruktur dengan hierarki tipografi modern bersih',
-              text_overlay: draftSolution
+              text_overlay: draftSolution || ''
             },
             visual_format: 'infographic',
             visual_production: {
@@ -2383,7 +2393,7 @@ Image/Illustration Direction: Clean minimalist structured framework layout.`,
               undefined,
               4,
               'learn',
-              draftSolution,
+              draftSolution || '',
               funnelStage,
               'Tampilan kerangka kerja visual terstruktur dengan penataan bertahap.',
               'infographic'
@@ -2393,9 +2403,9 @@ Image/Illustration Direction: Clean minimalist structured framework layout.`,
             slide: 5,
             role: 'cta',
             communication_job: 'Mendorong aksi penutup berbasis value yang sesuai dengan tahap corong',
-            headline: safeCta,
+            headline: carouselCta,
             body: '',
-            swipe_bridge: safeCta,
+            swipe_bridge: carouselCta,
             emotional_state: 'Dorongan Aksi Berbasis Value',
             visual_intent: 'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
             visual_type: 'cta-card',
@@ -2405,10 +2415,10 @@ Image/Illustration Direction: Clean minimalist structured framework layout.`,
               funnel_stage: funnelStage,
               slide_role: 'cta',
               visual_objective: 'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
-              core_message: safeCta,
+              core_message: carouselCta,
               audience_emotion: 'Dorongan Aksi Berbasis Value',
               visual_concept: 'Kartu UI penutup dan tombol aksi kontras tinggi',
-              text_overlay: safeCta
+              text_overlay: carouselCta
             },
             visual_format: 'infographic',
             visual_production: {
@@ -2435,7 +2445,7 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
               undefined,
               5,
               'cta',
-              safeCta,
+              carouselCta,
               funnelStage,
               'Visual closing card bersih dengan tombol CTA kontras tinggi dan instruksi aksi berbasis value.',
               'infographic'

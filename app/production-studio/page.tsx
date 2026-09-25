@@ -1521,19 +1521,57 @@ ${formattedContext}
 ${stage1JsonString}
 ${batchDirective}
 
+### CAROUSEL STAGE 2 VISUAL GROUNDING CONTRACT — STRICT
+
+1. SUBJECT / OBJECT GROUNDING:
+   - Jika CharacterDNA tersedia dalam authority/ProductionContext, subjek manusia WAJIB mengikuti CharacterDNA tersebut secara konsisten (ciri fisik, tone, konsistensi visual).
+   - Jika CharacterDNA TIDAK tersedia, DILARANG mengarang/menciptakan umur spesifik, gender, profesi fiktif (seperti CEO, manajer HR, konsultan, dsb.), etnis, status bisnis, atau persona demografis sintetis.
+   - Subjek manusia TIDAK WAJIB. Gunakan alternatif yang lebih aman dan terikat authority: objek produk/kemasan nyata, diagram konseptual, tangan (hand interacting naturally), setting lingkungan/arsitektur, atau visual netral/minimalis.
+
+2. PRODUCT / UI GROUNDING:
+   - DILARANG menciptakan dashboard software, app screen, feature antarmuka, workflow sistem otomatis, panel analytics, atau visual UI yang tidak eksplisit tersedia dalam authority project.
+   - Jika visual capability spesifik tidak tercantum dalam authority, gunakan representasi visual abstrak, konseptual, atau netral (BUKAN UI mockup sintetis/fiktif).
+
+3. PROOF / RESULT GROUNDING:
+   - DILARANG membuat angka statistik, metrik pertumbuhan, testimonial fiktif, diagram growth chart (hockey stick), angka conversion, klaim revenue, atau klaim efisiensi yang tidak ada di Stage 1 maupun authority project.
+
+4. STRICT MIRRORING ANTARA visual_production & slide_image_prompt:
+   - slide_image_prompt HARUS MENJADI MIRROR semantik persis dari visual_production:
+     * Subject/Object pada slide_image_prompt = visual_production.subject
+     * Action/Scene pada slide_image_prompt = visual_production.action
+   - Semantic environment atau objek tidak boleh menambahkan fakta/entitas baru di luar authority.
+   - Text Overlay pada slide_image_prompt HARUS EXACTLY headline dari Stage 1 untuk slide bersangkutan (tanpa parafrase atau pengubahan kata).
+   - DILARANG memperkenalkan persona baru, profesi baru, atau capability baru di dalam slide_image_prompt.
+
+5. PURE VISUAL ENRICHMENT ONLY:
+   - Stage 2 HANYA memperkaya lapisan visual. DILARANG mengubah atau menyimpang dari narasi Stage 1: headline, body, swipe_bridge, communication_job, core_message, audience_emotion, atau alur naratif Stage 1. Semua teks naratif Stage 1 adalah authoritative dan final.
+
+6. PERTAHANKAN SAFE CREATIVE FREEDOM (ASPEK DESAIN & ARTISTIK SAJA):
+   - Kebebasan berkreasi hanya berlaku pada dimensi visual/desain:
+     * composition (rule of thirds, balance, visual focal point)
+     * layout (alokasi vertical 4:5, headline placement, space distribution)
+     * lighting (soft natural lighting, gentle rim light, warm daylight, diffused studio light)
+     * camera/graphic style (50mm prime editorial photography, medium format look, clean minimalist editorial vector)
+     * typography (hierarchy, weight, high contrast, clean font style)
+     * background styling (clean studio background, textured architectural wall, warm neutral space)
+     * color mood (palet warna brand, tone visual terarah)
+     * negative space (alokasi ruang kosong minimal 35-50% untuk penempatan headline agar tidak bertabrakan dengan subjek)
+     * visual metaphor (metafora visual konseptual yang memperkuat pesan slide tanpa mengklaim fakta palsu)
+     * negative prompt (mencegah distorsi, clutter, hard-selling ads, generic stock look)
+
 ### OUTPUT FORMAT DIRECTION (STAGE 2: VISUAL ENRICHMENT):
 Hasilkan pengayaan visual lengkap untuk slide Stage 1 Content Plan di atas dalam format JSON object canonical murni (BUKAN array, tanpa markdown pembungkus).
 PENTING: DILARANG MENGUBAH NARASI/TEXT DARI STAGE 1 (headline, body, swipe_bridge, communication_job tetap utuh dari Stage 1). Tahap 2 HANYA memperkaya lapisan visual.
 
 UNTUK SETIAP SLIDE TARGET DI "slides", BERIKAN PETUNJUK VISUAL & SLIDE IMAGE PROMPT:
 1. visual_format: "photography" | "infographic" | "hybrid"
-2. visual_intent: Instruksi visual konkret selaras pesan slide dan brand aesthetic
+2. visual_intent: Instruksi visual konkret selaras pesan slide dan brand aesthetic (tanpa menambah fakta baru)
 3. visual_type: "editorial-photo" | "comparison-split" | "minimal-diagram" | "step-framework" | "cta-card"
 4. text_zone: "Upper Third / Left Aligned" | "Center / Left Aligned" | "Center Aligned"
 5. negative_space_plan: Perencanaan ruang kosong (min 35-50% untuk penempatan headline)
 6. visual_production: {
-     subject: string;
-     action: string;
+     subject: string; // Objek/produk/lingkungan/tangan netral atau CharacterDNA jika ada. Dilarang karang umur/profesi/UI dashboard
+     action: string; // Aksi konkret atau penataan visual netral tanpa membuat alur kerja/fitur baru
      composition: string;
      layout: string;
      visual_metaphor: string;
@@ -1544,22 +1582,22 @@ UNTUK SETIAP SLIDE TARGET DI "slides", BERIKAN PETUNJUK VISUAL & SLIDE IMAGE PRO
      negative_prompt: string;
    }
 7. production_prompt: Prompt ringkasan tata letak
-8. slide_image_prompt: Prompt 14 baris lengkap siap pakai untuk Midjourney/Flux:
+8. slide_image_prompt: Prompt 14 baris lengkap siap pakai untuk Midjourney/Flux yang MIRROR visual_production:
    Buatkan saya image untuk slide carousel Instagram 4:5.
 
    Funnel Stage: ${funnelStage}
    Slide Role: [Hook | Problem | Reframe | Solution | CTA]
-   Visual Objective: [Tujuan visual konkret]
-   Subject/Object: [Subjek / figur / kartu UI diagram sesuai topik slide]
-   Action/Scene: [Aktivitas fisik / penataan elemen visual]
-   Expression/Emotion: [Ekspresi mikro wajah ATAU impresi visual]
-   Environment: [Setting latar yang relevan dengan topik project]
+   Visual Objective: [Tujuan visual konkret selaras pesan slide]
+   Subject/Object: [MIRROR visual_production.subject — objek/produk/tangan netral atau CharacterDNA jika ada, tanpa persona/UI fiktif]
+   Action/Scene: [MIRROR visual_production.action — penataan elemen atau aktivitas fisik netral]
+   Expression/Emotion: [Ekspresi mikro wajah jika CharacterDNA ATAU impresi visual netral]
+   Environment: [Setting latar yang relevan dengan topik project tanpa fakta baru]
    Composition: [Komposisi visual 4:5 dengan ruang negatif 40% untuk headline]
    Lighting: [Pencahayaan alami lembut / studio terarah]
-   Camera/Graphic Style: [50mm editorial photography feel ATAU Clean minimalist UI infographic]
+   Camera/Graphic Style: [50mm editorial photography feel ATAU Clean minimalist graphic aesthetic]
    Visual Style: Clean editorial Instagram content, natural, tidak seperti iklan.
    Typography: Headline besar 3-5 baris, high contrast, tidak ada teks kecil lain.
-   Text Overlay: '[Headline slide dari Stage 1]'
+   Text Overlay: '[EXACT Headline slide dari Stage 1]'
    Negative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers.
 
 WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 2 (TANPA MARKDOWN):
@@ -1571,24 +1609,24 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 2 (TANPA MARKDOWN):
     {
       "slide": ${batchSlideNumbers && batchSlideNumbers.length > 0 ? batchSlideNumbers[0] : 1},
       "visual_format": "photography",
-      "visual_intent": "[Instruksi visual konkret selaras dengan pesan slide dan brand aesthetic]",
+      "visual_intent": "[Instruksi visual konkret selaras dengan pesan slide dan brand aesthetic tanpa menambah fakta baru]",
       "visual_type": "editorial-photo",
       "text_zone": "Upper Third / Left Aligned",
       "negative_space_plan": "Ruang lega 40% di area kiri atas untuk headline",
       "visual_production": {
-        "subject": "[Deskripsi subjek / figur / kartu UI diagram sesuai topik]",
-        "action": "[Aksi konkret atau penataan visual]",
+        "subject": "[Deskripsi objek/produk/kemasan nyata/tangan netral atau CharacterDNA jika ada. Dilarang karang umur/profesi/UI dashboard]",
+        "action": "[Aksi konkret atau penataan visual netral]",
         "composition": "Subjek di kanan tengah, ruang kosong lapang di kiri atas untuk headline.",
         "layout": "Format 4:5 vertical, headline dominan di kiri atas.",
-        "visual_metaphor": "[Metafora visual yang memperjelas pesan]",
+        "visual_metaphor": "[Metafora visual yang memperjelas pesan tanpa klaim fiktif]",
         "typography": "Headline tebal 32pt kontras tinggi, body 16pt sans-serif.",
         "background": "[Latar belakang bersih selaras dengan brand aesthetic].",
         "color_mood": "Profesional & terarah.",
         "negative_space": "Ruang lega 40% di area kiri atas untuk headline.",
         "negative_prompt": "hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers."
       },
-      "production_prompt": "Layout: Format 4:5 vertical, headline dominan di atas.\\nSubject/Object Utama: [Deskripsi subjek/objek]\\nVisual Metaphor: [Metafora visual]\\nTypography Hierarchy: Headline tebal 32pt, body 16pt.\\nBackground: Neutral clean canvas.\\nColor Mood: Profesional.\\nNegative Space: 40% ruang bersih.\\nImage/Illustration Direction: Clean editorial modern aesthetic.",
-      "slide_image_prompt": "Buatkan saya image untuk slide carousel Instagram 4:5.\\n\\nFunnel Stage: ${funnelStage}\\nSlide Role: [Role]\\nVisual Objective: [Tujuan visual]\\nSubject/Object: [Subjek atau objek relevan]\\nAction/Scene: [Aksi konkret]\\nExpression/Emotion: [Ekspresi / impresi]\\nEnvironment: [Setting lingkungan]\\nComposition: Subjek di kanan tengah, ruang kosong luas di kiri atas untuk headline.\\nLighting: Cahaya alami lembut.\\nCamera/Graphic Style: 50mm editorial photography feel.\\nVisual Style: Clean editorial Instagram content, natural, tidak seperti iklan.\\nTypography: Headline besar di area lapang, high contrast.\\nText Overlay: '[Headline slide dari Stage 1]'\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers."
+      "production_prompt": "Layout: Format 4:5 vertical, headline dominan di atas.\\nSubject/Object Utama: [Objek/produk/lingkungan netral selaras visual_production.subject]\\nVisual Metaphor: [Metafora visual]\\nTypography Hierarchy: Headline tebal 32pt, body 16pt.\\nBackground: Neutral clean canvas.\\nColor Mood: Profesional.\\nNegative Space: 40% ruang bersih.\\nImage/Illustration Direction: Clean editorial modern aesthetic.",
+      "slide_image_prompt": "Buatkan saya image untuk slide carousel Instagram 4:5.\\n\\nFunnel Stage: ${funnelStage}\\nSlide Role: [Role]\\nVisual Objective: [Tujuan visual]\\nSubject/Object: [MIRROR visual_production.subject — persis sama, tanpa persona/UI fiktif]\\nAction/Scene: [MIRROR visual_production.action — penataan elemen atau aktivitas fisik netral]\\nExpression/Emotion: [Ekspresi / impresi visual]\\nEnvironment: [Setting lingkungan tanpa fakta baru]\\nComposition: Subjek di kanan tengah, ruang kosong luas di kiri atas untuk headline.\\nLighting: Cahaya alami lembut.\\nCamera/Graphic Style: 50mm editorial photography feel.\\nVisual Style: Clean editorial Instagram content, natural, tidak seperti iklan.\\nTypography: Headline besar di area lapang, high contrast.\\nText Overlay: '[EXACT Headline slide dari Stage 1]'\\nNegative Prompt: hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers."
     }
   ]
 }`;

@@ -1313,10 +1313,10 @@ const validateAndNormalizeCarouselPlan = (
     const body = String(s.body || '').trim();
     const swipeBridge = String(s.swipe_bridge || s.swipeBridge || '').trim();
     const emotionalState = String(s.emotional_state || s.emotionalState || '').trim();
-    const coreMessage = String(s.core_message || s.coreMessage || s.creative_strategy?.core_message || headline).trim();
-    const audienceEmotion = String(s.audience_emotion || s.audienceEmotion || s.creative_strategy?.audience_emotion || emotionalState).trim();
+    const coreMessage = String(s.core_message || s.coreMessage || '').trim();
+    const audienceEmotion = String(s.audience_emotion || s.audienceEmotion || '').trim();
 
-    if (!communicationJob || !headline || !body || !swipeBridge || !emotionalState) {
+    if (!communicationJob || !headline || !body || !swipeBridge || !emotionalState || !coreMessage || !audienceEmotion) {
       return null;
     }
     if (headline === '...' || headline.includes('[') || body === '...' || body.includes('[')) {
@@ -1396,8 +1396,8 @@ const validateAndNormalizeCarouselPlan = (
       funnel_stage: funnelStage,
       slide_role: role,
       visual_objective: String(cs?.visual_objective || cs?.visualObjective || visualIntent).trim(),
-      core_message: String(cs?.core_message || cs?.coreMessage || coreMessage || headline).trim(),
-      audience_emotion: String(cs?.audience_emotion || cs?.audienceEmotion || audienceEmotion || emotionalState).trim(),
+      core_message: String(cs?.core_message || cs?.coreMessage || coreMessage).trim(),
+      audience_emotion: String(cs?.audience_emotion || cs?.audienceEmotion || audienceEmotion).trim(),
       visual_concept: String(cs?.visual_concept || cs?.visualConcept || visualMetaphor).trim(),
       text_overlay: String(cs?.text_overlay || cs?.textOverlay || headline).trim(),
     };

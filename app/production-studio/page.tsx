@@ -1250,296 +1250,158 @@ const validateAndNormalizeCarouselPlan = (
 ): string | null => {
   if (!rawText) return null;
   const parsed = tryParseJSON(rawText);
-  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
-  // If parsed is an array (e.g. from previous 3 options or legacy), extract the first option
-  let targetObj: any = parsed;
-  if (Array.isArray(parsed)) {
-    if (parsed.length === 0) return null;
-    targetObj = parsed[0];
+  // Strict funnel stage validation - fail closed without permissive fallbacks
+  const rawFunnel = String(parsed.funnel_stage || parsed.funnelStage || '').toUpperCase().trim();
+  const funnelStage = parseStrictFunnelStage(rawFunnel);
+  if (!funnelStage) return null;
+
+  const itemStage = parseStrictFunnelStage(activeItem?.jenis);
+  if (itemStage && itemStage !== funnelStage) {
+    return null;
   }
 
-  const brandName = activeContext?.brand_context?.brand_name || activeContext?.brand?.name || '';
+  // Required top-level content facts - fail closed, no synthetic content generation
+  const contentGoal = String(parsed.content_goal || parsed.contentGoal || '').trim();
+  const currentBelief = String(parsed.current_belief || parsed.currentBelief || '').trim();
+  const desiredBelief = String(parsed.desired_belief || parsed.desiredBelief || '').trim();
+  const corePromise = String(parsed.core_promise || parsed.corePromise || '').trim();
 
-  const rawStage = String(targetObj.funnel_stage || targetObj.funnelStage || activeItem?.jenis || 'TOFU').toUpperCase();
-  const funnelStage: FunnelStage = rawStage.includes('MOFU') ? 'MOFU' : rawStage.includes('BOFU') ? 'BOFU' : 'TOFU';
-  const funnelRules = getFunnelRules(funnelStage);
-
-  const rawGoal = String(targetObj.content_goal || targetObj.contentGoal || activeItem?.tujuan || funnelRules.goal).trim();
-  const currentBelief = String(targetObj.current_belief || targetObj.currentBelief || (activeItem?.headline ? `Melihat ${activeItem.headline} tanpa alur sistematis.` : `Membuat konten tanpa penyesuaian tahap ${funnelStage}.`)).trim();
-  const desiredBelief = String(targetObj.desired_belief || targetObj.desiredBelief || `Memahami pentingnya alur ${funnelStage} untuk hasil komunikasi yang terarah dan konsisten.`).trim();
-  const corePromise = String(targetObj.core_promise || targetObj.corePromise || `Membangun alur konten ${funnelStage} yang sistematis dan mudah dipahami audiens.`).trim();
-  
-  // Consistent CTA field naming: primary_cta_type & primary_cta_text
-  let primaryCtaType = String(targetObj.primary_cta_type || targetObj.primaryCtaType || targetObj.cta_type || targetObj.ctaType || (funnelStage === 'BOFU' ? 'direct_offer' : 'engagement_save')).trim();
-  let primaryCtaText = String(targetObj.primary_cta_text || targetObj.primaryCtaText || targetObj.cta_text || targetObj.ctaText || activeItem?.action || activeItem?.cta || (funnelStage === 'BOFU' ? 'Pelajari Selengkapnya' : funnelStage === 'MOFU' ? 'Terapkan Panduan Ini' : 'Simpan postingan ini')).trim();
-
-  // Normalize CTA if weak
-  if (/^link\s*(di\s*)?bio!?$/i.test(primaryCtaText) || /^klik\s*link!?$/i.test(primaryCtaText)) {
-    primaryCtaText = activeItem?.action || (funnelStage === 'BOFU'
-      ? 'Pelajari Selengkapnya'
-      : funnelStage === 'MOFU'
-      ? 'Terapkan Panduan Ini'
-      : 'Simpan postingan ini');
+  if (!contentGoal || !currentBelief || !desiredBelief || !corePromise) {
+    return null;
   }
 
-  // Tracking issues and fixes across the 5 alignment checks
-  const detectedIssues: string[] = [];
-  const appliedFixes: string[] = [];
+  // Required primary CTA fields
+  const primaryCtaType = String(parsed.primary_cta_type || parsed.primaryCtaType || parsed.cta_type || parsed.ctaType || '').trim();
+  const primaryCtaText = String(parsed.primary_cta_text || parsed.primaryCtaText || parsed.cta_text || parsed.ctaText || '').trim();
 
+  if (!primaryCtaType || !primaryCtaText || primaryCtaText === '...' || primaryCtaText === '…' || primaryCtaText.includes('[Tulis CTA')) {
+    return null;
+  }
+
+  // Slide count and slides array: strictly 5 slides
+  if (parsed.slide_count === undefined || Number(parsed.slide_count) !== 5) {
+    return null;
+  }
+
+  const rawSlides = parsed.slides;
+  if (!Array.isArray(rawSlides) || rawSlides.length !== 5) {
+    return null;
+  }
+
+  const expectedRoles = ['hook', 'problem', 'reframe', 'learn', 'cta'];
   const hardSellingTriggers = [
     'beli', 'diskon', 'promo', 'order', 'checkout', 'daftar sekarang',
     'terakhir', 'bonus', 'eksklusif', 'peluang emas', 'slot terbatas',
     'harga khusus', 'klik link', 'dm sekarang', 'garansi', 'buruan beli', 'kenapa harus beli'
   ];
+  const validatedSlides: CarouselSlide[] = [];
 
-  // Parse slides
-  let rawSlides: any[] = [];
-  if (Array.isArray(targetObj.slides)) {
-    rawSlides = targetObj.slides;
-  }
+  for (let i = 0; i < 5; i++) {
+    const s = rawSlides[i];
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
 
-  if (rawSlides.length === 0) return null;
+    const slideNumber = Number(s.slide);
+    if (slideNumber !== i + 1) return null;
 
-  const totalSlides = rawSlides.length;
+    const role = String(s.role || '').toLowerCase().trim();
+    if (role !== expectedRoles[i]) return null;
 
-  const normalizedSlides: CarouselSlide[] = rawSlides.map((s: any, idx: number) => {
-    const slideNumber = Number(s.slide || idx + 1);
-    let role = String(s.role || '').toLowerCase().trim();
-    
-    // Assign canonical roles according to required narrative structure:
-    // 5-slide: 1: hook, 2: problem, 3: reframe, 4: learn (how_it_works / value), 5: cta
-    // 6-slide: 1: hook, 2: problem, 3: why_current_method_fails, 4: solution, 5: proof_value, 6: cta
-    if (slideNumber === 1 || role.includes('hook') || role.includes('stop')) {
-      role = 'hook';
-    } else if (slideNumber === 2 || role.includes('problem') || role.includes('recognize')) {
-      role = 'problem';
-    } else if (slideNumber === 3 || role.includes('reframe') || role.includes('fail') || role.includes('why')) {
-      role = totalSlides >= 6 ? 'why_current_method_fails' : 'reframe';
-    } else if (slideNumber === totalSlides || role.includes('act') || role.includes('cta')) {
-      role = 'cta';
-    } else if (totalSlides >= 6 && slideNumber === 4) {
-      role = 'solution';
-    } else if (totalSlides >= 6 && slideNumber === 5) {
-      role = 'proof_value';
-    } else {
-      role = 'learn';
+    const communicationJob = String(s.communication_job || s.communicationJob || '').trim();
+    const headline = String(s.headline || '').trim();
+    const body = String(s.body || '').trim();
+    const swipeBridge = String(s.swipe_bridge || s.swipeBridge || '').trim();
+    const emotionalState = String(s.emotional_state || s.emotionalState || '').trim();
+    const coreMessage = String(s.core_message || s.coreMessage || s.creative_strategy?.core_message || headline).trim();
+    const audienceEmotion = String(s.audience_emotion || s.audienceEmotion || s.creative_strategy?.audience_emotion || emotionalState).trim();
+
+    if (!communicationJob || !headline || !body || !swipeBridge || !emotionalState) {
+      return null;
+    }
+    if (headline === '...' || headline.includes('[') || body === '...' || body.includes('[')) {
+      return null;
     }
 
-    let headline = String(s.headline || `Slide ${slideNumber}`).trim();
-    let body = String(s.body || '').trim();
+    // Fail-closed checks on hard-selling / unverified claims / weak cta
+    const hLower = headline.toLowerCase();
+    const bLower = body.toLowerCase();
 
-    // Check 1: Slide 1 - Hard selling check
-    if (slideNumber === 1) {
-      const hLower = headline.toLowerCase();
+    if (slideNumber === 1 && funnelStage !== 'BOFU') {
       const hasHardSelling = hardSellingTriggers.some(t => hLower.includes(t)) || /kenapa harus beli|peluang emas|buruan beli|ratusan pemilik/i.test(hLower);
       if (hasHardSelling) {
-        detectedIssues.push('Slide 1 terlalu jualan / mengandung urgensi langsung yang mendahului alur narasi.');
-        const baseTopic = activeItem?.headline ? activeItem.headline.replace(/[?!.]+$/, '') : (brandName || 'Topik Ini');
-        if (funnelStage === 'BOFU') {
-          headline = `Masih Menghadapi Kendala Pada ${baseTopic}?`;
-          body = body || (activeItem?.body ? activeItem.body.slice(0, 110) : 'Memilih pendekatan yang tepat adalah langkah penting sebelum mengambil keputusan.');
-          appliedFixes.push('Slide 1 diperbaiki menjadi hook berbasis alasan keputusan strategis (bukan hard selling langsung).');
-        } else if (funnelStage === 'MOFU') {
-          headline = `Tantangan Sebenarnya Dalam ${baseTopic}`;
-          body = body || (activeItem?.body ? activeItem.body.slice(0, 110) : 'Banyak yang telah mencoba berbagai cara, namun akar masalahnya belum tertangani secara mendasar.');
-          appliedFixes.push('Slide 1 diselaraskan menjadi hook insight edukatif.');
-        } else {
-          headline = `Pernah Mengalami Hal Ini Terkait ${baseTopic}?`;
-          body = body || (activeItem?.body ? activeItem.body.slice(0, 110) : 'Banyak orang menghadapi situasi serupa tanpa menyadari penyebab utamanya.');
-          appliedFixes.push('Slide 1 diselaraskan menjadi hook masalah relatable TOFU.');
-        }
+        return null;
       }
     }
 
-    // Check 2: Slide 2 - Problem focus and synchronization check
-    if (slideNumber === 2) {
-      const hLower = headline.toLowerCase();
-      const baseProblem = activeItem?.tujuan || activeItem?.headline || 'Tantangan Utama';
-      if (hLower.includes('manual vs otomatis') && hLower.includes('funnel') && !s.visual_intent) {
-        detectedIssues.push('Slide 2 mencampuradukkan masalah umum tanpa visual pembanding yang fokus.');
-        headline = `Fokus Hambatan Utama Dalam ${baseProblem}`;
-        appliedFixes.push('Slide 2 difokuskan pada satu masalah utama yang spesifik.');
-      } else if (hLower.length < 10 || /kesalahan umum:\s*$/i.test(hLower)) {
-        headline = funnelStage === 'TOFU'
-          ? `Kendala Yang Kerap Dihadapi Saat Memahami ${baseProblem}`
-          : funnelStage === 'MOFU'
-          ? `Mengapa Solusi Umum Belum Menyelesaikan ${baseProblem}`
-          : `Risiko Membiarkan Masalah ${baseProblem} Berlarut-larut`;
-      }
-    }
-
-    // Check 3: Slide 3 - Generic reframe / why current method fails check
-    if (slideNumber === 3) {
-      const hLower = headline.toLowerCase();
-      if (/solusi:\s*optimasi\s*(alur|strategi|konten|bofu|tofu|mofu)/i.test(hLower) || /optimasi\s*strategi\s*konten/i.test(hLower) || /^solusi\s*konten$/i.test(hLower)) {
-        detectedIssues.push(`Slide 3 menggunakan headline generik ("${headline}").`);
-        headline = activeItem?.headline ? `Pendekatan Baru: ${activeItem.headline}` : `Sudut Pandang Terstruktur Bagi ${brandName || 'Audiens'}`;
-        body = body || (activeItem?.body ? activeItem.body.slice(0, 120) : 'Bukan sekadar perubahan sesaat, tetapi membangun pola terarah yang berkelanjutan.');
-        appliedFixes.push('Slide 3 diganti dengan hasil spesifik yang dipahami audiens.');
-      }
-    }
-
-    // Check 4: Slide 4 (or 4/5) - Unverified claims check in proof/solution
-    if (slideNumber === 4 || (totalSlides >= 6 && slideNumber === 5)) {
-      const hLower = headline.toLowerCase();
-      const bLower = body.toLowerCase();
+    if (slideNumber === 4 || slideNumber === 5) {
       const hasUnverifiedClaims = /hasil.*melampaui\s*target|testimoni\s*terverifikasi|ratusan\s*pengguna.*sukses|omzet\s*miliaran|terbukti\s*100%/i.test(hLower) || /hasil.*melampaui\s*target|testimoni\s*terverifikasi|ratusan\s*pengguna.*sukses|omzet\s*miliaran/i.test(bLower);
       if (hasUnverifiedClaims && !activeItem?.proof_data) {
-        detectedIssues.push('Slide proof menggunakan klaim angka / testimoni yang tidak tercantum dalam input proyek.');
-        headline = 'Penerapan Nyata & Efisiensi Alur Kerja';
-        body = activeItem?.tujuan ? `Fokus pada pencapaian terukur: ${activeItem.tujuan}.` : 'Implementasi langkah nyata yang dapat diuji dan diterapkan langsung.';
-        appliedFixes.push('Slide proof disesuaikan menjadi pembuktian berbasis fitur & efisiensi alur kerja nyata yang dapat dipertanggungjawabkan.');
+        return null;
       }
     }
 
-    // Check 5: Final Slide - Value-based CTA check
-    if (slideNumber === totalSlides) {
-      const hLower = headline.toLowerCase();
+    if (slideNumber === 5) {
       if (/^link\s*(di\s*)?bio!?$/i.test(hLower) || /^klik\s*link!?$/i.test(hLower) || hLower.length < 5) {
-        detectedIssues.push('Headline CTA slide akhir terlalu lemah ("Link Bio!").');
-        const actionTarget = activeItem?.cta || primaryCtaText || 'Tautan di Profil';
-        headline = funnelStage === 'BOFU'
-          ? (activeItem?.cta || 'Ambil Tindakan Strategis Sekarang')
-          : funnelStage === 'MOFU'
-          ? 'Pelajari Panduan Lengkapnya'
-          : 'Simpan Wawasan Ini & Bagikan';
-        if (!body || /^link\s*bio/i.test(body)) {
-          body = `Akses informasi dan langkah selanjutnya melalui ${actionTarget}.`;
-        }
-        appliedFixes.push('Headline CTA diubah menjadi ajakan berbasis value, dengan link bio sebagai naskah pendukung.');
+        return null;
       }
     }
 
-    let swipeBridge = String(s.swipe_bridge || s.swipeBridge || '').trim();
-    if (!swipeBridge) {
-      swipeBridge = slideNumber === totalSlides
-        ? primaryCtaText
-        : slideNumber === 1
-        ? 'Kenapa hal ini sering terjadi? ➔'
-        : slideNumber === 2
-        ? 'Mengapa cara lama tidak lagi cukup? ➔'
-        : slideNumber === 3
-        ? 'Bagaimana sistem ini bekerja? ➔'
-        : 'Mulai terapkan langkahnya ➔';
+    // Visual format validation
+    const visualFormatRaw = String(s.visual_format || s.visualFormat || '').toLowerCase().trim();
+    if (visualFormatRaw !== 'photography' && visualFormatRaw !== 'infographic' && visualFormatRaw !== 'hybrid') {
+      return null;
+    }
+    const visualFormat: VisualFormatType = visualFormatRaw as VisualFormatType;
+
+    // Visual fields validation
+    const visualIntent = String(s.visual_intent || s.visualIntent || '').trim();
+    const visualType = String(s.visual_type || s.visualType || '').trim();
+    const textZone = String(s.text_zone || s.textZone || '').trim();
+    const negativeSpacePlan = String(s.negative_space_plan || s.negativeSpacePlan || '').trim();
+    const productionPrompt = String(s.production_prompt || s.productionPrompt || '').trim();
+    const rawSlideImgPrompt = String(s.slide_image_prompt || s.slideImagePrompt || '').trim();
+
+    if (!visualIntent || !visualType || !textZone || !negativeSpacePlan || !productionPrompt || !rawSlideImgPrompt) {
+      return null;
     }
 
-    const communicationJob = String(s.communication_job || s.communicationJob || (
-      slideNumber === 1 ? 'Menghentikan scroll dengan alasan keputusan strategis / relatable problem' :
-      slideNumber === 2 ? 'Fokus pada satu masalah utama yang dialami audiens saat ini' :
-      slideNumber === 3 ? (totalSlides >= 6 ? 'Menjelaskan mengapa metode lama gagal' : 'Menyajikan sudut pandang pencerahan sistemik (reframe)') :
-      slideNumber === 4 ? (totalSlides >= 6 ? 'Menjelaskan solusi sistematis secara runtut' : 'Menyajikan alur kerja dan pembuktian nilai efisiensi kerja') :
-      slideNumber === 5 && totalSlides >= 6 ? 'Menyajikan pembuktian nilai efisiensi kerja berbasis fitur nyata' :
-      'Mendorong aksi penutup berbasis value yang sesuai dengan tahap corong'
-    )).trim();
-    
-    const emotionalState = String(s.emotional_state || s.emotionalState || (
-      slideNumber === 1 ? 'Empati & Refleksi Kritis' :
-      slideNumber === 2 ? 'Kesadaran Masalah Tunggal' :
-      slideNumber === 3 ? 'Pencerahan (Aha Moment)' :
-      slideNumber === 4 ? 'Optimisme & Kejelasan Sistem' :
-      slideNumber === 5 && totalSlides >= 6 ? 'Kepercayaan Terhadap Value' :
-      'Dorongan Aksi Berbasis Value'
-    )).trim();
-
-    // Determine visual format: strictly 'photography' | 'infographic' | 'hybrid'
-    let rawFormat = String(s.visual_format || s.visualFormat || '').toLowerCase().trim();
-    let visualFormat: VisualFormatType;
-    if (rawFormat === 'photography' || rawFormat === 'infographic' || rawFormat === 'hybrid') {
-      visualFormat = rawFormat;
-    } else {
-      if (funnelStage === 'MOFU') {
-        visualFormat = slideNumber === 1 ? 'photography' : 'infographic';
-      } else if (funnelStage === 'TOFU') {
-        visualFormat = slideNumber === 1 ? 'photography' : slideNumber === totalSlides ? 'hybrid' : 'infographic';
-      } else {
-        visualFormat = slideNumber === 1 ? 'photography' : 'infographic';
-      }
-    }
-    
-    const targetAudience = activeContext?.audience_context?.primary_audience || 'audiens sasaran';
-
-    let visualIntent = String(s.visual_intent || s.visualIntent || '').trim();
-    if (!visualIntent || visualIntent === 'diagram strategi' || visualIntent.length < 15) {
-      visualIntent = slideNumber === 1
-        ? (visualFormat === 'infographic' ? `Infografis kartu pembuka refleksi topik: ${headline.slice(0, 50)}.` : `Visual editorial merefleksikan situasi ${targetAudience} terkait ${headline.slice(0, 50)}.`)
-        : slideNumber === 2
-        ? 'Infografis kartu pembanding masalah utama: kendala umum vs pemahaman terarah.'
-        : slideNumber === 3
-        ? `Infografis kartu pencerahan sudut pandang baru mengenai ${headline.slice(0, 50)}.`
-        : slideNumber === 4
-        ? 'Tampilan visual alur penerapan terstruktur dan pembuktian nilai nyata.'
-        : 'Tampilan closing card minimalis dengan instruksi aksi berbasis value yang jelas.';
+    // Visual production validation
+    const vp = s.visual_production || s.visualProduction;
+    if (!vp || typeof vp !== 'object' || Array.isArray(vp)) {
+      return null;
     }
 
-    const visualType = String(s.visual_type || s.visualType || (visualFormat === 'photography' ? 'editorial-photo' : slideNumber === totalSlides ? 'cta-card' : 'minimal-diagram')).trim();
-    const textZone = String(s.text_zone || s.textZone || 'Upper Third / Left Aligned').trim();
-    const negativeSpacePlan = String(s.negative_space_plan || s.negativeSpacePlan || 'Ruang bersih 40% di area tengah dan atas agar teks terbaca optimal').trim();
+    const subject = String(vp.subject || '').trim();
+    const action = String(vp.action || '').trim();
+    const composition = String(vp.composition || '').trim();
+    const layout = String(vp.layout || '').trim();
+    const visualMetaphor = String(vp.visual_metaphor || vp.visualMetaphor || '').trim();
+    const typography = String(vp.typography || '').trim();
+    const background = String(vp.background || '').trim();
+    const colorMood = String(vp.color_mood || vp.colorMood || '').trim();
+    const negativeSpace = String(vp.negative_space || vp.negativeSpace || '').trim();
+    const negativePrompt = String(vp.negative_prompt || vp.negativePrompt || '').trim();
 
-    // 1. Creative Strategy layer
+    if (
+      !subject || !action || !composition || !layout || !visualMetaphor ||
+      !typography || !background || !colorMood || !negativeSpace || !negativePrompt
+    ) {
+      return null;
+    }
+
+    // Creative strategy
+    const cs = s.creative_strategy || s.creativeStrategy;
     const creativeStrategy: SlideCreativeStrategy = {
       funnel_stage: funnelStage,
       slide_role: role,
-      visual_objective: s.creative_strategy?.visual_objective || visualIntent,
-      core_message: s.creative_strategy?.core_message || headline,
-      audience_emotion: s.creative_strategy?.audience_emotion || emotionalState,
-      visual_concept: s.creative_strategy?.visual_concept || (visualFormat === 'infographic' ? 'Kartu UI diagram alur dan hierarki tipografi modern bersih' : 'Editorial photographic framing dengan pencahayaan alami natural'),
-      text_overlay: s.creative_strategy?.text_overlay || headline,
+      visual_objective: String(cs?.visual_objective || cs?.visualObjective || visualIntent).trim(),
+      core_message: String(cs?.core_message || cs?.coreMessage || coreMessage || headline).trim(),
+      audience_emotion: String(cs?.audience_emotion || cs?.audienceEmotion || audienceEmotion || emotionalState).trim(),
+      visual_concept: String(cs?.visual_concept || cs?.visualConcept || visualMetaphor).trim(),
+      text_overlay: String(cs?.text_overlay || cs?.textOverlay || headline).trim(),
     };
 
-    // 3. Visual Production layer
-    const defaultSubject = visualFormat === 'infographic'
-      ? (slideNumber === 1 ? `Visual kartu pengantar terstruktur berfokus pada topik ${headline.slice(0, 40)}.` : slideNumber === 2 ? `Diagram perbandingan masalah vs solusi untuk ${headline.slice(0, 40)}.` : slideNumber === 3 ? `Diagram konsep 3 poin terarah mengenai ${headline.slice(0, 40)}.` : slideNumber === 4 ? `Visual ringkasan tahapan penerapan terstruktur.` : `Kartu CTA aksi penutup dengan tombol yang jelas.`)
-      : (slideNumber === 1 ? `Representasi visual ${targetAudience} yang sedang menghadapi situasi terkait ${headline.slice(0, 40)}.` : slideNumber === 2 ? `Representasi ${targetAudience} sedang mencermati kendala yang dihadapi.` : slideNumber === 3 ? `Representasi ${targetAudience} menemukan kejelasan pemahaman baru.` : slideNumber === 4 ? `Representasi ${targetAudience} menerapkan solusi secara profesional.` : `Representasi interaksi penutup yang mengajak ${targetAudience} mengambil langkah berikutnya.`);
-
-    const defaultAction = visualFormat === 'infographic'
-      ? 'Penataan tata letak visual bertingkat dengan penunjuk alur dan kartu berbayang halus.'
-      : (slideNumber === 1 ? 'Mengamati situasi dengan tatapan berpikir reflektif.' : slideNumber === 2 ? 'Menganalisis perbandingan situasi dengan cermat.' : slideNumber === 3 ? 'Memahami diagram konsep baru secara jelas.' : slideNumber === 4 ? 'Menerapkan tahapan alur kerja yang terorganisir.' : 'Mengonfirmasi tindakan lanjut pada antarmuka.');
-
-    const defaultComposition = visualFormat === 'infographic'
-      ? 'Center card layout / structured split grid dengan ruang negatif 40% lapang di area atas untuk headline.'
-      : 'Subjek di kanan tengah, ruang kosong luas di kiri atas untuk headline.';
-
-    const defaultLayout = `Format carousel Instagram 4:5 vertical, komposisi bersih dengan teks headline dominan di ${textZone}.`;
-    const defaultMetaphor = visualFormat === 'infographic'
-      ? 'Struktur visual pilar yang mengubah proses rumit menjadi alur kerja yang mudah dipahami.'
-      : 'Refleksi transformasi alur kerja komunikasi yang lebih terarah dan profesional.';
-
-    const defaultTypography = 'Headline tebal 32pt kontras tinggi di bagian atas, body copy 16pt sans-serif nyaman dibaca dengan line-height 1.6, label kecil di pojok.';
-    const defaultBackground = visualFormat === 'infographic'
-      ? 'Warm neutral light canvas (#F9F8F6) dengan tekstur halus tanpa noise.'
-      : 'Home office minimalis hangat dengan pencahayaan alami jendela samping (#F9F8F6).';
-    const defaultColorMood = `Nuansa profesional hangat (${funnelStage === 'TOFU' ? 'Sage Green & Warm Cream' : funnelStage === 'MOFU' ? 'Teal & Crisp Slate' : 'Deep Emerald & Champagne Gold'}).`;
-    const defaultNegativePrompt = visualFormat === 'infographic'
-      ? 'photography, realistic person, complex faces, human hands, messy sketch, stock photo, blurry text, cluttered layout, hard selling ads.'
-      : 'hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers, corporate cliche, overdesigned graphic.';
-
-    const visualProduction: SlideVisualProduction = {
-      subject: s.visual_production?.subject || defaultSubject,
-      action: s.visual_production?.action || defaultAction,
-      composition: s.visual_production?.composition || defaultComposition,
-      layout: s.visual_production?.layout || defaultLayout,
-      visual_metaphor: s.visual_production?.visual_metaphor || defaultMetaphor,
-      typography: s.visual_production?.typography || defaultTypography,
-      background: s.visual_production?.background || defaultBackground,
-      color_mood: s.visual_production?.color_mood || defaultColorMood,
-      negative_space: s.visual_production?.negative_space || negativeSpacePlan,
-      negative_prompt: s.visual_production?.negative_prompt || defaultNegativePrompt,
-    };
-
-    let productionPrompt = String(s.production_prompt || s.productionPrompt || '').trim();
-    if (!productionPrompt || productionPrompt.length < 30) {
-      productionPrompt = `Layout: ${visualProduction.layout}
-Subject/Object Utama: ${visualProduction.subject}
-Visual Metaphor: ${visualProduction.visual_metaphor}
-Typography Hierarchy: ${visualProduction.typography}
-Background: ${visualProduction.background}
-Color Mood: ${visualProduction.color_mood}
-Negative Space: ${visualProduction.negative_space}
-Image/Illustration Direction: ${visualFormat === 'infographic' ? 'Clean modern editorial infographic design' : visualFormat === 'hybrid' ? 'Clean hybrid editorial design' : 'Clean minimalist modern editorial photography'}.`;
-    }
-
-    const rawSlideImgPrompt = String(s.slide_image_prompt || s.slideImagePrompt || '').trim();
     const slideImagePrompt = sanitizeAndGenerateSlideImagePrompt(
       rawSlideImgPrompt,
       slideNumber,
@@ -1551,7 +1413,7 @@ Image/Illustration Direction: ${visualFormat === 'infographic' ? 'Clean modern e
       activeContext
     );
 
-    return {
+    validatedSlides.push({
       slide: slideNumber,
       role,
       communication_job: communicationJob,
@@ -1565,47 +1427,49 @@ Image/Illustration Direction: ${visualFormat === 'infographic' ? 'Clean modern e
       negative_space_plan: negativeSpacePlan,
       creative_strategy: creativeStrategy,
       visual_format: visualFormat,
-      visual_production: visualProduction,
+      visual_production: {
+        subject,
+        action,
+        composition,
+        layout,
+        visual_metaphor: visualMetaphor,
+        typography,
+        background,
+        color_mood: colorMood,
+        negative_space: negativeSpace,
+        negative_prompt: negativePrompt,
+      },
       production_prompt: productionPrompt,
       slide_image_prompt: slideImagePrompt,
-    };
-  });
-
-  const slideCount = normalizedSlides.length;
-  // Slide count reason: strictly 5-step for 5 slides, 6-step for 6 slides
-  const defaultSlideCountReason = slideCount === 5
-    ? "5 Slide merupakan panjang optimal untuk alur narasi Hook → Problem → Reframe → How It Works / Value → CTA."
-    : `${slideCount} Slide untuk alur narasi Hook → Problem → Why Current Method Fails → Solution → Proof/Value → CTA.`;
-
-  let slideCountReason = String(targetObj.slide_count_reason || targetObj.slideCountReason || defaultSlideCountReason).trim();
-  if (slideCount === 5 && (slideCountReason.includes('Why Current Method Fails') || slideCountReason.includes('6-tahap'))) {
-    slideCountReason = "5 Slide merupakan panjang optimal untuk alur narasi Hook → Problem → Reframe → How It Works / Value → CTA.";
+    });
   }
+
+  const slideCountReason = String(
+    parsed.slide_count_reason || parsed.slideCountReason || ''
+  ).trim() || '5 Slide optimal untuk alur narasi Hook → Problem → Reframe → Solution → CTA.';
 
   const beliefJourneySummary = String(
-    targetObj.belief_journey_summary || targetObj.beliefJourneySummary ||
-    `Menggeser persepsi audiens dari "${currentBelief}" menjadi "${desiredBelief}" melalui alur narasi terstruktur dari Hook hingga CTA berbasis value.`
+    parsed.belief_journey_summary || parsed.beliefJourneySummary || ''
   ).trim();
+  if (!beliefJourneySummary) {
+    return null;
+  }
 
   const visualSystemNotes = String(
-    targetObj.visual_system_notes || targetObj.visualSystemNotes ||
-    `Tema visual konsisten menggunakan format 4:5 vertical, tipografi berhirarki tajam, ruang negatif lapang, dan aksen warna selaras corong ${funnelStage}.`
+    parsed.visual_system_notes || parsed.visualSystemNotes || ''
   ).trim();
-
-  const isAligned = detectedIssues.length === 0;
-  const alignmentIssue = detectedIssues.join(' | ');
-  const alignmentFix = appliedFixes.length > 0
-    ? appliedFixes.join(' | ')
-    : `Penyelarasan pesan dan alur narasi telah divalidasi sesuai corong ${funnelStage}.`;
-
-  const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
-  let captionForPost = String(targetObj.captionForPost || targetObj.caption_for_post || '').trim();
-  if (!captionForPost || captionForPost.length < 25 || captionForPost.includes('[Tulis caption') || captionForPost.includes('...')) {
-    captionForPost = buildFunnelAlignedCarouselCaption(funnelStage, activeItem, normalizedSlides, primaryCtaText);
+  if (!visualSystemNotes) {
+    return null;
   }
-  const captionInstruction = String(targetObj.captionInstruction || targetObj.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;
 
-  const slidePlans: CarouselSlideProductionPlan[] = normalizedSlides.map((slide) => ({
+  const defaultCaptionInstruction = 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.';
+  let captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
+  if (!captionForPost || captionForPost.length < 25 || captionForPost.includes('[Tulis caption') || captionForPost.includes('...')) {
+    captionForPost = buildFunnelAlignedCarouselCaption(funnelStage, activeItem, validatedSlides, primaryCtaText, activeContext);
+  }
+  const captionInstruction = String(parsed.captionInstruction || parsed.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;
+
+  const slidePlans: CarouselSlideProductionPlan[] = validatedSlides.map((slide) => ({
     slide_number: slide.slide,
     role: slide.role,
     headline: slide.headline,
@@ -1614,28 +1478,28 @@ Image/Illustration Direction: ${visualFormat === 'infographic' ? 'Clean modern e
     layout_direction: slide.visual_production?.layout || slide.text_zone || '',
   }));
 
-  const slidePrompts = normalizedSlides.map((slide) => ({
+  const slidePrompts = validatedSlides.map((slide) => ({
     slide_number: slide.slide,
     prompt: slide.slide_image_prompt,
   }));
 
   const coverDirection =
-    normalizedSlides[0]?.visual_intent ||
-    normalizedSlides[0]?.visual_production?.composition ||
+    validatedSlides[0]?.visual_intent ||
+    validatedSlides[0]?.visual_production?.composition ||
     '';
 
   const carouselCandidate = attachProductionCandidate
     ? buildCarouselProductionCandidate({
         candidate_id: 'carousel_plan',
-        objective: rawGoal,
-        slide_count: normalizedSlides.length,
+        objective: contentGoal,
+        slide_count: 5,
         cover_direction: coverDirection,
         slides: slidePlans,
         visual_continuity: visualSystemNotes,
         branding: '',
         negative_constraints:
-          normalizedSlides[0]?.visual_production?.negative_prompt ||
-          '',
+          validatedSlides[0]?.visual_production?.negative_prompt ||
+          'hard selling ads, cluttered poster, too much text, generic stock photo, unreadable typography, distorted face, extra fingers.',
         final_prompts: {
           master_prompt: visualSystemNotes,
           slides: slidePrompts,
@@ -1643,26 +1507,33 @@ Image/Illustration Direction: ${visualFormat === 'infographic' ? 'Clean modern e
       })
     : undefined;
 
+  if (attachProductionCandidate && carouselCandidate) {
+    const candidateValidation = validateProductionCandidate(carouselCandidate);
+    if (!candidateValidation.isValid) {
+      return null;
+    }
+  }
+
   const canonicalPlan: CarouselPlan = {
-    content_goal: rawGoal,
+    content_goal: contentGoal,
     funnel_stage: funnelStage,
     current_belief: currentBelief,
     desired_belief: desiredBelief,
     core_promise: corePromise,
     primary_cta_type: primaryCtaType,
     primary_cta_text: primaryCtaText,
-    slide_count: slideCount,
+    slide_count: 5,
     slide_count_reason: slideCountReason,
     belief_journey_summary: beliefJourneySummary,
     captionForPost,
     captionInstruction,
     messageAlignmentCheck: {
-      isAligned,
-      issue: alignmentIssue || undefined,
-      fixApplied: alignmentFix,
+      isAligned: true,
+      issue: undefined,
+      fixApplied: `Penyelarasan pesan dan alur narasi telah divalidasi sesuai corong ${funnelStage}.`,
     },
     visual_system_notes: visualSystemNotes,
-    slides: normalizedSlides,
+    slides: validatedSlides,
     productionCandidate: carouselCandidate,
   };
 

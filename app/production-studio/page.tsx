@@ -1323,7 +1323,7 @@ ${formattedContext}
 1. Semua isi naratif WAJIB diturunkan hanya dari:
    - PROJECT FACTS / ProductionContext
    - SELECTED CONTENT ITEM
-   - FunnelStrategy / Funnel Rules
+   - Funnel Rules yang tercantum dalam FUNNEL STRATEGY RULES CONTRACT
    - revisionDirective jika user memberikan revisi eksplisit
 
 2. DILARANG menciptakan fakta baru tentang:
@@ -1456,7 +1456,7 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
       "communication_job": "Fokus pada satu masalah konkret yang dihadapi target audiens",
       "headline": "[Masalah yang eksplisit tersedia pada authority project / ContentItem]",
       "body": "[Penjelasan masalah konkret berdasarkan authority tanpa mencampur aduk isu lain atau membuat dampak/konsekuensi bisnis baru]",
-      "swipe_bridge": "[Kalimat jembatan mengapa cara lama tidak cukup] ➔",
+      "swipe_bridge": "[Kalimat jembatan menuju reframe berdasarkan authority] ➔",
       "emotional_state": "Kesadaran Masalah Tunggal",
       "core_message": "[Pesan inti masalah slide 2]",
       "audience_emotion": "Kesadaran Masalah Tunggal"

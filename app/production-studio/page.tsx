@@ -1171,7 +1171,6 @@ const validateAndNormalizeCarouselPlan = (
   const captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
   if (
     !captionForPost ||
-    captionForPost.length < 25 ||
     captionForPost.includes('[Tulis caption') ||
     captionForPost.includes('...') ||
     (captionForPost.startsWith('[') && captionForPost.endsWith(']')) ||
@@ -1325,6 +1324,9 @@ ${funnelPromptBlock}
 
 ${formattedContext}
 
+Existing ContentItem Caption:
+${activeItem?.caption?.trim() || '(tidak tersedia)'}
+
 ### CAROUSEL STAGE 1 AUTHORITY CONTRACT — STRICT
 
 1. Semua isi naratif WAJIB diturunkan hanya dari:
@@ -1414,8 +1416,9 @@ ${formattedContext}
     Funnel Stage TIDAK BOLEH menciptakan fakta bisnis baru.
 
 12. CAPTION (captionForPost):
+    - Jika tersedia, caption ini adalah authority utama.
+    - Jika tidak tersedia, captionForPost boleh dirangkum dari ProductionContext + Stage 1 tanpa menambah claim baru.
     - Caption harus grounded HANYA pada ProductionContext dan narasi Stage 1.
-    - Jika ContentItem.caption tersedia, perlakukan sebagai authority utama.
     - DILARANG menambah benefit, proof, result, feature, metric, urgency, atau claim baru.
 
 ### OUTPUT FORMAT DIRECTION (STAGE 1: CONTENT PLAN):
@@ -1671,7 +1674,6 @@ function validateCarouselStage1ContentPlan(
   const captionForPost = String(parsed.captionForPost || parsed.caption_for_post || '').trim();
   if (
     !captionForPost ||
-    captionForPost.length < 25 ||
     captionForPost.includes('[Tulis caption') ||
     captionForPost.includes('...') ||
     (captionForPost.startsWith('[') && captionForPost.endsWith(']')) ||

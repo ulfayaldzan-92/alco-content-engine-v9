@@ -22,6 +22,8 @@ export default function CarouselPanel(props: any) {
   const {
     activeItem,
     activeContext,
+    carouselOutputSource,
+    isCarouselOutputAuthoritative = false,
     handleCopyText,
     copiedStates,
     nextStepVisibleKeys,
@@ -66,7 +68,7 @@ export default function CarouselPanel(props: any) {
   const activeSlideNum = activeSlide.slide || 1;
 
   const funnelStage = String(plan.funnel_stage || activeItem?.jenis || 'TOFU').toUpperCase();
-  const alignmentCheck = plan.messageAlignmentCheck || { isAligned: true };
+  const alignmentCheck = plan.messageAlignmentCheck || null;
 
   // Helper to extract 3-layer data with fallbacks
   const visualFormat: 'photography' | 'infographic' | 'hybrid' = 
@@ -168,7 +170,7 @@ ${s.production_prompt || '-'}`;
 
   const completedSlidesCount = getCompletedCarouselSlideCount(carouselSlideCompletionState);
   const allSlidesCreated = areAllCarouselSlidesCreated(carouselSlideCompletionState);
-  const isCurrentSlideCompleted = isCarouselSlideAssetCreated(carouselSlideCompletionState, activeSlide?.slide);
+  const isCurrentSlideCompleted = Boolean(isCarouselOutputAuthoritative && isCarouselSlideAssetCreated(carouselSlideCompletionState, activeSlide?.slide));
   const currentSlideCompletionEntry = getCarouselSlideCompletionEntry(carouselSlideCompletionState, activeSlide?.slide);
 
   return (
@@ -187,7 +189,11 @@ ${s.production_prompt || '-'}`;
               <span className="text-stone-600">CTA: <strong className="text-stone-900">{plan.primary_cta_text}</strong></span>
             </>
           )}
-          {alignmentCheck && (
+          {!isCarouselOutputAuthoritative ? (
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-stone-100 text-stone-600 border-stone-200">
+              Draft Awal • Belum Dioptimalkan
+            </span>
+          ) : alignmentCheck ? (
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
               alignmentCheck.isAligned
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -195,7 +201,7 @@ ${s.production_prompt || '-'}`;
             }`}>
               {alignmentCheck.isAligned ? 'Corong OK' : 'Corong Disesuaikan'}
             </span>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -244,22 +250,24 @@ ${s.production_prompt || '-'}`;
         <div className="flex items-center justify-between pb-2 border-b border-[#e7e0d4] mb-2 px-1">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">Slide Navigator</span>
-            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-              allSlidesCreated
-                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                : completedSlidesCount > 0
-                ? 'bg-amber-100 text-amber-800 border-amber-300'
-                : 'bg-stone-100 text-stone-600 border-stone-200'
-            }`}>
-              {completedSlidesCount}/{slides.length} Selesai Dibuat
-            </span>
+            {isCarouselOutputAuthoritative && (
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                allSlidesCreated
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : completedSlidesCount > 0
+                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : 'bg-stone-100 text-stone-600 border-stone-200'
+              }`}>
+                {completedSlidesCount}/{slides.length} Selesai Dibuat
+              </span>
+            )}
           </div>
           <span className="text-[11px] text-stone-500">Pilih slide untuk fokus naskah &amp; produksi:</span>
         </div>
         <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-7 gap-2">
           {slides.map((s: any) => {
             const isCurrent = s.slide === activeSlideNum;
-            const isCompleted = isCarouselSlideAssetCreated(carouselSlideCompletionState, s.slide);
+            const isCompleted = Boolean(isCarouselOutputAuthoritative && isCarouselSlideAssetCreated(carouselSlideCompletionState, s.slide));
             return (
               <button
                 key={s.slide}
@@ -515,56 +523,58 @@ ${s.production_prompt || '-'}`;
             </details>
 
             {/* MANUAL SLIDE ASSET COMPLETION ACTION */}
-            <div className="pt-2">
-              {!isCurrentSlideCompleted ? (
-                <div className="p-4 bg-[#f6f3ee] border border-[#e7e0d4] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
-                      <Layers size={14} className="text-primary" />
-                      <span>Konfirmasi Produksi Aset Slide {activeSlide.slide}</span>
+            {isCarouselOutputAuthoritative && (
+              <div className="pt-2">
+                {!isCurrentSlideCompleted ? (
+                  <div className="p-4 bg-[#f6f3ee] border border-[#e7e0d4] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                        <Layers size={14} className="text-primary" />
+                        <span>Konfirmasi Produksi Aset Slide {activeSlide.slide}</span>
+                      </div>
+                      <p className="text-[11px] text-stone-600 leading-relaxed max-w-xl">
+                        Gunakan tombol ini setelah aset gambar atau visual Slide {activeSlide.slide} selesai dibuat di Midjourney, Canva, atau tool desain Anda.
+                      </p>
                     </div>
-                    <p className="text-[11px] text-stone-600 leading-relaxed max-w-xl">
-                      Gunakan tombol ini setelah aset gambar atau visual Slide {activeSlide.slide} selesai dibuat di Midjourney, Canva, atau tool desain Anda.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleToggleCarouselSlideCompletion?.(activeSlide.slide, true)
+                      }
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
+                    >
+                      <Check size={14} />
+                      <span>Tandai Slide Selesai Dibuat</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleToggleCarouselSlideCompletion?.(activeSlide.slide, true)
-                    }
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
-                  >
-                    <Check size={14} />
-                    <span>Tandai Slide Selesai Dibuat</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                      <CheckSquare size={14} className="text-emerald-700" />
-                      <span>Aset Slide Selesai Dibuat ✓</span>
+                ) : (
+                  <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                        <CheckSquare size={14} className="text-emerald-700" />
+                        <span>Aset Slide Selesai Dibuat ✓</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700 leading-relaxed max-w-xl">
+                        Slide {activeSlide.slide} telah dikonfirmasi selesai dibuat
+                        {currentSlideCompletionEntry?.marked_at
+                          ? ` (${new Date(currentSlideCompletionEntry.marked_at).toLocaleTimeString()})`
+                          : ''}.
+                      </p>
                     </div>
-                    <p className="text-[11px] text-emerald-700 leading-relaxed max-w-xl">
-                      Slide {activeSlide.slide} telah dikonfirmasi selesai dibuat
-                      {currentSlideCompletionEntry?.marked_at
-                        ? ` (${new Date(currentSlideCompletionEntry.marked_at).toLocaleTimeString()})`
-                        : ''}.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleToggleCarouselSlideCompletion?.(activeSlide.slide, false)
+                      }
+                      className="px-3.5 py-1.5 bg-white hover:bg-stone-50 border border-emerald-300 text-stone-700 font-semibold text-xs rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <RotateCcw size={12} className="text-stone-500" />
+                      <span>Batalkan Tanda</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleToggleCarouselSlideCompletion?.(activeSlide.slide, false)
-                    }
-                    className="px-3.5 py-1.5 bg-white hover:bg-stone-50 border border-emerald-300 text-stone-700 font-semibold text-xs rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
-                  >
-                    <RotateCcw size={12} className="text-stone-500" />
-                    <span>Batalkan Tanda</span>
-                  </button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -4702,7 +4702,13 @@ ${formatDirection}${revisionDirective}`;
     };
 
     if (activeTab === 'image') return <ImagePanel {...commonProps} canonicalProjectId={canonicalProjectId} />;
-    if (activeTab === 'carousel') return <CarouselPanel {...commonProps} />;
+    if (activeTab === 'carousel') return (
+      <CarouselPanel
+        {...commonProps}
+        carouselOutputSource={carouselOutputSource}
+        isCarouselOutputAuthoritative={isAuthoritativeProductionOutputSource(carouselOutputSource)}
+      />
+    );
     if (activeTab === 'video') return <VideoPanel {...commonProps} />;
 
     return (

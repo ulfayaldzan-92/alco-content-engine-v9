@@ -3526,11 +3526,11 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "audioDirection": "Clear voiceover with subtle background ambient",
     "voiceoverOutline": "[Garis besar alur voiceover yang grounded]",
     "script": {
-      "hook": "[Hook yang grounded]",
-      "masalah": "[Masalah dari authority]",
-      "solusi": "[Solusi jika ada di authority, atau string kosong \"\"]",
-      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
-      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+      "hook": "",
+      "masalah": "",
+      "solusi": "",
+      "proof": "",
+      "cta": ""
     },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
     "visualPlan": "[Rencana visual adegan]",
@@ -3546,11 +3546,11 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "audioDirection": "Focused voiceover with crisp UI sound cues",
     "voiceoverOutline": "[Garis besar alur walkthrough yang grounded]",
     "script": {
-      "hook": "[Hook demonstrasi produk]",
-      "masalah": "[Masalah alur kerja dari authority]",
-      "solusi": "[Solusi fitur nyata jika ada di authority, atau string kosong \"\"]",
-      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
-      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+      "hook": "",
+      "masalah": "",
+      "solusi": "",
+      "proof": "",
+      "cta": ""
     },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
     "visualPlan": "[Rencana visual adegan UI/produk]",
@@ -3566,11 +3566,11 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "audioDirection": "Rhythmic background beat with precise vocal clarity",
     "voiceoverOutline": "[Garis besar alur konsep gerak yang grounded]",
     "script": {
-      "hook": "[Hook konsep/kerangka pikir]",
-      "masalah": "[Masalah struktural dari authority]",
-      "solusi": "[Solusi terstruktur jika ada di authority, atau string kosong \"\"]",
-      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
-      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+      "hook": "",
+      "masalah": "",
+      "solusi": "",
+      "proof": "",
+      "cta": ""
     },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
     "visualPlan": "[Rencana visual tipografi dan motion graphic]",

@@ -673,7 +673,7 @@ export function buildCanonicalVideoScenePlan(
           duration_seconds: 5,
           purpose: hasProof ? 'Proof Hook' : 'Primary Message Hook',
           visual_direction: hasProof
-            ? `Grafik motion menampilkan ringkasan data: ${proofText}`
+            ? `Motion graphic menampilkan proof authoritative dari script: ${proofText}`
             : 'Tipografi bergerak dan visual motion yang menampilkan poin kunci dari script.',
           action: 'Animasi elemen grafis dinamis mempertegas pesan utama dari script.',
           camera: 'Zoom in dinamis pada elemen grafis kunci.',

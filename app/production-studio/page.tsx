@@ -1965,6 +1965,25 @@ ${cta}`;
   }
 }
 
+// Phase 5B.3-B: Authority-strict video caption validator without arbitrary length restrictions
+function isValidVideoCaption(caption: unknown): boolean {
+  if (typeof caption !== 'string') return false;
+  const trimmed = caption.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (
+    trimmed.includes('...') ||
+    trimmed.includes('[Tulis caption') ||
+    trimmed.includes('[Caption') ||
+    lower.includes('[tulis caption') ||
+    lower.includes('[caption') ||
+    lower.includes('lorem ipsum')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 // Normalize & validate incoming Video AI output
 function validateAndNormalizeVideoStyles(
   rawText: string,
@@ -1987,9 +2006,6 @@ function validateAndNormalizeVideoStyles(
 
     const funnelStage = normalizeFunnelStage(activeItem?.jenis);
     const funnelRules = getFunnelRules(activeItem?.jenis);
-    const rawCta = activeItem?.cta || (funnelStage === 'BOFU' ? 'Lihat demo' : funnelStage === 'MOFU' ? 'Cek framework ini' : 'Simpan ide ini');
-    const safeCta = sanitizeCtaForFunnel(rawCta, funnelStage);
-    const voiceoverCta = getVoiceoverCtaForFunnel(rawCta, funnelStage);
     const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
 
     const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
@@ -2029,12 +2045,22 @@ function validateAndNormalizeVideoStyles(
       const voiceoverOutline = String(v.voiceoverOutline || v.voiceover_outline || '').trim();
 
       const rawScript = v.script || {};
+
+      let scriptProof = '';
+      if (typeof rawScript.proof === 'string' && rawScript.proof.trim()) {
+        scriptProof = rawScript.proof.trim();
+      } else if (typeof (activeItem as any)?.proof === 'string' && (activeItem as any).proof.trim()) {
+        scriptProof = (activeItem as any).proof.trim();
+      } else if (typeof (activeItem as any)?.proof_data === 'string' && (activeItem as any).proof_data.trim()) {
+        scriptProof = (activeItem as any).proof_data.trim();
+      }
+
       const script: VideoScript = {
-        hook: String(rawScript.hook || activeItem?.headline || 'Pernah merasa begini?').trim(),
-        masalah: String(rawScript.masalah || activeItem?.body || 'Banyak yang belum menyadari hambatan ini.').trim(),
-        solusi: String(rawScript.solusi || 'Solusi terstruktur memudahkan alur kerjamu.').trim(),
-        proof: String(rawScript.proof || 'Hasil lebih konsisten dan terarah.').trim(),
-        cta: String(rawScript.cta || voiceoverCta).trim(),
+        hook: String(rawScript.hook || activeItem?.headline || '').trim(),
+        masalah: String(rawScript.masalah || activeItem?.body || '').trim(),
+        solusi: typeof rawScript.solusi === 'string' ? rawScript.solusi.trim() : '',
+        proof: scriptProof,
+        cta: String(rawScript.cta || activeItem?.cta || '').trim(),
       };
 
       const videoPrompt = String(v.videoPrompt || v.video_prompt || '').trim();
@@ -2049,9 +2075,16 @@ function validateAndNormalizeVideoStyles(
       }
       const visualPlan = String(v.visualPlan || v.visual_plan || '').trim();
 
-      let captionForPost = String(v.captionForPost || v.caption_for_post || '').trim();
-      if (!captionForPost || captionForPost.length < 25 || captionForPost.includes('[Tulis caption') || captionForPost.includes('...')) {
-        captionForPost = buildFunnelAlignedVideoCaption(funnelStage, activeItem, { script }, voiceoverCta);
+      const rawAiCaption = typeof (v.captionForPost ?? v.caption_for_post) === 'string'
+        ? (v.captionForPost ?? v.caption_for_post).trim()
+        : '';
+      let captionForPost = '';
+      if (isValidVideoCaption(rawAiCaption)) {
+        captionForPost = rawAiCaption;
+      } else if (isValidVideoCaption(activeItem?.caption)) {
+        captionForPost = String(activeItem?.caption).trim();
+      } else {
+        return null;
       }
 
       const captionInstruction = String(v.captionInstruction || v.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;

@@ -3468,10 +3468,45 @@ Kembalikan HANYA JSON murni tanpa markdown pembungkus tambahan di luar JSON.`;
         formatDirection = `Blueprint carousel diproses melalui 2-stage architecture (Stage 1 Content Plan + Stage 2 Visual Enrichment).`;
       } else if (activeTab === 'video') {
         promptTitle = `3 VIDEO PRODUCTION STYLES - FUNNEL ${funnelStage} (JSON ARRAY)`;
-        formatDirection = `Hasilkan exactly 3 opsi gaya video dengan semantic production mode:
-1. "human_led" (Talent/Kreator berbicara di depan kamera / talking head & relatable narrative)
-2. "product_demo" (Demonstrasi layar kerja / alur fitur produk / walkthrough visual UI)
-3. "motion_explainer" (Animasi grafik gerak kinetik, tipografi dinamis & visual diagram terstruktur)
+        formatDirection = `### VIDEO AUTHORITY CONTRACT — STRICT:
+1. SEMUA isi semantik dan klaim video HANYA boleh berasal dari:
+   - ProductionContext (Project Facts, Brand, Positioning, Offering)
+   - Selected ContentItem (Headline, Body, Solusi, Proof, CTA, Caption)
+   - Funnel Rules (Goal, Audience State, Communication Style)
+   - CharacterDNA jika tersedia
+   - Catatan revisi eksplisit dari user (jika ada)
+
+2. DILARANG KERAS MENCIPTAKAN / MENGARANG:
+   - Persona atau demografi fiktif yang tidak ada dalam context
+   - Fitur / kapabilitas produk yang tidak ada dalam authority
+   - Klaim benefit, kemudahan, atau efisiensi yang tidak ada dalam authority
+   - Proof, testimoni, statistik, angka metrik, revenue, atau conversion claim
+   - Workflow produk atau antarmuka yang tidak tertera di authority
+   Funnel Rules HANYA mengatur cara penyampaian dan sudut pandang, BUKAN menciptakan fakta bisnis baru.
+
+3. VISUAL PRODUCTION MODES:
+   Hasilkan exactly 3 opsi gaya video dengan semantic production mode:
+   1. "human_led" (Talent/Kreator berbicara di depan kamera / talking head & relatable narrative)
+      - DILARANG mengarang identitas persona atau latar belakang hidup di luar CharacterDNA/authority.
+   2. "product_demo" (Demonstrasi layar kerja / alur fitur produk / walkthrough visual UI)
+      - DILARANG mengarang dashboard fiktif, tombol visual ajaib, atau kapabilitas UI yang tidak ada di authority.
+   3. "motion_explainer" (Animasi grafik gerak kinetik, tipografi dinamis & visual diagram terstruktur)
+      - DILARANG mengarang grafik pertumbuhan, statistik persentase, atau data hasil yang tidak faktual.
+   Ketiga mode boleh berbeda pada komposisi, pacing, kamera, gerak visual, tipografi, visual treatment, dan arahan audio, tetapi ketiganya TIDAK BOLEH menciptakan fakta bisnis yang berbeda.
+
+4. CAPTION AUTHORITY:
+Existing ContentItem Caption: ${JSON.stringify((activeItem?.caption || '').trim())}
+   - Jika Existing ContentItem Caption tersedia (bukan kosong): jadikan sebagai otoritas utama caption Instagram. Boleh dirapikan/diparafrase tanpa menambah klaim baru.
+   - Jika tidak tersedia: captionForPost boleh dirangkum HANYA dari ProductionContext dan script video ini.
+   - DILARANG menambah fakta, benefit, proof, hasil, metrik, fitur, atau urgensi baru ke dalam caption.
+
+5. SCRIPT AUTHORITY CONTRACT:
+   - hook: Harus grounded pada headline / ide utama ContentItem.
+   - masalah: Harus grounded pada body / pain point ContentItem.
+   - solusi: Berasal HANYA dari solusi eksplisit pada authority. Jika tidak ada solusi eksplisit, gunakan string kosong: ""
+   - proof: TIDAK wajib secara semantik. Jika authority tidak menyediakan proof nyata, WAJIB gunakan string kosong: "" (DILARANG mengarang studi kasus, testimoni, atau metrik).
+   - cta: Berasal HANYA dari CTA eksplisit ContentItem atau authority. Jika tidak ada CTA eksplisit, gunakan string kosong: ""
+   - DILARANG membuat copy marketing generik untuk mengisi field solusi, proof, atau cta yang kosong.
 
 ATURAN FUNNEL ${funnelStage}:
 - Goal: ${funnelRules.goal}
@@ -3486,43 +3521,61 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
   {
     "productionMode": "human_led",
     "name": "Human-Led Creator Style",
-    "hookStyle": "...",
-    "pacingStyle": "...",
-    "audioDirection": "...",
-    "voiceoverOutline": "...",
-    "script": { "hook": "...", "masalah": "...", "solusi": "...", "proof": "...", "cta": "..." },
+    "hookStyle": "Relatable Problem Hook",
+    "pacingStyle": "Deliberate and engaging",
+    "audioDirection": "Clear voiceover with subtle background ambient",
+    "voiceoverOutline": "[Garis besar alur voiceover yang grounded]",
+    "script": {
+      "hook": "[Hook yang grounded]",
+      "masalah": "[Masalah dari authority]",
+      "solusi": "[Solusi jika ada di authority, atau string kosong \"\"]",
+      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
+      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+    },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "...",
+    "visualPlan": "[Rencana visual adegan]",
     "negative_constraints": "No distorted anatomy, no inconsistent face, no unreadable text, no visual artifacts.",
-    "captionForPost": "[Tulis caption Instagram yang merangkum video sesuai funnel ${funnelStage}]",
+    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   },
   {
     "productionMode": "product_demo",
     "name": "Product Workflow Demo",
-    "hookStyle": "...",
-    "pacingStyle": "...",
-    "audioDirection": "...",
-    "voiceoverOutline": "...",
-    "script": { "hook": "...", "masalah": "...", "solusi": "...", "proof": "...", "cta": "..." },
+    "hookStyle": "Workflow Demonstration Hook",
+    "pacingStyle": "Step-by-step and structured",
+    "audioDirection": "Focused voiceover with crisp UI sound cues",
+    "voiceoverOutline": "[Garis besar alur walkthrough yang grounded]",
+    "script": {
+      "hook": "[Hook demonstrasi produk]",
+      "masalah": "[Masalah alur kerja dari authority]",
+      "solusi": "[Solusi fitur nyata jika ada di authority, atau string kosong \"\"]",
+      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
+      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+    },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "...",
+    "visualPlan": "[Rencana visual adegan UI/produk]",
     "negative_constraints": "No distorted UI, no unreadable interface text, no fake UI artifacts, no broken screen geometry.",
-    "captionForPost": "[Tulis caption Instagram]",
+    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   },
   {
     "productionMode": "motion_explainer",
     "name": "Motion Explainer & Framework",
-    "hookStyle": "...",
-    "pacingStyle": "...",
-    "audioDirection": "...",
-    "voiceoverOutline": "...",
-    "script": { "hook": "...", "masalah": "...", "solusi": "...", "proof": "...", "cta": "..." },
+    "hookStyle": "Kinetic Framework Hook",
+    "pacingStyle": "Dynamic kinetic motion and structured typography",
+    "audioDirection": "Rhythmic background beat with precise vocal clarity",
+    "voiceoverOutline": "[Garis besar alur konsep gerak yang grounded]",
+    "script": {
+      "hook": "[Hook konsep/kerangka pikir]",
+      "masalah": "[Masalah struktural dari authority]",
+      "solusi": "[Solusi terstruktur jika ada di authority, atau string kosong \"\"]",
+      "proof": "[Proof HANYA jika ada di authority, atau string kosong \"\"]",
+      "cta": "[CTA jika ada di authority, atau string kosong \"\"]"
+    },
     "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "...",
+    "visualPlan": "[Rencana visual tipografi dan motion graphic]",
     "negative_constraints": "No unreadable typography, no cluttered layout, no broken motion hierarchy, no visual artifacts.",
-    "captionForPost": "[Tulis caption Instagram]",
+    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   }
 ]`;

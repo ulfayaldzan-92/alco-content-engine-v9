@@ -2056,11 +2056,26 @@ function validateAndNormalizeVideoStyles(
       }
 
       const script: VideoScript = {
-        hook: String(rawScript.hook || activeItem?.headline || '').trim(),
-        masalah: String(rawScript.masalah || activeItem?.body || '').trim(),
+        hook:
+          typeof rawScript.hook === 'string'
+            ? rawScript.hook.trim()
+            : typeof activeItem?.headline === 'string'
+            ? activeItem.headline.trim()
+            : '',
+        masalah:
+          typeof rawScript.masalah === 'string'
+            ? rawScript.masalah.trim()
+            : typeof activeItem?.body === 'string'
+            ? activeItem.body.trim()
+            : '',
         solusi: typeof rawScript.solusi === 'string' ? rawScript.solusi.trim() : '',
         proof: scriptProof,
-        cta: String(rawScript.cta || activeItem?.cta || '').trim(),
+        cta:
+          typeof rawScript.cta === 'string'
+            ? rawScript.cta.trim()
+            : typeof activeItem?.cta === 'string'
+            ? activeItem.cta.trim()
+            : '',
       };
 
       const videoPrompt = String(v.videoPrompt || v.video_prompt || '').trim();

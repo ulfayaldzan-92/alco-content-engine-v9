@@ -3754,10 +3754,9 @@ ${formatDirection}${revisionDirective}`;
               setVideoOutputSource('generated_output');
               showToast(`Aset VIDEO (3 Style) berhasil dioptimalkan oleh Gemini AI!`);
             } else {
-              setGenerationError(null);
-              saveVideoOutput(generatedText);
-              setVideoOutputSource('generated_output');
-              showToast(`Aset VIDEO berhasil dioptimalkan oleh Gemini AI!`);
+              setGenerationError("Format respon AI tidak valid atau tidak memenuhi skema Video Style canonical. Silakan coba lagi.");
+              showToast("Gagal: Format respon AI tidak sesuai skema.");
+              return;
             }
           } else {
             setGenerationError(null);

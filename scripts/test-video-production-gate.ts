@@ -33,7 +33,10 @@ import {
 } from '../lib/video-scene-completion';
 import { prepareProductionPackage } from '../lib/production-package-workflow';
 import { translateVideoProductionPrompts } from '../lib/prompt-translation';
-import { buildExecutionPromptAuthority } from '../lib/execution-prompt-authority';
+import {
+  buildExecutionPromptAuthority,
+  EXECUTION_PROMPT_CONTRACT_VERSION,
+} from '../lib/execution-prompt-authority';
 import {
   saveProductionPackage,
   loadProductionPackage,

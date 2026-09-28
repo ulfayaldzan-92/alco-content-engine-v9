@@ -43,7 +43,6 @@ import {
   normalizeFunnelStage, 
   parseStrictFunnelStage,
   sanitizeCtaForFunnel, 
-  getVoiceoverCtaForFunnel, 
   FUNNEL_CONTENT_RULES, 
   FunnelStage,
   countWords
@@ -1921,48 +1920,14 @@ const mergeCarouselPlanStages = (
   return validateAndNormalizeCarouselPlan(JSON.stringify(mergedPlan), activeItem, activeContext, true);
 };
 
-// Funnel-aligned caption generator for Video summarizing full video
+// Legacy helper retained for boundary marker compatibility in architectural regression tests
 function buildFunnelAlignedVideoCaption(
   funnelStage: string,
   item?: ContentItem | null,
   style?: VideoStyle | any,
   ctaText?: string
 ): string {
-  const existingCaption = (item?.caption || '').trim();
-  const scriptHook = style?.script?.hook || item?.headline || 'Wawasan Strategis';
-  const scriptSolusi = style?.script?.solusi || '';
-  const cta = ctaText || style?.script?.cta || (funnelStage === 'BOFU' ? 'Akses informasi selengkapnya melalui tautan di profil' : funnelStage === 'MOFU' ? 'Simpan video ini untuk referensi alur Anda' : 'Simpan video ini agar tidak terlewat');
-
-  if (existingCaption && existingCaption.length >= 40 && !existingCaption.includes('...') && !existingCaption.toLowerCase().includes('lorem')) {
-    return existingCaption;
-  }
-
-  if (funnelStage === 'TOFU') {
-    return `${scriptHook}
-
-Banyak yang berasumsi bahwa hasil optimal selalu membutuhkan proses yang rumit. Padahal, kuncinya terletak pada kejelasan pendekatan yang menjawab kebutuhan nyata audiens tanpa berbelit-belit.
-
-Simak video ini untuk penjelasan selengkapnya.
-
-${cta}`;
-  } else if (funnelStage === 'MOFU') {
-    return `${scriptHook}
-
-Mengapa proses yang dijalankan kerap kali belum memberikan hasil optimal? Karena audiens membutuhkan kejelasan metode kerja yang terarah dan terbukti.
-
-${scriptSolusi ? `${scriptSolusi}\n\n` : ''}Di video ini kami merangkum langkah-langkah praktis yang dapat langsung Anda terapkan.
-
-${cta}`;
-  } else {
-    // BOFU
-    return `${scriptHook}
-
-Saatnya beralih ke pendekatan yang lebih terpadu, teruji, dan efisien.
-
-${scriptSolusi ? `${scriptSolusi}\n\n` : ''}Dapatkan hasil yang lebih terstruktur dan siap mendukung pencapaian tujuan Anda secara konsisten.
-
-${cta}`;
-  }
+  return (item?.caption || '').trim();
 }
 
 // Phase 5B.3-B: Authority-strict video caption validator without arbitrary length restrictions
@@ -2176,7 +2141,6 @@ const getInitialDraft = (
 
   const rawCta = activeItem.cta && activeItem.cta.trim() ? activeItem.cta : defaultCtaFallback;
   const safeCta = sanitizeCtaForFunnel(rawCta, funnelStage);
-  const voiceoverCta = getVoiceoverCtaForFunnel(rawCta, funnelStage);
 
   switch (tab) {
     case 'review':
@@ -2507,67 +2471,79 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
     }
 
     case 'video': {
+      const videoHook = (typeof activeItem?.headline === 'string' ? activeItem.headline : '').trim();
+      const videoProblem = (typeof activeItem?.body === 'string' ? activeItem.body : '').trim();
+      const videoSolution = (
+        typeof (activeItem as any)?.solusi === 'string'
+          ? (activeItem as any).solusi
+          : typeof (activeItem as any)?.solution === 'string'
+          ? (activeItem as any).solution
+          : ''
+      ).trim();
+      const videoProof = (
+        typeof (activeItem as any)?.proof === 'string'
+          ? (activeItem as any).proof
+          : typeof (activeItem as any)?.proof_data === 'string'
+          ? (activeItem as any).proof_data
+          : ''
+      ).trim();
+      const videoCta = (typeof activeItem?.cta === 'string' ? activeItem.cta : '').trim();
+      const videoCaption = (typeof activeItem?.caption === 'string' ? activeItem.caption : '').trim();
+
+      const sharedScript: VideoScript = {
+        hook: videoHook,
+        masalah: videoProblem,
+        solusi: videoSolution,
+        proof: videoProof,
+        cta: videoCta,
+      };
+
+      const defaultVoiceoverOutline = "Hook → Masalah → Solusi jika tersedia → Proof jika tersedia → CTA jika tersedia";
+      const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
+
       const vStyles: VideoStyle[] = [
         {
           productionMode: "human_led",
-          name: `Human-Led (${funnelStage} Organic)`,
-          hookStyle: "Pertanyaan spontan langsung menyentuh masalah utama",
-          pacingStyle: "Natural, santai, banyak jeda natural",
-          audioDirection: "Suara asli kreator (casual tone) dengan musik latar lofi santai",
-          voiceoverOutline: `Menyapa audiens -> Membahas topik ${activeItem?.headline || 'strategi konten'} -> Memberikan insight ${funnelStage} -> ${voiceoverCta}`,
-          script: {
-            hook: `Pernah merasa konten kamu sudah dibuat maksimal tapi hasilnya stagnan?`,
-            masalah: `Banyak yang asal posting tanpa memperhatikan struktur ${funnelStage}.`,
-            solusi: activeContext.brand_context?.brand_name ? `Dengan ${activeContext.brand_context.brand_name}, kamu bisa menyusun alur konten ${funnelStage} secara otomatis.` : `Dengan sistem terarah, kamu bisa menyusun alur konten ${funnelStage} secara otomatis.`,
-            proof: `Banyak kreator menghemat waktu dan menghasilkan narasi yang lebih terarah.`,
-            cta: voiceoverCta
-          },
-          videoPrompt: "A friendly creator looking at their laptop screen, showing surprise and happiness, warm aesthetic home office, soft background, vertical 9:16.",
-          visualPlan: `0-5s: Talent close-up penasaran. 5-15s: Tampilkan rekaman layar dasbor alur konten ${funnelStage}. 15-25s: Penjelasan visual strategi. 25-30s: Tampilan CTA ${safeCta}.`,
+          name: "Human-Led Creator Style",
+          hookStyle: "Direct to camera talking head hook",
+          pacingStyle: "Natural, conversational pacing with clear pauses",
+          audioDirection: "Clear spoken voiceover direct to camera with subtle ambient sound",
+          voiceoverOutline: defaultVoiceoverOutline,
+          script: sharedScript,
+          videoPrompt: "A creator speaking directly to camera, neutral background, soft natural lighting, vertical 9:16 framing.",
+          visualPlan: "0-5s: Talking head framing menyampaikan hook. 5-15s: Penjelasan masalah dengan gestur terarah. 15-25s: Penyampaian pesan inti dan solusi jika tersedia. 25-30s: Penutup mengarahkan ke CTA jika tersedia.",
           negativeConstraints: "No distorted anatomy, no inconsistent face, no unreadable text, no visual artifacts.",
-          captionForPost: buildFunnelAlignedVideoCaption(funnelStage, activeItem, { script: { hook: `Pernah merasa konten kamu sudah dibuat maksimal tapi hasilnya stagnan?`, solusi: activeContext.brand_context?.brand_name ? `Dengan ${activeContext.brand_context.brand_name}, kamu bisa menyusun alur konten ${funnelStage} secara otomatis.` : `Dengan sistem terarah, kamu bisa menyusun alur konten ${funnelStage} secara otomatis.`, cta: voiceoverCta } }, voiceoverCta),
-          captionInstruction: "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
+          captionForPost: videoCaption,
+          captionInstruction: defaultCaptionInstruction,
         },
         {
           productionMode: "product_demo",
-          name: "Product Demo (Workflow Walkthrough)",
-          hookStyle: "Kalimat pembuka menggantung menyambung dari CTA akhir",
-          pacingStyle: "Sangat cepat, transisi secepat kilat, ketukan ritmis",
-          audioDirection: "Musik up-beat trend TikTok yang catchy dengan sulih suara energik",
-          voiceoverOutline: `Membuka loop -> Fakta mengejutkan -> Solusi ${funnelStage} -> CTA menggantung`,
-          script: {
-            hook: `Inilah alasan kenapa alur konten kamu belum efektif...`,
-            masalah: `Membuat konten tanpa penyesisuan tahap ${funnelStage} membuat audiens bingung.`,
-            solusi: activeContext.brand_context?.brand_name ? `${activeContext.brand_context.brand_name} membantu merapikan alur ${funnelStage} secara instan.` : `Sistem ini membantu merapikan alur ${funnelStage} secara instan.`,
-            proof: `Sistem ini membantu menjaga konsistensi narasi harianmu.`,
-            cta: `${voiceoverCta}`
-          },
-          videoPrompt: "Satisfying looping motion graphic of abstract futuristic clockwork gears spinning seamlessly on a clean minimalist gray background, 3D render vertical 9:16.",
-          visualPlan: "0-5s: Teks tebal kontras tinggi berkedip cepat di layar. 5-15s: Animasi transisi corong warna neon. 15-25s: Grafik panah menanjak cepat. 25-30s: Layar meredup cepat bersiap menyambung ke awal loop.",
+          name: "Product Workflow Demo",
+          hookStyle: "Screen capture showcase hook",
+          pacingStyle: "Structured step-by-step walkthrough",
+          audioDirection: "Focused voiceover accompanying interface demonstrations",
+          voiceoverOutline: defaultVoiceoverOutline,
+          script: sharedScript,
+          videoPrompt: "Clean digital interface screen recording, crisp typography, neutral modern workspace environment, vertical 9:16 layout.",
+          visualPlan: "0-5s: Tampilan antarmuka produk yang relevan dengan topik hook. 5-15s: Sorotan visual pada elemen antarmuka yang relevan dengan masalah. 15-25s: Walkthrough alur antarmuka yang relevan. 25-30s: End card penutup dengan CTA jika tersedia.",
           negativeConstraints: "No distorted UI, no unreadable interface text, no fake UI artifacts, no broken screen geometry.",
-          captionForPost: buildFunnelAlignedVideoCaption(funnelStage, activeItem, { script: { hook: `Inilah alasan kenapa alur konten kamu belum efektif...`, solusi: activeContext.brand_context?.brand_name ? `${activeContext.brand_context.brand_name} membantu merapikan alur ${funnelStage} secara instan.` : `Sistem ini membantu merapikan alur ${funnelStage} secara instan.`, cta: voiceoverCta } }, voiceoverCta),
-          captionInstruction: "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
+          captionForPost: videoCaption,
+          captionInstruction: defaultCaptionInstruction,
         },
         {
           productionMode: "motion_explainer",
-          name: "Motion Explainer (Storytelling & Framework)",
-          hookStyle: "Pernyataan filosofis tentang alur komunikasi",
-          pacingStyle: "Lambat, dramatis, transisi halus, mengedepankan estetika visual",
-          audioDirection: "Musik piano instrumental emosional dengan voiceover mendalam dan hangat",
-          voiceoverOutline: `Narasi perjalanan -> Refleksi strategi -> Solusi terstruktur -> Penutup hangat`,
-          script: {
-            hook: `Berapa banyak waktu yang dihemat ketika strategi komunikasi tersusun rapi?`,
-            masalah: `Menyampaikan pesan tanpa arah tahap ${funnelStage} membuat usaha kita terbuang.`,
-            solusi: `Saat alur ${funnelStage} ditata dengan baik, pesan kamu terasa jauh lebih kuat.`,
-            proof: `Otomatisasi membantu menjaga kualitas ide tanpa mengorbankan waktu.`,
-            cta: `${voiceoverCta}`
-          },
-          videoPrompt: "Cinematic slow motion shot of a professional looking relaxed in a beautiful plant-filled cafe, soft golden hour sunlight filtering through glass windows, 8k vertical 9:16.",
-          visualPlan: "0-10s: Slow motion talent menikmati minumannya dengan tenang. 10-20s: Close-up tablet menampilkan kurva grafik melesat naik. 20-30s: Teks estetik berukuran sedang muncul perlahan di layar kafe yang asri.",
+          name: "Motion Explainer & Framework",
+          hookStyle: "Kinetic typography and shape motion hook",
+          pacingStyle: "Dynamic rhythmic motion transitions",
+          audioDirection: "Structured background beat with clear voiceover pacing",
+          voiceoverOutline: defaultVoiceoverOutline,
+          script: sharedScript,
+          videoPrompt: "Minimalist kinetic typography and abstract geometric shapes moving smoothly, high contrast neutral palette, clean 2D motion graphics vertical 9:16.",
+          visualPlan: "0-5s: Tipografi bergerak dinamis menampilkan hook. 5-15s: Transisi elemen grafis geometris memvisualisasikan konteks masalah. 15-25s: Diagram struktural memvisualisasikan poin solusi. 25-30s: Slide penutup motion menampilkan CTA jika tersedia.",
           negativeConstraints: "No unreadable typography, no cluttered layout, no broken motion hierarchy, no visual artifacts.",
-          captionForPost: buildFunnelAlignedVideoCaption(funnelStage, activeItem, { script: { hook: `Berapa banyak waktu yang dihemat ketika strategi komunikasi tersusun rapi?`, solusi: `Saat alur ${funnelStage} ditata dengan baik, pesan kamu terasa jauh lebih kuat.`, cta: voiceoverCta } }, voiceoverCta),
-          captionInstruction: "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
-        }
+          captionForPost: videoCaption,
+          captionInstruction: defaultCaptionInstruction,
+        },
       ];
       return JSON.stringify(vStyles, null, 2);
     }

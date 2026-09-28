@@ -3960,7 +3960,7 @@ ${formatDirection}${revisionDirective}`;
       case 'review': return 'Cek Rencana';
       case 'image': return 'Buat Prompt Gambar';
       case 'carousel': return 'Buat Carousel';
-      case 'video': return 'Buat Video';
+      case 'video': return 'Buat Rencana Video';
       default: return 'Buat Output';
     }
   };
@@ -4775,7 +4775,13 @@ ${formatDirection}${revisionDirective}`;
         isCarouselOutputAuthoritative={isAuthoritativeProductionOutputSource(carouselOutputSource)}
       />
     );
-    if (activeTab === 'video') return <VideoPanel {...commonProps} />;
+    if (activeTab === 'video') return (
+      <VideoPanel
+        {...commonProps}
+        videoOutputSource={videoOutputSource}
+        isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)}
+      />
+    );
 
     return (
       <div className="whitespace-pre-wrap font-sans text-stone-800 text-xs leading-relaxed">

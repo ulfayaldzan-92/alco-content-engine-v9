@@ -50,6 +50,7 @@ import {
   areAllVideoScenesCreated,
 } from '@/lib/video-scene-completion';
 import { VideoProductionGateResult } from '@/lib/video-production-gate';
+import { ProductionOutputSource } from '@/lib/production-output-source';
 
 interface VideoPanelProps {
   activeItem?: any;
@@ -83,6 +84,8 @@ interface VideoPanelProps {
   videoProductionPackagePrepared?: boolean;
   videoTranslatedPromptBundle?: VideoTranslatedPromptBundle | null;
   videoTranslationError?: string | null;
+  videoOutputSource?: ProductionOutputSource;
+  isVideoOutputAuthoritative?: boolean;
 }
 
 export default function VideoPanel(props: VideoPanelProps) {
@@ -118,7 +121,13 @@ export default function VideoPanel(props: VideoPanelProps) {
     videoProductionPackagePrepared,
     videoTranslatedPromptBundle,
     videoTranslationError,
+    videoOutputSource,
+    isVideoOutputAuthoritative,
   } = props;
+
+  const isAuthoritativeOutput = isVideoOutputAuthoritative === true;
+  const isInitialDraft =
+    videoOutputSource === 'initial_draft' || !isAuthoritativeOutput;
 
   // Single active scene state for focused progressive workspace
   const [activeSceneNumber, setActiveSceneNumber] = useState<number>(1);
@@ -197,6 +206,31 @@ export default function VideoPanel(props: VideoPanelProps) {
 
   return (
     <div className="space-y-4 font-sans">
+      {/* 0. OUTPUT AUTHORITY STATUS CARD */}
+      {!isAuthoritativeOutput ? (
+        <div className="bg-amber-50/80 border border-amber-200/80 p-3.5 sm:p-4 rounded-2xl shadow-xs space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+              Draft Awal • Belum Dioptimalkan
+            </span>
+          </div>
+          <p className="text-xs text-amber-900/90 leading-relaxed">
+            Preview ini berasal dari ContentItem dan belum merupakan output produksi authoritative. Gunakan &quot;Buat Rencana Video&quot; untuk menghasilkan rencana video teroptimasi.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-emerald-50/70 border border-emerald-200/80 p-3.5 sm:p-4 rounded-2xl shadow-xs space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300">
+              Rencana Video Teroptimasi
+            </span>
+          </div>
+          <p className="text-xs text-emerald-900/90 leading-relaxed">
+            Output ini berasal dari sumber produksi authoritative dan dapat digunakan untuk workspace scene canonical.
+          </p>
+        </div>
+      )}
+
       {/* 0. INTENT RECOMMENDATION CARD */}
       {videoIntentDecision && (
         <div className="bg-[#fffdf8] border border-[#e7e0d4] p-3.5 sm:p-4 rounded-2xl shadow-xs space-y-2">
@@ -337,7 +371,7 @@ export default function VideoPanel(props: VideoPanelProps) {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-stone-900">
-                    Status Kesiapan Produksi (
+                    Kelengkapan Input Produksi (
                     {getVideoProductionModeLabel(videoProductionReadiness.mode)})
                   </span>
                   <span
@@ -347,7 +381,7 @@ export default function VideoPanel(props: VideoPanelProps) {
                         : 'bg-amber-100 text-amber-800 border border-amber-300'
                     }`}
                   >
-                    {videoProductionReadiness.is_ready ? 'Siap Produksi' : 'Menunggu Input Wajib'}
+                    {videoProductionReadiness.is_ready ? 'Input Lengkap' : 'Menunggu Input Wajib'}
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-600">
@@ -458,7 +492,7 @@ export default function VideoPanel(props: VideoPanelProps) {
             <div>
               <h3 className="text-xs font-bold text-stone-900">Alur Produksi Motion Explainer</h3>
               <p className="text-[11px] text-stone-500">
-                Animasi grafis, diagram alur konsep, dan visual data points diproduksi tanpa perlu upload aset fisik eksternal.
+                Animasi grafis, diagram alur konsep, dan visual cue diproduksi tanpa perlu upload aset fisik eksternal.
               </p>
             </div>
           </div>
@@ -466,10 +500,10 @@ export default function VideoPanel(props: VideoPanelProps) {
             <Info size={16} className="text-primary shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-semibold text-stone-900">
-                Mode Motion Explainer siap diproduksi secara langsung!
+                Mode Motion Explainer tidak memerlukan aset eksternal tambahan.
               </p>
               <p className="leading-relaxed">
-                Mode ini mengandalkan narasi konsep, data callouts, dan motion visual cue dari naskah strategi yang telah disusun. Tidak diperlukan file tangkapan layar atau pemilihan karakter talent.
+                Mode ini menggunakan typography, diagram konseptual, dan motion visual cue berdasarkan naskah authoritative. Tidak diperlukan file tangkapan layar atau pemilihan karakter talent.
               </p>
             </div>
           </div>
@@ -478,9 +512,21 @@ export default function VideoPanel(props: VideoPanelProps) {
 
       {/* 4. CANONICAL SCENE GUIDED UX WORKSPACE (Phase 3D-C1C-C) */}
       {!activeCandidate ? (
-        <div className="p-8 text-center bg-[#fcfbf9] border border-[#e7e0d4] rounded-2xl text-muted-foreground text-sm font-medium font-sans">
-          Rencana scene canonical untuk mode ini tidak tersedia.
-        </div>
+        isInitialDraft ? (
+          <div className="p-8 text-center bg-[#fffdf8] border border-amber-200/80 rounded-2xl text-stone-700 text-sm font-medium font-sans space-y-1.5 shadow-xs">
+            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
+              <Film size={20} />
+            </div>
+            <p className="font-bold text-stone-900">Draft awal belum memiliki Canonical Scene Plan.</p>
+            <p className="text-xs text-stone-500 max-w-md mx-auto leading-relaxed">
+              Gunakan &quot;Buat Rencana Video&quot; untuk menghasilkan output authoritative dan membuka workspace produksi scene.
+            </p>
+          </div>
+        ) : (
+          <div className="p-8 text-center bg-[#fcfbf9] border border-[#e7e0d4] rounded-2xl text-muted-foreground text-sm font-medium font-sans">
+            Rencana scene canonical untuk mode ini tidak tersedia.
+          </div>
+        )
       ) : !isWorkspaceReady ? (
         <div className="bg-[#fffdf8] border border-amber-200 rounded-2xl p-6 text-center space-y-2 shadow-xs">
           <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
@@ -522,43 +568,47 @@ export default function VideoPanel(props: VideoPanelProps) {
         />
       )}
 
-      {/* 5. CAPTION SECTION (Siap Posting) */}
+      {/* 5. CAPTION SECTION */}
       {activeVideoStyle && (activeVideoStyle.captionForPost || activeItem?.caption) && (
         <div className="bg-[#fffdf8] border border-[#e7e0d4] p-4.5 rounded-2xl space-y-2.5 shadow-xs">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FileText size={14} className="text-primary" />
               <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">
-                Caption Postingan Video (Siap Posting)
+                {isAuthoritativeOutput ? 'Caption Postingan Video' : 'Caption Sumber • Belum Dioptimalkan'}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                handleCopyText(
-                  `video_caption_${activeStyleKey}`,
-                  activeVideoStyle.captionForPost || activeItem?.caption,
-                  'captionCopied'
-                )
-              }
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-[#1f2933] text-xs font-bold rounded-xl transition cursor-pointer border border-[#e7e0d4]"
-            >
-              {copiedStates[`video_caption_${activeStyleKey}`] ? (
-                <>
-                  <Check size={13} className="text-primary" />
-                  <span className="text-primary">Caption Tersalin!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={13} />
-                  <span>Salin Caption</span>
-                </>
-              )}
-            </button>
+            {isAuthoritativeOutput && (
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyText(
+                    `video_caption_${activeStyleKey}`,
+                    activeVideoStyle.captionForPost || activeItem?.caption,
+                    'captionCopied'
+                  )
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f6f3ee] hover:bg-[#e7e0d4] text-[#1f2933] text-xs font-bold rounded-xl transition cursor-pointer border border-[#e7e0d4]"
+              >
+                {copiedStates[`video_caption_${activeStyleKey}`] ? (
+                  <>
+                    <Check size={13} className="text-primary" />
+                    <span className="text-primary">Caption Tersalin!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    <span>Salin Caption</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
           <div className="text-[11px] text-stone-500 font-medium">
-            {activeVideoStyle.captionInstruction ||
-              'Paste teks ini di caption/keterangan postingan setelah aset video selesai dibuat.'}
+            {isAuthoritativeOutput
+              ? (activeVideoStyle.captionInstruction ||
+                'Paste teks ini di caption/keterangan postingan setelah aset video selesai dibuat.')
+              : 'Teks caption dari ContentItem sumber. Belum dioptimalkan untuk naskah produksi video.'}
           </div>
           <div className="p-3.5 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl text-stone-900 font-sans text-xs leading-relaxed select-all whitespace-pre-wrap">
             {activeVideoStyle.captionForPost || activeItem?.caption}
@@ -575,53 +625,82 @@ export default function VideoPanel(props: VideoPanelProps) {
               <div className="flex items-center gap-2">
                 <PlayCircle size={14} className="text-primary" />
                 <span>
-                  Struktur Naskah Cerita Utuh (Hook &rarr; Masalah &rarr; Solusi &rarr; Proof &rarr; CTA)
+                  Struktur Naskah dari Source Authority
                 </span>
               </div>
               <ChevronDown size={14} className="text-stone-400 group-open:rotate-180 transition-transform" />
             </summary>
-            <div className="p-4 pt-2 border-t border-[#e7e0d4]/60 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
-              <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
-                <span className="px-2 py-0.5 rounded bg-rose-100 border border-rose-200 text-[9px] font-bold text-rose-800 uppercase block w-fit">
-                  1. Hook
-                </span>
-                <p className="text-stone-900 italic text-[11px] leading-relaxed">
-                  &ldquo;{activeVideoStyle.script?.hook}&rdquo;
-                </p>
-              </div>
-              <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
-                <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-200 text-[9px] font-bold text-amber-800 uppercase block w-fit">
-                  2. Masalah
-                </span>
-                <p className="text-stone-800 text-[11px] leading-relaxed">
-                  &ldquo;{activeVideoStyle.script?.masalah}&rdquo;
-                </p>
-              </div>
-              <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
-                <span className="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-200 text-[9px] font-bold text-emerald-800 uppercase block w-fit">
-                  3. Solusi
-                </span>
-                <p className="text-stone-800 text-[11px] leading-relaxed">
-                  &ldquo;{activeVideoStyle.script?.solusi}&rdquo;
-                </p>
-              </div>
-              <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
-                <span className="px-2 py-0.5 rounded bg-blue-100 border border-blue-200 text-[9px] font-bold text-blue-800 uppercase block w-fit">
-                  4. Proof
-                </span>
-                <p className="text-stone-800 text-[11px] leading-relaxed">
-                  &ldquo;{activeVideoStyle.script?.proof}&rdquo;
-                </p>
-              </div>
-              <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
-                <span className="px-2 py-0.5 rounded bg-purple-100 border border-purple-200 text-[9px] font-bold text-purple-800 uppercase block w-fit">
-                  5. CTA
-                </span>
-                <p className="text-stone-900 font-bold text-[11px] leading-relaxed">
-                  &ldquo;{activeVideoStyle.script?.cta}&rdquo;
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const sHook = typeof activeVideoStyle.script?.hook === 'string' ? activeVideoStyle.script.hook.trim() : '';
+              const sProblem = typeof activeVideoStyle.script?.masalah === 'string' ? activeVideoStyle.script.masalah.trim() : '';
+              const sSolution = typeof activeVideoStyle.script?.solusi === 'string' ? activeVideoStyle.script.solusi.trim() : '';
+              const sProof = typeof activeVideoStyle.script?.proof === 'string' ? activeVideoStyle.script.proof.trim() : '';
+              const sCta = typeof activeVideoStyle.script?.cta === 'string' ? activeVideoStyle.script.cta.trim() : '';
+              const hasSemanticContent = Boolean(sHook || sProblem || sSolution || sProof || sCta);
+
+              if (!hasSemanticContent) {
+                return (
+                  <div className="p-4 pt-2 border-t border-[#e7e0d4]/60 text-xs text-stone-500 italic text-center">
+                    Source belum memiliki naskah semantic yang cukup.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="p-4 pt-2 border-t border-[#e7e0d4]/60 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+                  {sHook && (
+                    <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
+                      <span className="px-2 py-0.5 rounded bg-rose-100 border border-rose-200 text-[9px] font-bold text-rose-800 uppercase block w-fit">
+                        1. Hook
+                      </span>
+                      <p className="text-stone-900 italic text-[11px] leading-relaxed">
+                        &ldquo;{sHook}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                  {sProblem && (
+                    <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
+                      <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-200 text-[9px] font-bold text-amber-800 uppercase block w-fit">
+                        2. Masalah
+                      </span>
+                      <p className="text-stone-800 text-[11px] leading-relaxed">
+                        &ldquo;{sProblem}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                  {sSolution && (
+                    <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-200 text-[9px] font-bold text-emerald-800 uppercase block w-fit">
+                        3. Solusi
+                      </span>
+                      <p className="text-stone-800 text-[11px] leading-relaxed">
+                        &ldquo;{sSolution}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                  {sProof && (
+                    <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
+                      <span className="px-2 py-0.5 rounded bg-blue-100 border border-blue-200 text-[9px] font-bold text-blue-800 uppercase block w-fit">
+                        4. Proof
+                      </span>
+                      <p className="text-stone-800 text-[11px] leading-relaxed">
+                        &ldquo;{sProof}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                  {sCta && (
+                    <div className="p-3 bg-[#f6f3ee] border border-[#e7e0d4] rounded-xl space-y-1">
+                      <span className="px-2 py-0.5 rounded bg-purple-100 border border-purple-200 text-[9px] font-bold text-purple-800 uppercase block w-fit">
+                        5. CTA
+                      </span>
+                      <p className="text-stone-900 font-bold text-[11px] leading-relaxed">
+                        &ldquo;{sCta}&rdquo;
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </details>
 
           {/* Detail Strategi & Teknis Video */}

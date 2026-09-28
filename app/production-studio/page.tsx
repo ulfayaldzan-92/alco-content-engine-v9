@@ -3482,6 +3482,15 @@ ATURAN FUNNEL ${funnelStage}:
 - CTA Style: ${funnelRules.ctaStyle} (sesuai tahap ${funnelStage})
 - HINDARI: ${funnelRules.avoid}
 
+OUTPUT FIELD RULES:
+- voiceoverOutline harus diisi dengan outline konkret yang grounded pada authority.
+- videoPrompt WAJIB berupa prompt produksi video 9:16 konkret yang grounded pada authority dan production mode.
+- visualPlan harus berupa arahan visual konkret tanpa fakta bisnis baru.
+- captionForPost mengikuti Caption Authority.
+- DILARANG mengembalikan instructional placeholder, bracket placeholder, lorem ipsum, atau teks contoh schema sebagai nilai final.
+- Jika model tidak dapat menghasilkan videoPrompt konkret yang grounded, gunakan "" sehingga normalizer/candidate FAIL CLOSED.
+- Jangan menciptakan fakta hanya untuk membuat field menjadi non-empty.
+
 WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
 [
   {
@@ -3490,7 +3499,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "hookStyle": "Relatable Problem Hook",
     "pacingStyle": "Deliberate and engaging",
     "audioDirection": "Clear voiceover with subtle background ambient",
-    "voiceoverOutline": "[Garis besar alur voiceover yang grounded]",
+    "voiceoverOutline": "",
     "script": {
       "hook": "",
       "masalah": "",
@@ -3498,10 +3507,10 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
       "proof": "",
       "cta": ""
     },
-    "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "[Rencana visual adegan]",
+    "videoPrompt": "",
+    "visualPlan": "",
     "negative_constraints": "No distorted anatomy, no inconsistent face, no unreadable text, no visual artifacts.",
-    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
+    "captionForPost": "",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   },
   {
@@ -3510,7 +3519,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "hookStyle": "Workflow Demonstration Hook",
     "pacingStyle": "Step-by-step and structured",
     "audioDirection": "Focused voiceover with crisp UI sound cues",
-    "voiceoverOutline": "[Garis besar alur walkthrough yang grounded]",
+    "voiceoverOutline": "",
     "script": {
       "hook": "",
       "masalah": "",
@@ -3518,10 +3527,10 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
       "proof": "",
       "cta": ""
     },
-    "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "[Rencana visual adegan UI/produk]",
+    "videoPrompt": "",
+    "visualPlan": "",
     "negative_constraints": "No distorted UI, no unreadable interface text, no fake UI artifacts, no broken screen geometry.",
-    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
+    "captionForPost": "",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   },
   {
@@ -3530,7 +3539,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "hookStyle": "Kinetic Framework Hook",
     "pacingStyle": "Dynamic kinetic motion and structured typography",
     "audioDirection": "Rhythmic background beat with precise vocal clarity",
-    "voiceoverOutline": "[Garis besar alur konsep gerak yang grounded]",
+    "voiceoverOutline": "",
     "script": {
       "hook": "",
       "masalah": "",
@@ -3538,10 +3547,10 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
       "proof": "",
       "cta": ""
     },
-    "videoPrompt": "Prompt deskriptif 9:16 vertical video",
-    "visualPlan": "[Rencana visual tipografi dan motion graphic]",
+    "videoPrompt": "",
+    "visualPlan": "",
     "negative_constraints": "No unreadable typography, no cluttered layout, no broken motion hierarchy, no visual artifacts.",
-    "captionForPost": "[Caption Instagram sesuai aturan Caption Authority di atas]",
+    "captionForPost": "",
     "captionInstruction": "Paste teks ini di caption/keterangan postingan setelah aset dibuat."
   }
 ]`;

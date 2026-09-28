@@ -291,7 +291,8 @@ export function evaluateVideoProductionGate(
 
       if (!completionValidation.isValid) {
         blockers.push(
-          `State penyelesaian scene video tidak valid: ${completionValidation.error}.`
+          completionValidation.error ||
+            'State penyelesaian scene video tidak valid terhadap konteks, signature, atau execution prompt saat ini.'
         );
       }
     } else {

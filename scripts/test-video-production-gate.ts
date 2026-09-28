@@ -46,34 +46,6 @@ import { ProductionPackage } from '../lib/production-contract';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Polyfill localStorage in Node test environment
-interface GlobalScopeWithStorage {
-  window?: unknown;
-  localStorage?: {
-    getItem: (key: string) => string | null;
-    setItem: (key: string, val: string) => void;
-    removeItem: (key: string) => void;
-    clear: () => void;
-  };
-}
-const globalScope = globalThis as unknown as GlobalScopeWithStorage;
-if (typeof globalScope.window === 'undefined') {
-  const store: Record<string, string> = {};
-  globalScope.window = {};
-  globalScope.localStorage = {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, val: string) => {
-      store[key] = String(val);
-    },
-    removeItem: (key: string) => {
-      delete store[key];
-    },
-    clear: () => {
-      Object.keys(store).forEach((k) => delete store[k]);
-    },
-  };
-}
-
 function assert(condition: boolean, message: string) {
   if (!condition) {
     throw new Error(`Assertion Failed: ${message}`);

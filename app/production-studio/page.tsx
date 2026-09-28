@@ -1920,16 +1920,6 @@ const mergeCarouselPlanStages = (
   return validateAndNormalizeCarouselPlan(JSON.stringify(mergedPlan), activeItem, activeContext, true);
 };
 
-// Legacy helper retained for boundary marker compatibility in architectural regression tests
-function buildFunnelAlignedVideoCaption(
-  funnelStage: string,
-  item?: ContentItem | null,
-  style?: VideoStyle | any,
-  ctaText?: string
-): string {
-  return (item?.caption || '').trim();
-}
-
 // Phase 5B.3-B: Authority-strict video caption validator without arbitrary length restrictions
 function isValidVideoCaption(caption: unknown): boolean {
   if (typeof caption !== 'string') return false;

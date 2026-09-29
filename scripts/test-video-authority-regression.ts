@@ -59,6 +59,14 @@ assert(
   pageContent.includes('OUTPUT FIELD RULES:'),
   'page.tsx must contain "OUTPUT FIELD RULES:" before video schema'
 );
+assert(
+  pageContent.includes('isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)}'),
+  'page.tsx must pass isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)} to VideoPanel'
+);
+assert(
+  pageContent.includes('videoOutputSource={videoOutputSource}'),
+  'page.tsx must pass videoOutputSource={videoOutputSource} to VideoPanel'
+);
 
 const videoPromptMatches = pageContent.match(/"videoPrompt":\s*""/g) || [];
 assert(
@@ -106,6 +114,11 @@ const videoPanelPath = path.join(__dirname, '../components/production-studio/Vid
 const videoPanelContent = fs.readFileSync(videoPanelPath, 'utf-8');
 
 // Positive Assertions
+assert(
+  videoPanelContent.includes('const isAuthoritativeOutput = isVideoOutputAuthoritative === true;'),
+  'VideoPanel.tsx must derive isAuthoritativeOutput strictly from "const isAuthoritativeOutput = isVideoOutputAuthoritative === true;"'
+);
+
 const positiveVideoPanelTerms = [
   'isVideoOutputAuthoritative',
   'videoOutputSource',
@@ -132,6 +145,25 @@ for (const term of forbiddenVideoPanelTerms) {
   assert(
     !videoPanelContent.includes(term),
     `VideoPanel.tsx must NOT contain forbidden term: "${term}"`
+  );
+}
+
+// Authority state must NOT be determined by parsing JSON or candidate reconstruction
+const forbiddenAuthorityInferencePatterns = [
+  'isAuthoritativeOutput = !!activeCandidate',
+  'isAuthoritativeOutput = Boolean(activeCandidate)',
+  'isAuthoritativeOutput = !!productionCandidate',
+  'isAuthoritativeOutput = Boolean(productionCandidate)',
+  'isAuthoritativeOutput = rawVideoStyles',
+  'isAuthoritativeOutput = tryParseJSON',
+  'isAuthoritativeOutput = JSON.parse',
+  'isAuthoritativeOutput = !!activeVideo',
+  'isAuthoritativeOutput = Boolean(activeVideo)',
+];
+for (const pattern of forbiddenAuthorityInferencePatterns) {
+  assert(
+    !videoPanelContent.includes(pattern),
+    `VideoPanel.tsx must NOT infer authority from JSON or candidate reconstruction: "${pattern}"`
   );
 }
 
@@ -183,7 +215,7 @@ const scriptNoProof = {
   cta: 'CTA AUTHORITY',
 };
 
-const forbiddenNoProofWords = ['bukti performa', 'membuktikan', 'keunggulan'];
+const forbiddenNoProofWords = ['bukti performa', 'membuktikan', 'hasil', 'keunggulan'];
 
 for (const mode of modes) {
   for (const stage of stages) {

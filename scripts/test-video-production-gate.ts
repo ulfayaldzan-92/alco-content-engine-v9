@@ -703,7 +703,7 @@ const vidResStaleSig = evaluateVideoProductionGate({
 });
 assert(vidResStaleSig.is_allowed === false, 'Video gate must be blocked when completion has stale execution signature');
 assert(
-  vidResStaleSig.blockers.some((b) => b.includes('State penyelesaian scene video tidak valid')),
+  vidResStaleSig.blockers.some((b) => b.includes('Execution prompt signature mismatch')),
   'Must contain completion validation error due to signature mismatch'
 );
 

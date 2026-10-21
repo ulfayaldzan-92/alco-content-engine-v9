@@ -443,7 +443,7 @@ async function runTests() {
     desktopStorageAdapter.removeProjectData('proj_alpha', 'critical_item');
     await desktopStorageAdapter.waitForStoragePersistence();
 
-    assert(mockRemoveCalled === true, 'Bridge removeProjectData was called');
+    assert(Boolean(mockRemoveCalled) === true, 'Bridge removeProjectData was called');
     // Cache must have rolled back so cache and disk remain consistent!
     const recoveredItem = desktopStorageAdapter.loadProjectData('proj_alpha', 'critical_item');
     assert(recoveredItem !== null && recoveredItem.name === 'Protected Item', 'Failed removal rolled back cache to match disk');
@@ -564,7 +564,10 @@ async function runTests() {
     assert(pkgSaveRes.ok === true, 'saveProductionPackage succeeds immediately in cache');
     assert(pkgSaveRes.persisted !== undefined, 'saveProductionPackage returns explicit persisted promise');
 
-    const durableAck = await pkgSaveRes.persisted;
+    const durableAck = pkgSaveRes.persisted ? await pkgSaveRes.persisted : undefined;
+    if (!durableAck) {
+      throw new Error('durableAck is undefined');
+    }
     assert(durableAck.ok === true, 'Persisted promise resolves with durability confirmation');
 
     // Test explicit saveProductionPackageDurable wrapper

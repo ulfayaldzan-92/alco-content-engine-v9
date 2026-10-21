@@ -4334,7 +4334,7 @@ ${formatDirection}${revisionDirective}`;
   ]);
 
   // Explicit Video Production Package Preparation Handler
-  const handlePrepareVideoProductionPackage = () => {
+  const handlePrepareVideoProductionPackage = async () => {
     // 1. Re-evaluate gate directly to guarantee fail-closed security
     const gateCheck = evaluateVideoProductionGate({
       production_context: productionEngineContext,
@@ -4628,7 +4628,7 @@ ${formatDirection}${revisionDirective}`;
   ]);
 
   // Explicit Carousel Production Package Preparation Handler
-  const handlePrepareCarouselProductionPackage = () => {
+  const handlePrepareCarouselProductionPackage = async () => {
     // 1. Re-evaluate gate directly to guarantee fail-closed security
     const gateCheck = evaluateCarouselProductionGate({
       production_context: productionEngineContext,

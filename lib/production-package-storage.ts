@@ -9,6 +9,7 @@ import {
   removeProjectData,
   isStorageHydrated,
   getLastStorageError,
+  waitForStoragePersistence,
 } from './storage';
 
 // ============================================================================
@@ -20,6 +21,7 @@ import {
 export interface SaveProductionPackageResult {
   ok: boolean;
   error?: string;
+  persisted?: Promise<SaveProductionPackageResult>;
 }
 
 const CANONICAL_ASSET_TYPES: ProductionAssetType[] = ['image', 'carousel', 'video'];
@@ -112,6 +114,40 @@ export function saveProductionPackage(
     };
   }
 
+  // Explicit asynchronous persistence acknowledgment
+  const persistenceAcknowledgment: Promise<SaveProductionPackageResult> = (async () => {
+    const isDurable = await waitForStoragePersistence();
+    if (!isDurable) {
+      const lastErr = getLastStorageError();
+      return {
+        ok: false,
+        error: `Gagal persistensi disk ProductionPackage: ${lastErr?.message || 'Disk write failure'}`,
+      };
+    }
+    return { ok: true };
+  })();
+
+  return {
+    ok: true,
+    persisted: persistenceAcknowledgment,
+  };
+}
+
+/**
+ * Saves a validated ProductionPackage and explicitly waits for durable disk persistence.
+ * Returns failure if either initial validation/cache fails or disk write fails.
+ */
+export async function saveProductionPackageDurable(
+  projectId: string,
+  productionPackage: ProductionPackage
+): Promise<SaveProductionPackageResult> {
+  const syncRes = saveProductionPackage(projectId, productionPackage);
+  if (!syncRes.ok) {
+    return syncRes;
+  }
+  if (syncRes.persisted) {
+    return await syncRes.persisted;
+  }
   return { ok: true };
 }
 

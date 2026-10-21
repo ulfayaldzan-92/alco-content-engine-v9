@@ -26,6 +26,13 @@ import * as os from 'os';
 
 // Require storage engine directly
 const { StorageEngine } = require('../electron/storage-engine.cjs');
+import {
+  saveProductionPackage,
+  saveProductionPackageDurable,
+} from '../lib/production-package-storage';
+import { desktopStorageAdapter } from '../lib/storage-adapter';
+import { prepareProductionPackage } from '../lib/production-package-workflow';
+import { buildFunnelStrategyFromContext } from '../lib/funnel-strategy';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -278,6 +285,288 @@ async function runTests() {
     console.log('\n--- TEST 14: Flush Writes ---');
     const flushRes = await engine.flush();
     assert(flushRes.ok === true, 'Flush queues completed with ok: true');
+
+    // ------------------------------------------------------------------------
+    // Test 15: Corrupt Existing Project File Protection (P0)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 15: Corrupt Existing Project File Protection ---');
+    const corruptProjId = 'proj_corrupt_guard';
+    const { projectDir: corruptDir, filePath: corruptFilePath } = engine.resolveProjectFilePath(corruptProjId);
+    fs.mkdirSync(corruptDir, { recursive: true });
+    const originalCorruptContent = '<<< CORRUPTED NON-JSON CONTENT THAT CANNOT BE PARSED >>>';
+    fs.writeFileSync(corruptFilePath, originalCorruptContent, 'utf8');
+
+    let corruptWriteCaught = false;
+    try {
+      await engine.saveProjectData(corruptProjId, 'new_key', { some: 'value' });
+    } catch (err: any) {
+      corruptWriteCaught = true;
+      assert(err.message.includes('rusak') || err.message.includes('JSON'), 'Write rejected on corrupted file with descriptive error');
+    }
+    assert(corruptWriteCaught === true, 'Write to corrupted project file was blocked');
+
+    // Crucial: Original corrupt file must be preserved and NOT overwritten with empty replacement data!
+    const preservedContent = fs.readFileSync(corruptFilePath, 'utf8');
+    assert(preservedContent === originalCorruptContent, 'Original corrupt file preserved exactly; not replaced with empty data');
+
+    // ------------------------------------------------------------------------
+    // Test 16: Rapid A/B/C Writes & Ordered Serialization (P0)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 16: Rapid A/B/C Writes & Ordered Serialization ---');
+    const rapidProjId = 'proj_rapid_seq';
+    const writeA = engine.saveProjectData(rapidProjId, 'keyA', 'valA');
+    const writeB = engine.saveProjectData(rapidProjId, 'keyB', 'valB');
+    const writeC = engine.saveProjectData(rapidProjId, 'keyC', 'valC');
+
+    const [resA, resB, resC] = await Promise.all([writeA, writeB, writeC]);
+    assert(resA.revision === 1, 'First rapid write has revision 1');
+    assert(resB.revision === 2, 'Second rapid write has revision 2');
+    assert(resC.revision === 3, 'Third rapid write has revision 3');
+
+    const reloadedRapid = engine.getProjectDataSync(rapidProjId);
+    assert(reloadedRapid.data.keyA === 'valA', 'Rapid write A persisted');
+    assert(reloadedRapid.data.keyB === 'valB', 'Rapid write B persisted');
+    assert(reloadedRapid.data.keyC === 'valC', 'Rapid write C persisted');
+    assert(reloadedRapid.revision === 3, 'Disk reflects final sequential revision 3');
+
+    // ------------------------------------------------------------------------
+    // Test 17: Rejected Stale Writes (P0)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 17: Rejected Stale Writes ---');
+    let staleWriteBlocked = false;
+    try {
+      // Disk is at revision 3, client attempts write with stale revision 1
+      await engine.saveProjectData(rapidProjId, 'stale_key', 'stale_value', 1);
+    } catch (err: any) {
+      staleWriteBlocked = true;
+      assert(err.message.includes('Stale write rejected'), 'Stale write rejected error returned');
+    }
+    assert(staleWriteBlocked === true, 'Stale write was strictly rejected');
+    assert(engine.getProjectDataSync(rapidProjId).data.stale_key === undefined, 'Stale write did not modify disk');
+
+    // ------------------------------------------------------------------------
+    // Test 18: Corrupted / Missing Project Bootstrap Integrity (P1)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 18: Corrupted / Missing Project Bootstrap Integrity ---');
+    // Subtest 18a: Corrupted project file listed in manifest must fail bootstrap
+    await engine.saveManifest({
+      activeProjectId: 'proj_alpha',
+      projectList: [
+        { project_id: 'proj_alpha', project_name: 'Alpha Brand', updated_at: new Date().toISOString() },
+        { project_id: corruptProjId, project_name: 'Corrupt Brand', updated_at: new Date().toISOString() },
+      ],
+    });
+
+    const corruptBootstrapRes = await engine.getBootstrapSnapshot();
+    assert(corruptBootstrapRes.ok === false, 'Bootstrap fails when a listed project is corrupted');
+    assert(
+      Boolean(corruptBootstrapRes.error?.includes('corrupted') || corruptBootstrapRes.error?.includes('rusak')),
+      'Bootstrap error mentions corrupted project data'
+    );
+
+    // Subtest 18b: Missing project file listed in manifest must fail bootstrap
+    await engine.saveManifest({
+      activeProjectId: 'proj_alpha',
+      projectList: [
+        { project_id: 'proj_alpha', project_name: 'Alpha Brand', updated_at: new Date().toISOString() },
+        { project_id: 'proj_nonexistent_file', project_name: 'Ghost Brand', updated_at: new Date().toISOString() },
+      ],
+    });
+
+    const missingBootstrapRes = await engine.getBootstrapSnapshot();
+    assert(missingBootstrapRes.ok === false, 'Bootstrap fails when a listed project file is missing');
+    assert(
+      Boolean(missingBootstrapRes.error?.includes('missing project file') || missingBootstrapRes.error?.includes('tidak ditemukan')),
+      'Bootstrap error mentions missing project file'
+    );
+
+    // Restore clean manifest for subsequent tests
+    await engine.saveManifest({
+      activeProjectId: 'proj_alpha',
+      projectList: [
+        { project_id: 'proj_alpha', project_name: 'Alpha Brand', updated_at: new Date().toISOString() },
+        { project_id: 'proj_beta', project_name: 'Beta Brand', updated_at: new Date().toISOString() },
+      ],
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 19: Failed Removal Safe Recovery (P1)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 19: Failed Removal Safe Recovery ---');
+    // Set up mock window bridge where removeProjectData fails on disk
+    let mockRemoveCalled = false;
+    const mockBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: {
+          manifest: { activeProjectId: 'proj_alpha', projectList: [{ project_id: 'proj_alpha' }] },
+          projects: {
+            proj_alpha: {
+              revision: 1,
+              data: { critical_item: { id: 101, name: 'Protected Item' } },
+            },
+          },
+        },
+      }),
+      saveProjectData: async () => ({ ok: true, revision: 2 }),
+      removeProjectData: async () => {
+        mockRemoveCalled = true;
+        return { ok: false, error: 'Simulated disk removal I/O failure' };
+      },
+      saveManifest: async () => ({ ok: true }),
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: mockBridge,
+      },
+    };
+
+    // Initialize adapter with mock Electron bridge
+    const adapterInit = await desktopStorageAdapter.initializeStorage();
+    assert(adapterInit.ok === true, 'Adapter initialized with mock bridge');
+    assert(
+      desktopStorageAdapter.loadProjectData('proj_alpha', 'critical_item')?.name === 'Protected Item',
+      'Initial item present in cache'
+    );
+
+    // Call removeProjectData, which will fail at disk layer
+    desktopStorageAdapter.removeProjectData('proj_alpha', 'critical_item');
+    await desktopStorageAdapter.waitForStoragePersistence();
+
+    assert(mockRemoveCalled === true, 'Bridge removeProjectData was called');
+    // Cache must have rolled back so cache and disk remain consistent!
+    const recoveredItem = desktopStorageAdapter.loadProjectData('proj_alpha', 'critical_item');
+    assert(recoveredItem !== null && recoveredItem.name === 'Protected Item', 'Failed removal rolled back cache to match disk');
+    assert(desktopStorageAdapter.getLastStorageError() !== null, 'Persistence error was recorded in adapter');
+
+    // Clean up mock window
+    delete (global as any).window;
+
+    // ------------------------------------------------------------------------
+    // Test 20: ProductionPackage Durability Confirmation (P1)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 20: ProductionPackage Durability Confirmation ---');
+    const mockCtx: any = {
+      project_id: 'proj_alpha',
+      project_name: 'Alpha Brand',
+      source: {
+        origin: 'creative_system_json',
+        source_version: '1.0.0',
+        import_note: 'Imported',
+        provenance: {},
+      },
+      brand_context: {
+        brand_name: 'Alpha Brand',
+        category: 'Tech',
+        tagline: 'Simple Tech',
+        brand_values: ['Simplicity'],
+      },
+      audience_context: {
+        primary_audience: 'Creators',
+        pain_points: ['Slow speed'],
+        desires: ['Speed'],
+        objections: ['Hard to use'],
+      },
+      strategy_context: {
+        positioning: 'Fastest pipeline',
+        usp: ['Rapid output'],
+        main_offer: 'Alpha Suite',
+        offer_benefits: ['Speed'],
+        core_message: 'Work faster',
+        copy_direction: ['Direct'],
+        content_pillars: ['Efficiency'],
+      },
+      system_flags: {
+        is_complete_for_planning: true,
+        missing_required_fields: [],
+      },
+    };
+
+    const mockItem: any = {
+      no: 1,
+      content_item_id: 'item_durable_1',
+      project_id: 'proj_alpha',
+      projectId: 'proj_alpha',
+      tanggal: '2026-10-21',
+      jenis: 'TOFU (Awareness)',
+      format: 'Single Image Feed',
+      hookType: 'Question',
+      referensi: 'Ref',
+      headline: 'Work 10x Faster',
+      body: 'Automate your daily production tasks effortlessly.',
+      caption: 'Full caption text for testing durability.',
+      cta: 'Try it today',
+      visual: 'Clean studio desk',
+      tujuan: 'Awareness',
+      keterangan: 'Strategic rationale',
+    };
+
+    const cand: any = {
+      candidate_id: 'angle_1',
+      candidate_type: 'image',
+      hook_angle: 'Speed angle',
+      hook_type: 'question',
+      headline: 'Work 10x Faster',
+      body: 'Automate your tasks.',
+      cta: 'Try it today',
+      visual_concept: 'Clean desk',
+      technical_spec: { aspect_ratio: '1:1' },
+      final_prompt: 'A sleek modern desk with workstation setup',
+      negative_prompt: 'clutter, blur',
+      production_details: {
+        objective: 'Demonstrate speed',
+        scene: 'Modern workspace',
+        subject: 'Content creator at computer',
+        composition: 'Centered 1:1 view',
+        environment: 'Modern studio',
+        lighting: 'Soft daylight',
+        camera_direction: 'Eye level',
+        visual_style: 'Clean editorial',
+        text_overlay: 'Work 10x Faster',
+        branding: 'Minimalist logo',
+        negative_constraints: 'No distortion',
+      },
+    };
+
+    const prepRes = prepareProductionPackage({
+      projectId: 'proj_alpha',
+      sharedContext: mockCtx,
+      funnelStrategy: buildFunnelStrategyFromContext(mockCtx),
+      contentItem: mockItem,
+      candidates: [cand],
+      selectedCandidateId: cand.candidate_id,
+      translatedPromptBundle: {
+        asset_type: 'image',
+        candidate_id: 'angle_1',
+        execution_prompt: cand.final_prompt,
+      },
+      metadata: {
+        package_id: 'pkg_durable_101',
+        created_at: new Date().toISOString(),
+      },
+    });
+    assert(prepRes.ok === true, 'prepareProductionPackage succeeded for durable test');
+    const durablePkg = (prepRes as any).package;
+
+    // Test synchronous acceptance with explicit persistence promise
+    const pkgSaveRes = saveProductionPackage('proj_alpha', durablePkg);
+    console.log('pkgSaveRes:', pkgSaveRes);
+    assert(pkgSaveRes.ok === true, 'saveProductionPackage succeeds immediately in cache');
+    assert(pkgSaveRes.persisted !== undefined, 'saveProductionPackage returns explicit persisted promise');
+
+    const durableAck = await pkgSaveRes.persisted;
+    assert(durableAck.ok === true, 'Persisted promise resolves with durability confirmation');
+
+    // Test explicit saveProductionPackageDurable wrapper
+    const directDurableRes = await saveProductionPackageDurable('proj_alpha', durablePkg);
+    assert(directDurableRes.ok === true, 'saveProductionPackageDurable completes with durability confirmed');
+
+    // Invalid package must fail closed
+    const invalidDurableRes = await saveProductionPackageDurable('wrong_project', durablePkg);
+    assert(invalidDurableRes.ok === false, 'saveProductionPackageDurable fails closed on identity mismatch');
 
     console.log('\n====================================================');
     console.log('🎉 ALL STAGE 1 LOCAL PERSISTENT STORAGE TESTS PASSED!');

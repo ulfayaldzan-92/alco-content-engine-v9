@@ -321,10 +321,8 @@ class StorageEngine {
       }
 
       let projectRecord;
-      try {
-        projectRecord = this.getProjectDataSync(pVal.cleanId);
-      } catch (err) {
-        // If file is missing, start fresh
+      if (!fs.existsSync(filePath)) {
+        // Genuine new project file creation
         projectRecord = {
           schemaVersion: SCHEMA_VERSION,
           projectId: pVal.cleanId,
@@ -332,6 +330,9 @@ class StorageEngine {
           updatedAt: new Date().toISOString(),
           data: {},
         };
+      } else {
+        // Existing file must be read and parsed. If corrupt or unreadable, throw and preserve the file!
+        projectRecord = this.getProjectDataSync(pVal.cleanId);
       }
 
       // Check revision order protection if client specified a revision
@@ -400,16 +401,25 @@ class StorageEngine {
 
       // Load data for all registered projects
       for (const p of manifest.projectList) {
-        if (p && p.project_id && this.validateProjectId(p.project_id).valid) {
-          try {
-            const pData = this.getProjectDataSync(p.project_id);
-            projects[p.project_id] = {
-              revision: pData.revision,
-              data: pData.data,
-            };
-          } catch (err) {
-            console.error(`[ALCO Storage Engine] Warning loading project "${p.project_id}":`, err.message);
-          }
+        if (!p || typeof p.project_id !== 'string') continue;
+        const pVal = this.validateProjectId(p.project_id);
+        if (!pVal.valid) {
+          throw new Error(`Invalid project ID in manifest: "${p.project_id}": ${pVal.error}`);
+        }
+
+        const { filePath } = this.resolveProjectFilePath(pVal.cleanId);
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`File proyek "${pVal.cleanId}" terdaftar dalam manifest namun tidak ditemukan di disk (missing project file).`);
+        }
+
+        try {
+          const pData = this.getProjectDataSync(pVal.cleanId);
+          projects[pVal.cleanId] = {
+            revision: pData.revision,
+            data: pData.data,
+          };
+        } catch (err) {
+          throw new Error(`Data proyek "${pVal.cleanId}" rusak (corrupted project data): ${err.message}`);
         }
       }
 

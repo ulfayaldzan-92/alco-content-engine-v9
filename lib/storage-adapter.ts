@@ -69,6 +69,9 @@ class DesktopStorageAdapter {
   private pendingWrites: Set<Promise<any>> = new Set();
   private lastPersistError: Error | null = null;
 
+  // Strict sequential mutation queue per project for end-to-end order & revision serialization
+  private projectMutationQueues: Map<string, Promise<any>> = new Map();
+
   /**
    * Detects if the current environment is running inside Electron Desktop with the storage bridge available.
    */
@@ -346,40 +349,49 @@ class DesktopStorageAdapter {
       this.cachedProjects.set(projectId, pRec);
     }
 
-    // Immediate in-memory consistency
+    // Immediate in-memory consistency for synchronous readers
     pRec.data.set(dataType, data);
-    const clientRevision = pRec.revision;
 
-    // Dispatch background IPC persistence
-    const bridge = (window as any).alcoBridge.storage;
-    const writePromise = bridge
-      .saveProjectData(projectId, dataType, data, clientRevision)
-      .then((res: any) => {
+    // Serialize mutations per project end-to-end to ensure correct revision order
+    const prevQueue = this.projectMutationQueues.get(projectId) || Promise.resolve();
+
+    const writeTask = prevQueue
+      .catch(() => {}) // Ensure previous failed writes don't break queue continuity
+      .then(async () => {
+        // Read the exact revision at execution time to ensure rapid consecutive writes
+        // use the updated revision from the immediately preceding write
+        const clientRevision = pRec.revision;
+        const bridge = (window as any).alcoBridge.storage;
+        const res = await bridge.saveProjectData(projectId, dataType, data, clientRevision);
+
         if (!res || !res.ok) {
           const errMsg = res?.error || 'IPC saveProjectData failed';
           const err = new Error(`Disk write failed for "${projectId}.${dataType}": ${errMsg}`);
           this.lastPersistError = err;
           console.error('[ALCO Storage Adapter] Persistence error:', err);
-        } else if (typeof res.revision === 'number') {
-          // Update revision on successful disk acknowledgment
-          if (pRec) {
-            pRec.revision = res.revision;
-          }
+          throw err;
         }
+
+        if (typeof res.revision === 'number') {
+          pRec.revision = res.revision;
+        }
+        return res;
       })
       .catch((err: any) => {
         this.lastPersistError = err;
         console.error('[ALCO Storage Adapter] IPC error saving project data:', err);
-      })
-      .finally(() => {
-        this.pendingWrites.delete(writePromise);
       });
 
-    this.pendingWrites.add(writePromise);
+    this.projectMutationQueues.set(projectId, writeTask);
+    this.pendingWrites.add(writeTask);
+    writeTask.finally(() => {
+      this.pendingWrites.delete(writeTask);
+    });
   }
 
   /**
    * Removes project-scoped data key.
+   * Ensures failed removals cannot leave cache and disk silently inconsistent (safe rollback).
    */
   public removeProjectData(projectId: string, dataType: string): void {
     if (typeof window === 'undefined' || !projectId || !dataType) {
@@ -404,28 +416,56 @@ class DesktopStorageAdapter {
     }
 
     const pRec = this.cachedProjects.get(projectId);
-    if (pRec && pRec.data) {
-      pRec.data.delete(dataType);
+    if (!pRec || !pRec.data) {
+      return;
     }
 
-    const bridge = (window as any).alcoBridge.storage;
-    const removePromise = bridge
-      .removeProjectData(projectId, dataType)
-      .then((res: any) => {
+    const hadKey = pRec.data.has(dataType);
+    const previousValue = pRec.data.get(dataType);
+
+    // Optimistic cache removal
+    pRec.data.delete(dataType);
+
+    // Serialize in project mutation queue
+    const prevQueue = this.projectMutationQueues.get(projectId) || Promise.resolve();
+
+    const removeTask = prevQueue
+      .catch(() => {})
+      .then(async () => {
+        const bridge = (window as any).alcoBridge.storage;
+        const res = await bridge.removeProjectData(projectId, dataType);
+
         if (!res || !res.ok) {
-          console.error('[ALCO Storage Adapter] IPC removeProjectData error:', res?.error);
-        } else if (pRec && typeof res.revision === 'number') {
+          // Safe recovery: rollback cache so cache and disk do not remain silently inconsistent
+          if (hadKey) {
+            pRec.data.set(dataType, previousValue);
+          }
+          const errMsg = res?.error || 'IPC removeProjectData failed';
+          const err = new Error(`Disk removal failed for "${projectId}.${dataType}": ${errMsg}`);
+          this.lastPersistError = err;
+          console.error('[ALCO Storage Adapter] Remove error:', err);
+          throw err;
+        }
+
+        if (typeof res.revision === 'number') {
           pRec.revision = res.revision;
         }
+        return res;
       })
       .catch((err: any) => {
+        // Safe recovery fallback on error/rejection
+        if (hadKey && !pRec.data.has(dataType)) {
+          pRec.data.set(dataType, previousValue);
+        }
+        this.lastPersistError = err;
         console.error('[ALCO Storage Adapter] IPC error removing project data:', err);
-      })
-      .finally(() => {
-        this.pendingWrites.delete(removePromise);
       });
 
-    this.pendingWrites.add(removePromise);
+    this.projectMutationQueues.set(projectId, removeTask);
+    this.pendingWrites.add(removeTask);
+    removeTask.finally(() => {
+      this.pendingWrites.delete(removeTask);
+    });
   }
 
   /**

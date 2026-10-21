@@ -2843,6 +2843,15 @@ export default function ProductionStudioPage() {
       showToast(`Gagal save package: ${saveErr}`);
       return;
     }
+    if (saveResult.persisted) {
+      const durableRes = await saveResult.persisted;
+      if (!durableRes.ok) {
+        const persistErr = durableRes.error || 'Gagal persistensi disk production package.';
+        setImageGenerateError(persistErr);
+        showToast(`Gagal persistensi package: ${persistErr}`);
+        return;
+      }
+    }
 
     const requestProjectId = canonicalProjectId;
     const requestContentItemId = sourceItem.content_item_id;
@@ -4456,6 +4465,16 @@ ${formatDirection}${revisionDirective}`;
       showToast(`Gagal save package: ${saveErr}`);
       return;
     }
+    if (saveResult.persisted) {
+      const durableRes = await saveResult.persisted;
+      if (!durableRes.ok) {
+        const persistErr = durableRes.error || 'Gagal persistensi disk production package video.';
+        setVideoProductionPackageError(persistErr);
+        setVideoProductionPackagePreparing(false);
+        showToast(`Gagal persistensi package: ${persistErr}`);
+        return;
+      }
+    }
 
     setVideoProductionPackagePreparing(false);
     setVideoProductionPackagePrepared(true);
@@ -4738,6 +4757,16 @@ ${formatDirection}${revisionDirective}`;
       setCarouselProductionPackagePreparing(false);
       showToast(`Gagal save package: ${saveErr}`);
       return;
+    }
+    if (saveResult.persisted) {
+      const durableRes = await saveResult.persisted;
+      if (!durableRes.ok) {
+        const persistErr = durableRes.error || 'Gagal persistensi disk production package carousel.';
+        setCarouselProductionPackageError(persistErr);
+        setCarouselProductionPackagePreparing(false);
+        showToast(`Gagal persistensi package: ${persistErr}`);
+        return;
+      }
     }
 
     setCarouselProductionPackagePreparing(false);

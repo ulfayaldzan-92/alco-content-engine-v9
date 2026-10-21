@@ -373,6 +373,13 @@ async function runTests() {
       ],
     });
 
+    // Storage Engine automatically ensures data.json exists when saved via saveManifest.
+    // To test missing file rejection at bootstrap, delete data.json for proj_nonexistent_file after manifest persistence.
+    const { filePath: nonexistentFilePath } = engine.resolveProjectFilePath('proj_nonexistent_file');
+    if (fs.existsSync(nonexistentFilePath)) {
+      fs.unlinkSync(nonexistentFilePath);
+    }
+
     const missingBootstrapRes = await engine.getBootstrapSnapshot();
     assert(missingBootstrapRes.ok === false, 'Bootstrap fails when a listed project file is missing');
     assert(
@@ -867,7 +874,7 @@ async function runTests() {
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 29: browser localStorage write failure ---');
     // Simulate non-Electron browser environment
-    delete (global as any).window;
+    (global as any).window = {};
 
     const originalLocalStorage = (global as any).localStorage;
     const mockLocalStorageStore: Record<string, string> = {};
@@ -908,6 +915,7 @@ async function runTests() {
     } else {
       delete (global as any).localStorage;
     }
+    delete (global as any).window;
 
     console.log('\n====================================================');
     console.log('🎉 ALL STAGE 1 LOCAL PERSISTENT STORAGE TESTS PASSED!');

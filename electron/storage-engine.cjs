@@ -252,6 +252,25 @@ class StorageEngine {
         ? manifestData.projectList.filter(p => p && typeof p.project_id === 'string' && this.validateProjectId(p.project_id).valid)
         : [];
 
+      // Ensure all projects in projectList have their durable data.json file on disk
+      // BEFORE registering them in manifest.json
+      for (const p of projectList) {
+        const { projectDir, filePath } = this.resolveProjectFilePath(p.project_id);
+        if (!fs.existsSync(projectDir)) {
+          fs.mkdirSync(projectDir, { recursive: true });
+        }
+        if (!fs.existsSync(filePath)) {
+          const initialRecord = {
+            schemaVersion: SCHEMA_VERSION,
+            projectId: p.project_id,
+            revision: 0,
+            updatedAt: new Date().toISOString(),
+            data: {},
+          };
+          this.atomicWriteJson(filePath, initialRecord);
+        }
+      }
+
       const payload = {
         schemaVersion: SCHEMA_VERSION,
         activeProjectId,
@@ -261,6 +280,34 @@ class StorageEngine {
 
       this.atomicWriteJson(this.manifestPath, payload);
       return { ok: true };
+    });
+  }
+
+  /**
+   * Initializes project data.json file on disk if it does not already exist.
+   * Ensures data.json is durable on disk before manifest registration.
+   */
+  async initProject(projectId) {
+    const pVal = this.validateProjectId(projectId);
+    if (!pVal.valid) throw new Error(pVal.error);
+
+    const queueKey = `project:${pVal.cleanId}`;
+    return this.enqueueWrite(queueKey, async () => {
+      const { projectDir, filePath } = this.resolveProjectFilePath(pVal.cleanId);
+      if (!fs.existsSync(projectDir)) {
+        fs.mkdirSync(projectDir, { recursive: true });
+      }
+      if (!fs.existsSync(filePath)) {
+        const initialRecord = {
+          schemaVersion: SCHEMA_VERSION,
+          projectId: pVal.cleanId,
+          revision: 0,
+          updatedAt: new Date().toISOString(),
+          data: {},
+        };
+        this.atomicWriteJson(filePath, initialRecord);
+      }
+      return { ok: true, projectId: pVal.cleanId };
     });
   }
 
@@ -496,6 +543,20 @@ function registerStorageIpcHandlers(engine, ipcMain) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return await engine.getBootstrapSnapshot();
+  });
+
+  ipcMain.handle('alco:storage:init-project', async (event, args) => {
+    if (!validateIpcSender(event)) {
+      return { ok: false, error: 'Unauthorized IPC sender origin.' };
+    }
+    const { projectId } = args || {};
+    try {
+      const res = await engine.initProject(projectId);
+      return res;
+    } catch (err) {
+      console.error('[ALCO Storage IPC] init-project error:', err);
+      return { ok: false, error: err.message };
+    }
   });
 
   ipcMain.handle('alco:storage:save-project-data', async (event, args) => {

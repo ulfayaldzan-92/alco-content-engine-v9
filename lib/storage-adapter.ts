@@ -43,6 +43,18 @@ export interface StorageInitResult {
   legacyMigrationAvailable?: boolean;
 }
 
+export interface SaveOperationResult {
+  ok: boolean;
+  error?: string;
+  revision?: number;
+}
+
+interface CachedProject {
+  revision: number;
+  data: Map<string, any>;
+  keyVersions: Map<string, number>;
+}
+
 class DesktopStorageAdapter {
   private isHydrated: boolean = false;
   private hydrationError: string | null = null;
@@ -57,13 +69,7 @@ class DesktopStorageAdapter {
     projectList: [],
   };
 
-  private cachedProjects: Map<
-    string,
-    {
-      revision: number;
-      data: Map<string, any>;
-    }
-  > = new Map();
+  private cachedProjects: Map<string, CachedProject> = new Map();
 
   // Pending writes tracking for durability guarantees
   private pendingWrites: Set<Promise<any>> = new Set();
@@ -138,6 +144,7 @@ class DesktopStorageAdapter {
           this.cachedProjects.set(pid, {
             revision: typeof pRec.revision === 'number' ? pRec.revision : 1,
             data: dataMap,
+            keyVersions: new Map(),
           });
         }
       }
@@ -272,8 +279,79 @@ class DesktopStorageAdapter {
       return;
     }
 
+    // Ensure all projects in list exist in cachedProjects
+    for (const p of list) {
+      if (!p || !p.project_id) continue;
+      if (!this.cachedProjects.has(p.project_id)) {
+        this.cachedProjects.set(p.project_id, {
+          revision: 0,
+          data: new Map(),
+          keyVersions: new Map(),
+        });
+      }
+    }
+
     this.cachedManifest.projectList = Array.isArray(list) ? list : [];
     this.dispatchManifestSave();
+  }
+
+  /**
+   * Initializes a new project record and ensures its durable data.json file exists on disk
+   * before registering it in manifest.json.
+   */
+  public async createProject(
+    projectId: string,
+    projectName: string = 'Project Baru'
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (typeof window === 'undefined') return { ok: true };
+
+    if (!this.isHydrated) {
+      return {
+        ok: false,
+        error: 'Cannot create project before storage is hydrated.',
+      };
+    }
+
+    // Initialize in-memory cache
+    let pRec = this.cachedProjects.get(projectId);
+    if (!pRec) {
+      pRec = { revision: 0, data: new Map(), keyVersions: new Map() };
+      this.cachedProjects.set(projectId, pRec);
+    }
+
+    if (this.isDesktopElectron()) {
+      try {
+        const bridge = (window as any).alcoBridge?.storage;
+        if (bridge?.initProject) {
+          const res = await bridge.initProject(projectId);
+          if (!res || !res.ok) {
+            return {
+              ok: false,
+              error: res?.error || 'Failed to initialize project file on disk.',
+            };
+          }
+        }
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'Error initializing project file.' };
+      }
+    }
+
+    // Safely register in projectList and save manifest
+    const list = this.getProjectList();
+    const index = list.findIndex((p) => p.project_id === projectId);
+    if (index >= 0) {
+      list[index].project_name = projectName;
+      list[index].updated_at = new Date().toISOString();
+    } else {
+      list.push({
+        project_id: projectId,
+        project_name: projectName,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    this.saveProjectList(list);
+
+    return { ok: true };
   }
 
   /**
@@ -318,10 +396,15 @@ class DesktopStorageAdapter {
    * Saves project-scoped data key:
    * - Updates in-memory cache immediately for synchronous consistency
    * - Asynchronously dispatches IPC to Electron storage engine with revision check
+   * - Returns per-operation disk acknowledgment promise independent of global errors
    */
-  public saveProjectData(projectId: string, dataType: string, data: any): void {
+  public saveProjectData(
+    projectId: string,
+    dataType: string,
+    data: any
+  ): { persisted: Promise<SaveOperationResult> } {
     if (typeof window === 'undefined' || !projectId || !dataType) {
-      return;
+      return { persisted: Promise.resolve({ ok: true }) };
     }
 
     if (!this.isDesktopElectron()) {
@@ -331,7 +414,7 @@ class DesktopStorageAdapter {
       } catch (err) {
         console.error('Failed to save project data to localStorage:', err);
       }
-      return;
+      return { persisted: Promise.resolve({ ok: true }) };
     }
 
     if (!this.isHydrated) {
@@ -340,17 +423,26 @@ class DesktopStorageAdapter {
       );
       this.lastPersistError = err;
       console.error(err.message);
-      return;
+      return { persisted: Promise.resolve({ ok: false, error: err.message }) };
     }
 
     let pRec = this.cachedProjects.get(projectId);
     if (!pRec) {
-      pRec = { revision: 0, data: new Map() };
+      pRec = { revision: 0, data: new Map(), keyVersions: new Map() };
       this.cachedProjects.set(projectId, pRec);
     }
 
+    // Increment per-key mutation version
+    const nextKeyVer = (pRec.keyVersions.get(dataType) || 0) + 1;
+    pRec.keyVersions.set(dataType, nextKeyVer);
+
     // Immediate in-memory consistency for synchronous readers
     pRec.data.set(dataType, data);
+
+    let operationResolve!: (val: SaveOperationResult) => void;
+    const perOperationPromise = new Promise<SaveOperationResult>((resolve) => {
+      operationResolve = resolve;
+    });
 
     // Serialize mutations per project end-to-end to ensure correct revision order
     const prevQueue = this.projectMutationQueues.get(projectId) || Promise.resolve();
@@ -369,17 +461,20 @@ class DesktopStorageAdapter {
           const err = new Error(`Disk write failed for "${projectId}.${dataType}": ${errMsg}`);
           this.lastPersistError = err;
           console.error('[ALCO Storage Adapter] Persistence error:', err);
+          operationResolve({ ok: false, error: errMsg });
           throw err;
         }
 
         if (typeof res.revision === 'number') {
           pRec.revision = res.revision;
         }
+        operationResolve({ ok: true, revision: res.revision });
         return res;
       })
       .catch((err: any) => {
         this.lastPersistError = err;
         console.error('[ALCO Storage Adapter] IPC error saving project data:', err);
+        operationResolve({ ok: false, error: err?.message || 'IPC error saving project data' });
       });
 
     this.projectMutationQueues.set(projectId, writeTask);
@@ -387,11 +482,16 @@ class DesktopStorageAdapter {
     writeTask.finally(() => {
       this.pendingWrites.delete(writeTask);
     });
+
+    return {
+      persisted: perOperationPromise,
+    };
   }
 
   /**
    * Removes project-scoped data key.
    * Ensures failed removals cannot leave cache and disk silently inconsistent (safe rollback).
+   * Uses per-key mutation versions so newer cache mutations are never overwritten by rollback.
    */
   public removeProjectData(projectId: string, dataType: string): void {
     if (typeof window === 'undefined' || !projectId || !dataType) {
@@ -423,6 +523,10 @@ class DesktopStorageAdapter {
     const hadKey = pRec.data.has(dataType);
     const previousValue = pRec.data.get(dataType);
 
+    // Track per-key mutation identity/version for this specific removal
+    const removalMutationVersion = (pRec.keyVersions.get(dataType) || 0) + 1;
+    pRec.keyVersions.set(dataType, removalMutationVersion);
+
     // Optimistic cache removal
     pRec.data.delete(dataType);
 
@@ -436,8 +540,9 @@ class DesktopStorageAdapter {
         const res = await bridge.removeProjectData(projectId, dataType);
 
         if (!res || !res.ok) {
-          // Safe recovery: rollback cache so cache and disk do not remain silently inconsistent
-          if (hadKey) {
+          // Safe recovery: rollback cache ONLY if no newer mutation has occurred for this key!
+          const currentKeyVersion = pRec.keyVersions.get(dataType);
+          if (hadKey && currentKeyVersion === removalMutationVersion) {
             pRec.data.set(dataType, previousValue);
           }
           const errMsg = res?.error || 'IPC removeProjectData failed';
@@ -453,8 +558,9 @@ class DesktopStorageAdapter {
         return res;
       })
       .catch((err: any) => {
-        // Safe recovery fallback on error/rejection
-        if (hadKey && !pRec.data.has(dataType)) {
+        // Safe recovery fallback on error/rejection: verify version before rollback
+        const currentKeyVersion = pRec.keyVersions.get(dataType);
+        if (hadKey && currentKeyVersion === removalMutationVersion) {
           pRec.data.set(dataType, previousValue);
         }
         this.lastPersistError = err;
@@ -522,3 +628,5 @@ export const isLegacyMigrationAvailable = () => desktopStorageAdapter.isLegacyMi
 export const waitForStoragePersistence = () => desktopStorageAdapter.waitForStoragePersistence();
 export const getLastStorageError = () => desktopStorageAdapter.getLastStorageError();
 export const isDesktopElectron = () => desktopStorageAdapter.isDesktopElectron();
+export const createProject = (projectId: string, projectName?: string) =>
+  desktopStorageAdapter.createProject(projectId, projectName);

@@ -14,6 +14,7 @@ import {
   loadProjectData,
   saveProjectData,
   updateProjectMeta,
+  createProject,
   getProjectList,
   CalendarSettings,
   DEFAULT_CALENDAR_SETTINGS,
@@ -836,7 +837,9 @@ export default function HomePageClient() {
 
   const handleCreateNewProject = () => {
     const newPid = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    updateProjectMeta(newPid, 'Project Baru');
+    createProject(newPid, 'Project Baru').then(() => {
+      setProjectList(getProjectList());
+    });
     setProjectList(getProjectList());
     loadProject(newPid);
     setIsIntakeModalOpen(true);

@@ -568,6 +568,180 @@ async function runTests() {
     const invalidDurableRes = await saveProductionPackageDurable('wrong_project', durablePkg);
     assert(invalidDurableRes.ok === false, 'saveProductionPackageDurable fails closed on identity mismatch');
 
+    // ------------------------------------------------------------------------
+    // Test 21: Failed removal followed by newer write (Consistency Patch 1)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 21: Failed removal followed by newer write ---');
+    const consistencyBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: {
+          manifest: { activeProjectId: 'proj_seq_test', projectList: [{ project_id: 'proj_seq_test' }] },
+          projects: {
+            proj_seq_test: {
+              revision: 1,
+              data: { active_item: 'old_value' },
+            },
+          },
+        },
+      }),
+      saveProjectData: async () => ({ ok: true, revision: 2 }),
+      removeProjectData: async () => {
+        return { ok: false, error: 'Simulated disk removal I/O error' };
+      },
+      saveManifest: async () => ({ ok: true }),
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: consistencyBridge,
+      },
+    };
+
+    await desktopStorageAdapter.initializeStorage();
+    assert(
+      desktopStorageAdapter.loadProjectData('proj_seq_test', 'active_item') === 'old_value',
+      'Cache holds initial old_value'
+    );
+
+    // 1. Initiate remove
+    desktopStorageAdapter.removeProjectData('proj_seq_test', 'active_item');
+    // 2. Immediately mutate with a newer value before remove finishes / fails
+    desktopStorageAdapter.saveProjectData('proj_seq_test', 'active_item', 'newer_brand_new_value');
+
+    // Await all mutations to settle
+    await desktopStorageAdapter.waitForStoragePersistence();
+
+    // Verify: The failed removal must NOT restore the stale 'old_value'! 'newer_brand_new_value' must be preserved!
+    const preservedValue = desktopStorageAdapter.loadProjectData('proj_seq_test', 'active_item');
+    assert(
+      preservedValue === 'newer_brand_new_value',
+      'Newer write is preserved: failed removal did not overwrite newer cache value with stale data'
+    );
+
+    // ------------------------------------------------------------------------
+    // Test 22: Package save with unrelated failed write (Consistency Patch 2)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 22: Package save with unrelated failed write ---');
+    const perOpBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: {
+          manifest: {
+            activeProjectId: 'proj_alpha',
+            projectList: [{ project_id: 'proj_alpha' }, { project_id: 'proj_broken' }],
+          },
+          projects: {
+            proj_alpha: { revision: 1, data: {} },
+            proj_broken: { revision: 1, data: {} },
+          },
+        },
+      }),
+      saveProjectData: async (pid: string) => {
+        if (pid === 'proj_broken') {
+          return { ok: false, error: 'Unrelated disk failure on proj_broken' };
+        }
+        return { ok: true, revision: 5 };
+      },
+      removeProjectData: async () => ({ ok: true }),
+      saveManifest: async () => ({ ok: true }),
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: perOpBridge,
+      },
+    };
+
+    await desktopStorageAdapter.initializeStorage();
+
+    // Trigger an unrelated failed write on proj_broken
+    desktopStorageAdapter.saveProjectData('proj_broken', 'unrelated_data', { fail: true });
+
+    // Now save a valid ProductionPackage on proj_alpha
+    const pkgResult = saveProductionPackage('proj_alpha', durablePkg);
+    assert(pkgResult.ok === true, 'saveProductionPackage succeeds immediately in cache');
+    assert(pkgResult.persisted !== undefined, 'persisted promise exists');
+
+    // Durability check for this specific package must succeed despite unrelated failure
+    const ack = await pkgResult.persisted!;
+    assert(
+      ack.ok === true,
+      'Package persistence succeeds on disk despite unrelated failed write (per-operation acknowledgment works)'
+    );
+
+    delete (global as any).window;
+
+    // ------------------------------------------------------------------------
+    // Test 23: Project creation interrupted before manifest (Consistency Patch 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 23: Project creation interrupted before manifest ---');
+    const interruptedPid = 'proj_interrupted_123';
+    // Step 1: Initialize project file on disk
+    const initRes = await engine.initProject(interruptedPid);
+    assert(initRes.ok === true, 'initProject creates data.json on disk');
+
+    const { filePath: interruptedFilePath } = engine.resolveProjectFilePath(interruptedPid);
+    assert(fs.existsSync(interruptedFilePath), 'Project data.json exists on disk before manifest update');
+
+    // Simulate interruption: Manifest has NOT been updated with interruptedPid
+    const manifestBefore = engine.getManifestSync();
+    assert(
+      !manifestBefore.projectList.some((p: any) => p.project_id === interruptedPid),
+      'Manifest does not yet list interrupted project'
+    );
+
+    // Bootstrap must succeed cleanly and not be broken by unlisted project directory
+    const bootstrapCheck = await engine.getBootstrapSnapshot();
+    assert(bootstrapCheck.ok === true, 'Bootstrap succeeds even if project creation was interrupted before manifest update');
+
+    // The created project file on disk is valid and complete
+    const diskProject = engine.getProjectDataSync(interruptedPid);
+    assert(diskProject.projectId === interruptedPid, 'Interrupted project file has valid schema and projectId');
+    assert(diskProject.revision === 0, 'Interrupted project file has initial revision 0');
+
+    // ------------------------------------------------------------------------
+    // Test 24: Restart after project creation (Consistency Patch 4)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 24: Restart after project creation ---');
+    const newCreatedPid = 'proj_created_fresh';
+    // 1. Create project file on disk
+    await engine.initProject(newCreatedPid);
+
+    // 2. Register in manifest
+    const currentManifest = engine.getManifestSync();
+    const updatedProjectList = [
+      ...currentManifest.projectList,
+      { project_id: newCreatedPid, project_name: 'Brand Baru', updated_at: new Date().toISOString() },
+    ];
+    await engine.saveManifest({
+      activeProjectId: newCreatedPid,
+      projectList: updatedProjectList,
+    });
+
+    // 3. Simulate application restart with a fresh StorageEngine instance
+    const freshEngine = new StorageEngine(testTmpDir);
+    const restartedSnapshotRes = await freshEngine.getBootstrapSnapshot();
+
+    assert(restartedSnapshotRes.ok === true, 'Bootstrap succeeds after application restart following project creation');
+    assert(restartedSnapshotRes.snapshot.manifest.activeProjectId === newCreatedPid, 'Active project ID restored correctly');
+    assert(
+      Boolean(restartedSnapshotRes.snapshot.projects[newCreatedPid]),
+      'Newly created project is hydrated into snapshot with valid initial data'
+    );
+    assert(
+      restartedSnapshotRes.snapshot.projects[newCreatedPid].revision === 0,
+      'Newly created project maintains revision 0 across restart'
+    );
+    assert(
+      Object.keys(restartedSnapshotRes.snapshot.projects[newCreatedPid].data).length === 0,
+      'Incomplete project data is valid empty object without causing corruption error'
+    );
+
     console.log('\n====================================================');
     console.log('🎉 ALL STAGE 1 LOCAL PERSISTENT STORAGE TESTS PASSED!');
     console.log('====================================================');

@@ -13,6 +13,7 @@ const bridgeApi = {
   // ALCO Desktop Persistent Storage Bridge
   storage: {
     getBootstrapSnapshot: () => ipcRenderer.invoke('alco:storage:get-bootstrap-snapshot'),
+    initProject: (projectId) => ipcRenderer.invoke('alco:storage:init-project', { projectId }),
     saveProjectData: (projectId, dataType, data, clientRevision) =>
       ipcRenderer.invoke('alco:storage:save-project-data', { projectId, dataType, data, clientRevision }),
     removeProjectData: (projectId, dataType) =>

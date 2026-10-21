@@ -98,15 +98,9 @@ export function saveProductionPackage(
     productionPackage.asset_type
   );
 
+  let saveResult: { persisted?: Promise<{ ok: boolean; error?: string }> };
   try {
-    saveProjectData(cleanProjectId, dataType, productionPackage);
-    const lastErr = getLastStorageError();
-    if (lastErr) {
-      return {
-        ok: false,
-        error: `Gagal persistensi ProductionPackage: ${lastErr.message}`,
-      };
-    }
+    saveResult = saveProjectData(cleanProjectId, dataType, productionPackage) as any;
   } catch (err: any) {
     return {
       ok: false,
@@ -114,14 +108,21 @@ export function saveProductionPackage(
     };
   }
 
-  // Explicit asynchronous persistence acknowledgment
+  // Exact package identity reference
+  const exactPackageId = productionPackage.package_id;
+  const exactContentItemId = productionPackage.content_item_id;
+  const exactAssetType = productionPackage.asset_type;
+
+  // Explicit per-operation asynchronous persistence acknowledgment
   const persistenceAcknowledgment: Promise<SaveProductionPackageResult> = (async () => {
-    const isDurable = await waitForStoragePersistence();
-    if (!isDurable) {
-      const lastErr = getLastStorageError();
+    if (!saveResult?.persisted) {
+      return { ok: true };
+    }
+    const ack = await saveResult.persisted;
+    if (!ack.ok) {
       return {
         ok: false,
-        error: `Gagal persistensi disk ProductionPackage: ${lastErr?.message || 'Disk write failure'}`,
+        error: `Gagal persistensi disk ProductionPackage [${exactPackageId}]: ${ack.error || 'Disk write failure'}`,
       };
     }
     return { ok: true };

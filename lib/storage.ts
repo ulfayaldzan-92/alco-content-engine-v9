@@ -8,6 +8,7 @@ import {
   waitForStoragePersistence,
   getLastStorageError,
   isDesktopElectron,
+  createProject,
 } from './storage-adapter';
 
 export {
@@ -17,6 +18,7 @@ export {
   waitForStoragePersistence,
   getLastStorageError,
   isDesktopElectron,
+  createProject,
 };
 
 export interface ProjectMeta {
@@ -126,7 +128,7 @@ export const updateProjectMeta = (projectId: string, projectName: string) => {
 };
 
 export const saveProjectData = (projectId: string, dataType: string, data: any) => {
-  desktopStorageAdapter.saveProjectData(projectId, dataType, data);
+  return desktopStorageAdapter.saveProjectData(projectId, dataType, data);
 };
 
 export const loadProjectData = (projectId: string, dataType: string, defaultValue: any = null) => {

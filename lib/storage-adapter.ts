@@ -77,6 +77,7 @@ class DesktopStorageAdapter {
 
   // Strict sequential mutation queue per project for end-to-end order & revision serialization
   private projectMutationQueues: Map<string, Promise<any>> = new Map();
+  private manifestMutationQueue: Promise<SaveOperationResult> = Promise.resolve({ ok: true });
 
   /**
    * Detects if the current environment is running inside Electron Desktop with the storage bridge available.
@@ -260,23 +261,30 @@ class DesktopStorageAdapter {
   /**
    * Updates project list.
    */
-  public saveProjectList(list: ProjectMeta[]): void {
-    if (typeof window === 'undefined') return;
+  /**
+   * Updates project list and persists to manifest.
+   */
+  public saveProjectList(list: ProjectMeta[]): Promise<SaveOperationResult> {
+    if (typeof window === 'undefined') return Promise.resolve({ ok: true });
 
     if (!this.isDesktopElectron()) {
       try {
         localStorage.setItem('alco_project_list', JSON.stringify(list));
-      } catch (err) {
+        return Promise.resolve({ ok: true });
+      } catch (err: any) {
         console.error('Failed to save project list to localStorage', err);
+        return Promise.resolve({ ok: false, error: err?.message || 'localStorage write error' });
       }
-      return;
     }
 
     if (!this.isHydrated) {
       console.error(
         '[ALCO Storage Adapter] Cannot saveProjectList before storage is hydrated.'
       );
-      return;
+      return Promise.resolve({
+        ok: false,
+        error: 'Cannot saveProjectList before storage is hydrated.',
+      });
     }
 
     // Ensure all projects in list exist in cachedProjects
@@ -292,12 +300,13 @@ class DesktopStorageAdapter {
     }
 
     this.cachedManifest.projectList = Array.isArray(list) ? list : [];
-    this.dispatchManifestSave();
+    return this.dispatchManifestSave();
   }
 
   /**
-   * Initializes a new project record and ensures its durable data.json file exists on disk
-   * before registering it in manifest.json.
+   * Initializes a new project record, ensures its durable data.json file exists on disk,
+   * and waits for confirmed manifest persistence before returning ok:true.
+   * Propagates initProject and manifest errors fail-closed.
    */
   public async createProject(
     projectId: string,
@@ -312,46 +321,84 @@ class DesktopStorageAdapter {
       };
     }
 
-    // Initialize in-memory cache
-    let pRec = this.cachedProjects.get(projectId);
-    if (!pRec) {
-      pRec = { revision: 0, data: new Map(), keyVersions: new Map() };
-      this.cachedProjects.set(projectId, pRec);
-    }
-
     if (this.isDesktopElectron()) {
+      const bridge = (window as any).alcoBridge?.storage;
+      if (!bridge?.initProject) {
+        return {
+          ok: false,
+          error: 'Electron storage bridge initProject is not available.',
+        };
+      }
+
+      // 1. Initialize project file on disk first
       try {
-        const bridge = (window as any).alcoBridge?.storage;
-        if (bridge?.initProject) {
-          const res = await bridge.initProject(projectId);
-          if (!res || !res.ok) {
-            return {
-              ok: false,
-              error: res?.error || 'Failed to initialize project file on disk.',
-            };
-          }
+        const initRes = await bridge.initProject(projectId);
+        if (!initRes || !initRes.ok) {
+          const errMsg = initRes?.error || 'Failed to initialize project file on disk.';
+          return { ok: false, error: errMsg };
         }
       } catch (err: any) {
-        return { ok: false, error: err?.message || 'Error initializing project file.' };
+        return { ok: false, error: err?.message || 'Error initializing project file on disk.' };
+      }
+
+      // 2. Initialize in-memory project cache after confirmed disk file initialization
+      let pRec = this.cachedProjects.get(projectId);
+      if (!pRec) {
+        pRec = { revision: 0, data: new Map(), keyVersions: new Map() };
+        this.cachedProjects.set(projectId, pRec);
+      }
+
+      // 3. Register in projectList
+      const list = this.getProjectList();
+      const index = list.findIndex((p) => p.project_id === projectId);
+      if (index >= 0) {
+        list[index].project_name = projectName;
+        list[index].updated_at = new Date().toISOString();
+      } else {
+        list.push({
+          project_id: projectId,
+          project_name: projectName,
+          updated_at: new Date().toISOString(),
+        });
+      }
+      this.cachedManifest.projectList = list;
+
+      // 4. Wait for confirmed manifest persistence before claiming success!
+      const manifestRes = await this.dispatchManifestSave();
+      if (!manifestRes || !manifestRes.ok) {
+        const errMsg = manifestRes?.error || 'Failed to persist project registration to manifest.';
+        return { ok: false, error: errMsg };
+      }
+
+      return { ok: true };
+    } else {
+      // Browser fallback mode
+      try {
+        let pRec = this.cachedProjects.get(projectId);
+        if (!pRec) {
+          pRec = { revision: 0, data: new Map(), keyVersions: new Map() };
+          this.cachedProjects.set(projectId, pRec);
+        }
+
+        const list = this.getProjectList();
+        const index = list.findIndex((p) => p.project_id === projectId);
+        if (index >= 0) {
+          list[index].project_name = projectName;
+          list[index].updated_at = new Date().toISOString();
+        } else {
+          list.push({
+            project_id: projectId,
+            project_name: projectName,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        this.cachedManifest.projectList = list;
+        localStorage.setItem('alco_project_list', JSON.stringify(list));
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'localStorage write error' };
       }
     }
-
-    // Safely register in projectList and save manifest
-    const list = this.getProjectList();
-    const index = list.findIndex((p) => p.project_id === projectId);
-    if (index >= 0) {
-      list[index].project_name = projectName;
-      list[index].updated_at = new Date().toISOString();
-    } else {
-      list.push({
-        project_id: projectId,
-        project_name: projectName,
-        updated_at: new Date().toISOString(),
-      });
-    }
-    this.saveProjectList(list);
-
-    return { ok: true };
   }
 
   /**
@@ -411,10 +458,16 @@ class DesktopStorageAdapter {
       try {
         const key = `alco_project_${projectId}_${dataType}`;
         localStorage.setItem(key, JSON.stringify(data));
-      } catch (err) {
+        return { persisted: Promise.resolve({ ok: true }) };
+      } catch (err: any) {
         console.error('Failed to save project data to localStorage:', err);
+        return {
+          persisted: Promise.resolve({
+            ok: false,
+            error: err?.message || 'Failed to save project data to localStorage',
+          }),
+        };
       }
-      return { persisted: Promise.resolve({ ok: true }) };
     }
 
     if (!this.isHydrated) {
@@ -576,34 +629,84 @@ class DesktopStorageAdapter {
 
   /**
    * Dispatches manifest save to Electron main process via IPC.
+   * Exposes an operation-specific manifest acknowledgment.
    */
-  private dispatchManifestSave(): void {
-    if (!this.isDesktopElectron() || !this.isHydrated) return;
+  public async dispatchManifestSave(): Promise<SaveOperationResult> {
+    if (typeof window === 'undefined') return { ok: true };
 
-    const bridge = (window as any).alcoBridge.storage;
+    if (!this.isDesktopElectron()) {
+      try {
+        localStorage.setItem(
+          'alco_project_list',
+          JSON.stringify(this.cachedManifest.projectList)
+        );
+        if (this.cachedManifest.activeProjectId) {
+          localStorage.setItem('alco_active_project_id', this.cachedManifest.activeProjectId);
+          localStorage.setItem('alco_selected_project_id', this.cachedManifest.activeProjectId);
+        } else {
+          localStorage.removeItem('alco_active_project_id');
+          localStorage.removeItem('alco_selected_project_id');
+        }
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'localStorage error saving manifest' };
+      }
+    }
+
+    if (!this.isHydrated) {
+      const err = new Error('Cannot save manifest before storage is hydrated.');
+      this.lastPersistError = err;
+      return { ok: false, error: err.message };
+    }
+
+    const bridge = (window as any).alcoBridge?.storage;
+    if (!bridge?.saveManifest) {
+      return { ok: false, error: 'Electron storage bridge saveManifest is not available.' };
+    }
+
     const manifestPayload = {
       activeProjectId: this.cachedManifest.activeProjectId,
       projectList: this.cachedManifest.projectList,
     };
 
-    const manifestPromise = bridge
-      .saveManifest(manifestPayload)
-      .then((res: any) => {
-        if (!res || !res.ok) {
-          const errMsg = res?.error || 'IPC saveManifest failed';
-          this.lastPersistError = new Error(errMsg);
-          console.error('[ALCO Storage Adapter] Manifest persistence error:', errMsg);
+    let operationResolve!: (val: SaveOperationResult) => void;
+    const perOperationPromise = new Promise<SaveOperationResult>((resolve) => {
+      operationResolve = resolve;
+    });
+
+    const prevQueue = this.manifestMutationQueue || Promise.resolve({ ok: true });
+
+    const manifestTask = prevQueue
+      .catch(() => ({ ok: false }))
+      .then(async () => {
+        try {
+          const res = await bridge.saveManifest(manifestPayload);
+          if (!res || !res.ok) {
+            const errMsg = res?.error || 'IPC saveManifest failed';
+            const err = new Error(errMsg);
+            this.lastPersistError = err;
+            console.error('[ALCO Storage Adapter] Manifest persistence error:', errMsg);
+            operationResolve({ ok: false, error: errMsg });
+            return { ok: false, error: errMsg };
+          }
+          operationResolve({ ok: true });
+          return { ok: true };
+        } catch (err: any) {
+          const errMsg = err?.message || 'Manifest IPC error';
+          this.lastPersistError = err;
+          console.error('[ALCO Storage Adapter] Manifest IPC error:', err);
+          operationResolve({ ok: false, error: errMsg });
+          return { ok: false, error: errMsg };
         }
-      })
-      .catch((err: any) => {
-        this.lastPersistError = err;
-        console.error('[ALCO Storage Adapter] Manifest IPC error:', err);
-      })
-      .finally(() => {
-        this.pendingWrites.delete(manifestPromise);
       });
 
-    this.pendingWrites.add(manifestPromise);
+    this.manifestMutationQueue = manifestTask;
+    this.pendingWrites.add(manifestTask);
+    manifestTask.finally(() => {
+      this.pendingWrites.delete(manifestTask);
+    });
+
+    return perOperationPromise;
   }
 
   /**
@@ -630,3 +733,4 @@ export const getLastStorageError = () => desktopStorageAdapter.getLastStorageErr
 export const isDesktopElectron = () => desktopStorageAdapter.isDesktopElectron();
 export const createProject = (projectId: string, projectName?: string) =>
   desktopStorageAdapter.createProject(projectId, projectName);
+export const dispatchManifestSave = () => desktopStorageAdapter.dispatchManifestSave();

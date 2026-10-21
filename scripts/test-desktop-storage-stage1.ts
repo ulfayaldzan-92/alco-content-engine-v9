@@ -742,6 +742,173 @@ async function runTests() {
       'Incomplete project data is valid empty object without causing corruption error'
     );
 
+    // ------------------------------------------------------------------------
+    // Test 25: initProject failure propagation (Final Consistency Patch)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 25: initProject failure propagation ---');
+    const initFailBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: { manifest: { activeProjectId: null, projectList: [] }, projects: {} },
+      }),
+      initProject: async () => ({ ok: false, error: 'Disk I/O error during project initialization' }),
+      saveManifest: async () => ({ ok: true }),
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: initFailBridge,
+      },
+    };
+
+    await desktopStorageAdapter.initializeStorage();
+    const failInitRes = await desktopStorageAdapter.createProject('proj_fail_init', 'Failed Brand');
+    assert(failInitRes.ok === false, 'createProject fails when initProject fails on disk');
+    assert(
+      Boolean(failInitRes.error?.includes('Disk I/O error')),
+      'Error message propagated from initProject failure'
+    );
+    assert(
+      !desktopStorageAdapter.getProjectList().some((p) => p.project_id === 'proj_fail_init'),
+      'Project not registered in projectList on initProject failure'
+    );
+
+    // ------------------------------------------------------------------------
+    // Test 26: manifest save failure propagation (Final Consistency Patch)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 26: manifest save failure propagation ---');
+    const manifestFailBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: { manifest: { activeProjectId: null, projectList: [] }, projects: {} },
+      }),
+      initProject: async () => ({ ok: true }),
+      saveManifest: async () => ({ ok: false, error: 'Manifest disk write failure' }),
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: manifestFailBridge,
+      },
+    };
+
+    await desktopStorageAdapter.initializeStorage();
+    const failManifestRes = await desktopStorageAdapter.createProject('proj_fail_manifest', 'Failed Brand');
+    assert(failManifestRes.ok === false, 'createProject fails when manifest save fails on disk');
+    assert(
+      Boolean(failManifestRes.error?.includes('Manifest disk write failure')),
+      'Error message propagated from manifest save failure'
+    );
+
+    // ------------------------------------------------------------------------
+    // Test 27: rapid duplicate creation (Final Consistency Patch)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 27: rapid duplicate creation ---');
+    let manifestSaveCount = 0;
+    const rapidBridge = {
+      getBootstrapSnapshot: async () => ({
+        ok: true,
+        snapshot: { manifest: { activeProjectId: null, projectList: [] }, projects: {} },
+      }),
+      initProject: async () => ({ ok: true }),
+      saveManifest: async () => {
+        manifestSaveCount++;
+        return { ok: true };
+      },
+      flush: async () => ({ ok: true }),
+    };
+
+    (global as any).window = {
+      alcoBridge: {
+        isElectron: true,
+        storage: rapidBridge,
+      },
+    };
+
+    await desktopStorageAdapter.initializeStorage();
+    const dupPid = 'proj_rapid_duplicate_test';
+    const [dupRes1, dupRes2] = await Promise.all([
+      desktopStorageAdapter.createProject(dupPid, 'Duplicate Brand A'),
+      desktopStorageAdapter.createProject(dupPid, 'Duplicate Brand B'),
+    ]);
+
+    assert(dupRes1.ok === true && dupRes2.ok === true, 'Both duplicate creation calls complete safely');
+    const listCheck = desktopStorageAdapter.getProjectList().filter((p) => p.project_id === dupPid);
+    assert(listCheck.length === 1, 'No duplicate project entries created in projectList');
+
+    // ------------------------------------------------------------------------
+    // Test 28: project creation success followed by restart (Final Consistency Patch)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 28: project creation success followed by restart ---');
+    const e2ePid = 'proj_e2e_restart_full';
+    await engine.initProject(e2ePid);
+    const existingManifest = engine.getManifestSync();
+    await engine.saveManifest({
+      activeProjectId: e2ePid,
+      projectList: [
+        ...existingManifest.projectList,
+        { project_id: e2ePid, project_name: 'E2E Restart Brand', updated_at: new Date().toISOString() },
+      ],
+    });
+
+    const freshEngine2 = new StorageEngine(testTmpDir);
+    const snapshot2 = await freshEngine2.getBootstrapSnapshot();
+    assert(snapshot2.ok === true, 'Snapshot succeeded after fresh engine restart');
+    assert(snapshot2.snapshot.manifest.activeProjectId === e2ePid, 'Active project ID retained across restart');
+    assert(Boolean(snapshot2.snapshot.projects[e2ePid]), 'Project data found in restarted snapshot');
+    assert(snapshot2.snapshot.projects[e2ePid].revision === 0, 'Project has initial revision 0');
+
+    // ------------------------------------------------------------------------
+    // Test 29: browser localStorage write failure (Final Consistency Patch)
+    // ------------------------------------------------------------------------
+    console.log('\n--- TEST 29: browser localStorage write failure ---');
+    // Simulate non-Electron browser environment
+    delete (global as any).window;
+
+    const originalLocalStorage = (global as any).localStorage;
+    const mockLocalStorageStore: Record<string, string> = {};
+    (global as any).localStorage = {
+      getItem: (key: string) => mockLocalStorageStore[key] || null,
+      setItem: (key: string, value: string) => {
+        if (key.includes('quota_fail')) {
+          throw new Error('QuotaExceededError: The quota has been exceeded');
+        }
+        mockLocalStorageStore[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete mockLocalStorageStore[key];
+      },
+    };
+
+    // Normal write succeeds
+    const successWrite = desktopStorageAdapter.saveProjectData('proj_browser', 'normal_key', { a: 1 });
+    const successAck = await successWrite.persisted;
+    assert(successAck.ok === true, 'Normal browser write succeeds in localStorage');
+    assert(
+      desktopStorageAdapter.loadProjectData('proj_browser', 'normal_key')?.a === 1,
+      'Normal browser read succeeds synchronously'
+    );
+
+    // Failed write returns persisted.ok: false
+    const failedWrite = desktopStorageAdapter.saveProjectData('proj_browser', 'quota_fail_key', { b: 2 });
+    const failedAck = await failedWrite.persisted;
+    assert(failedAck.ok === false, 'Browser write returns persisted.ok: false when localStorage throws');
+    assert(
+      Boolean(failedAck.error?.includes('QuotaExceededError')),
+      'Error message propagated from localStorage failure'
+    );
+
+    // Restore original localStorage if any
+    if (originalLocalStorage) {
+      (global as any).localStorage = originalLocalStorage;
+    } else {
+      delete (global as any).localStorage;
+    }
+
     console.log('\n====================================================');
     console.log('🎉 ALL STAGE 1 LOCAL PERSISTENT STORAGE TESTS PASSED!');
     console.log('====================================================');

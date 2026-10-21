@@ -77,6 +77,8 @@ export default function HomePageClient() {
   const [strategyBlueprint, setStrategyBlueprint] = useState<StrategyBlueprint | null>(null);
   const [sharedContext, setSharedContext] = useState<SharedContentContext | null>(null);
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState(false);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const isCreatingProjectRef = useRef(false);
 
   const { state: licenseState } = useLicense();
   const [accessCode, setAccessCode] = useState('');
@@ -835,15 +837,33 @@ export default function HomePageClient() {
     showToast('Sistem di-reset ke awal.');
   };
 
-  const handleCreateNewProject = () => {
-    const newPid = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    createProject(newPid, 'Project Baru').then(() => {
+  const handleCreateNewProject = async () => {
+    if (isCreatingProjectRef.current) return;
+    isCreatingProjectRef.current = true;
+    setIsCreatingProject(true);
+
+    try {
+      const newPid = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const result = await createProject(newPid, 'Project Baru');
+      if (!result || !result.ok) {
+        const errMsg = result?.error || 'Gagal membuat file penyimpanan proyek baru.';
+        showToast(`Gagal membuat project baru: ${errMsg}`);
+        console.error('[ALCO Storage] createProject failed:', errMsg);
+        return;
+      }
+
       setProjectList(getProjectList());
-    });
-    setProjectList(getProjectList());
-    loadProject(newPid);
-    setIsIntakeModalOpen(true);
-    showToast('Project baru dibuat. Silakan upload / paste Strategy Blueprint.');
+      loadProject(newPid);
+      setIsIntakeModalOpen(true);
+      showToast('Project baru dibuat. Silakan upload / paste Strategy Blueprint.');
+    } catch (err: any) {
+      const errMsg = err?.message || 'Terjadi kesalahan sistem saat membuat proyek.';
+      showToast(`Gagal membuat project baru: ${errMsg}`);
+      console.error('[ALCO Storage] Unexpected error in handleCreateNewProject:', err);
+    } finally {
+      isCreatingProjectRef.current = false;
+      setIsCreatingProject(false);
+    }
   };
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -873,13 +893,15 @@ export default function HomePageClient() {
             <span>Daftar Project</span>
             <button
               onClick={() => {
+                if (isCreatingProject) return;
                 setIsProjectDropdownOpen(false);
                 handleCreateNewProject();
               }}
-              className="flex items-center gap-1 text-primary hover:underline font-bold cursor-pointer"
+              disabled={isCreatingProject}
+              className={`flex items-center gap-1 font-bold cursor-pointer ${isCreatingProject ? 'text-muted-foreground opacity-60 cursor-not-allowed' : 'text-primary hover:underline'}`}
             >
               <Plus size={13} />
-              <span>Project Baru</span>
+              <span>{isCreatingProject ? 'Membuat...' : 'Project Baru'}</span>
             </button>
           </div>
           <div className="max-h-60 overflow-y-auto custom-scrollbar">

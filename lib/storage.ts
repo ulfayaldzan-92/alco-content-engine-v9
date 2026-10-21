@@ -9,6 +9,7 @@ import {
   getLastStorageError,
   isDesktopElectron,
   createProject,
+  dispatchManifestSave,
 } from './storage-adapter';
 
 export {
@@ -19,6 +20,7 @@ export {
   getLastStorageError,
   isDesktopElectron,
   createProject,
+  dispatchManifestSave,
 };
 
 export interface ProjectMeta {
@@ -42,7 +44,7 @@ export const getProjectList = (): ProjectMeta[] => {
 };
 
 export const saveProjectList = (list: ProjectMeta[]) => {
-  desktopStorageAdapter.saveProjectList(list);
+  return desktopStorageAdapter.saveProjectList(list);
 };
 
 export const getActiveProjectId = (): string | null => {

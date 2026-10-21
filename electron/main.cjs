@@ -5,6 +5,7 @@ const net = require('net');
 const { spawn, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const { initStorageEngine } = require('./storage-engine.cjs');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -484,6 +485,10 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     try {
+      // Initialize persistent local storage engine
+      initStorageEngine(app.getPath('userData'), ipcMain);
+      log(`[STORAGE] Persistent storage engine initialized at: ${path.join(app.getPath('userData'), 'storage')}`);
+
       const isDev = !app.isPackaged;
       let port = 3102;
 

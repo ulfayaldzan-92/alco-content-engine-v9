@@ -299,28 +299,28 @@ export default function HomePageClient() {
 
   // Auto-save blueprint & context
   useEffect(() => {
-    if (isSwitchingRef.current || !activeProjectId || isProjectIncomplete || !strategyBlueprint || !sharedContext || activeProjectIdRef.current !== activeProjectId) {
+    if (!isMounted || isSwitchingRef.current || !activeProjectId || isProjectIncomplete || !strategyBlueprint || !sharedContext || activeProjectIdRef.current !== activeProjectId) {
       return;
     }
     saveProjectData(activeProjectId, 'blueprint', strategyBlueprint);
     saveProjectData(activeProjectId, 'context', sharedContext);
     updateProjectMeta(activeProjectId, strategyBlueprint.brand_identity?.brand_name || strategyBlueprint.project_name || 'ALCO Campaign');
     setProjectList(getProjectList());
-  }, [strategyBlueprint, sharedContext, activeProjectId, isProjectIncomplete]);
+  }, [isMounted, strategyBlueprint, sharedContext, activeProjectId, isProjectIncomplete]);
 
   // Auto-save items & history
   useEffect(() => {
-    if (isSwitchingRef.current || !activeProjectId || isProjectIncomplete || activeProjectIdRef.current !== activeProjectId) {
+    if (!isMounted || isSwitchingRef.current || !activeProjectId || isProjectIncomplete || activeProjectIdRef.current !== activeProjectId) {
       return;
     }
     saveProjectData(activeProjectId, 'items', items);
     saveProjectData(activeProjectId, 'history', history);
     saveProjectData(activeProjectId, 'revisions', revisions);
-  }, [items, history, revisions, activeProjectId, isProjectIncomplete]);
+  }, [isMounted, items, history, revisions, activeProjectId, isProjectIncomplete]);
 
   // Auto-save calendar settings per project
   useEffect(() => {
-    if (isSwitchingRef.current || !activeProjectId || isProjectIncomplete || !strategyBlueprint || !sharedContext || activeProjectIdRef.current !== activeProjectId) {
+    if (!isMounted || isSwitchingRef.current || !activeProjectId || isProjectIncomplete || !strategyBlueprint || !sharedContext || activeProjectIdRef.current !== activeProjectId) {
       return;
     }
     const currentSettings: CalendarSettings = {
@@ -347,6 +347,7 @@ export default function HomePageClient() {
     };
     saveProjectCalendarSettings(activeProjectId, currentSettings);
   }, [
+    isMounted,
     activeProjectId,
     isProjectIncomplete,
     strategyBlueprint,

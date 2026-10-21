@@ -36,6 +36,7 @@ import { translateVideoProductionPrompts } from '../lib/prompt-translation';
 import {
   buildExecutionPromptAuthority,
   EXECUTION_PROMPT_CONTRACT_VERSION,
+  ExecutionPromptAuthority,
 } from '../lib/execution-prompt-authority';
 import {
   saveProductionPackage,
@@ -212,10 +213,10 @@ const validTranslationRes = translateVideoProductionPrompts({
   characterDNA: null,
   productAssetContext: null,
 });
-assert(validTranslationRes.ok && !!validTranslationRes.bundle, 'Video translation must succeed');
-const validPromptBundle = validTranslationRes.bundle!;
+if (!validTranslationRes.ok) throw new Error('Video translation must succeed: ' + validTranslationRes.error);
+const validPromptBundle = validTranslationRes.bundle;
 const validAuthorityRes = buildExecutionPromptAuthority(validPromptBundle);
-assert(validAuthorityRes.ok && !!validAuthorityRes.authority, 'Authority build must succeed');
+if (!validAuthorityRes.ok) throw new Error('Authority build must succeed: ' + validAuthorityRes.error);
 const validExecutionAuthority = validAuthorityRes.authority;
 
 const validReadiness: VideoProductionReadiness = {

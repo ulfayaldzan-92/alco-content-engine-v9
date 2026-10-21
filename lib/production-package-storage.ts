@@ -7,6 +7,8 @@ import {
   saveProjectData,
   loadProjectData,
   removeProjectData,
+  isStorageHydrated,
+  getLastStorageError,
 } from './storage';
 
 // ============================================================================
@@ -82,12 +84,33 @@ export function saveProductionPackage(
     };
   }
 
+  if (!isStorageHydrated()) {
+    return {
+      ok: false,
+      error: 'Penyimpanan belum terhidrasi. Gagal menyimpan ProductionPackage ke desktop storage.',
+    };
+  }
+
   const dataType = getProductionPackageDataType(
     productionPackage.content_item_id,
     productionPackage.asset_type
   );
 
-  saveProjectData(cleanProjectId, dataType, productionPackage);
+  try {
+    saveProjectData(cleanProjectId, dataType, productionPackage);
+    const lastErr = getLastStorageError();
+    if (lastErr) {
+      return {
+        ok: false,
+        error: `Gagal persistensi ProductionPackage: ${lastErr.message}`,
+      };
+    }
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: `Gagal menyimpan ProductionPackage: ${err?.message || err}`,
+    };
+  }
 
   return { ok: true };
 }

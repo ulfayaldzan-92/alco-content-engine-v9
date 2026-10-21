@@ -9,7 +9,20 @@ const bridgeApi = {
   getDeviceId: () => ipcRenderer.invoke('alco:get-device-id'),
   isElectron: true,
   platform: process.platform,
+
+  // ALCO Desktop Persistent Storage Bridge
+  storage: {
+    getBootstrapSnapshot: () => ipcRenderer.invoke('alco:storage:get-bootstrap-snapshot'),
+    saveProjectData: (projectId, dataType, data, clientRevision) =>
+      ipcRenderer.invoke('alco:storage:save-project-data', { projectId, dataType, data, clientRevision }),
+    removeProjectData: (projectId, dataType) =>
+      ipcRenderer.invoke('alco:storage:remove-project-data', { projectId, dataType }),
+    saveManifest: (manifest) =>
+      ipcRenderer.invoke('alco:storage:save-manifest', manifest),
+    flush: () => ipcRenderer.invoke('alco:storage:flush'),
+  },
 };
 
 contextBridge.exposeInMainWorld('alcoBridge', bridgeApi);
 contextBridge.exposeInMainWorld('electronAPI', bridgeApi);
+

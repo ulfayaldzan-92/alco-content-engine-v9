@@ -1,5 +1,23 @@
 import { SharedContentContext, buildSharedContentContext, ContentItem } from './content-contract';
 import { FunnelStrategy, buildFunnelStrategyFromContext } from './funnel-strategy';
+import {
+  desktopStorageAdapter,
+  isStorageHydrated,
+  getStorageHydrationError,
+  isLegacyMigrationAvailable,
+  waitForStoragePersistence,
+  getLastStorageError,
+  isDesktopElectron,
+} from './storage-adapter';
+
+export {
+  isStorageHydrated,
+  getStorageHydrationError,
+  isLegacyMigrationAvailable,
+  waitForStoragePersistence,
+  getLastStorageError,
+  isDesktopElectron,
+};
 
 export interface ProjectMeta {
   project_id: string;
@@ -18,39 +36,19 @@ export const getProjectKey = (projectId: string, dataType: string) => {
 };
 
 export const getProjectList = (): ProjectMeta[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const list = localStorage.getItem(STORAGE_KEYS.PROJECT_LIST);
-    return list ? JSON.parse(list) : [];
-  } catch (err) {
-    return [];
-  }
+  return desktopStorageAdapter.getProjectList();
 };
 
 export const saveProjectList = (list: ProjectMeta[]) => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEYS.PROJECT_LIST, JSON.stringify(list));
-  } catch (err) {
-    console.error('Failed to save project list', err);
-  }
+  desktopStorageAdapter.saveProjectList(list);
 };
 
 export const getActiveProjectId = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(STORAGE_KEYS.ACTIVE_PROJECT_ID) || localStorage.getItem(STORAGE_KEYS.SELECTED_PROJECT_ID) || null;
+  return desktopStorageAdapter.getActiveProjectId();
 };
 
 export const setActiveProjectId = (projectId: string | null) => {
-  if (typeof window === 'undefined') return;
-  if (projectId) {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_PROJECT_ID, projectId);
-    // Keep in sync to guarantee single source of truth and prevent divergent IDs
-    localStorage.setItem(STORAGE_KEYS.SELECTED_PROJECT_ID, projectId);
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_PROJECT_ID);
-    localStorage.removeItem(STORAGE_KEYS.SELECTED_PROJECT_ID);
-  }
+  desktopStorageAdapter.setActiveProjectId(projectId);
 };
 
 export const getSelectedProjectId = (): string | null => {
@@ -128,35 +126,15 @@ export const updateProjectMeta = (projectId: string, projectName: string) => {
 };
 
 export const saveProjectData = (projectId: string, dataType: string, data: any) => {
-  if (typeof window === 'undefined') return;
-  try {
-    const key = getProjectKey(projectId, dataType);
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (err) {
-    console.error('Failed to save project data:', err);
-  }
+  desktopStorageAdapter.saveProjectData(projectId, dataType, data);
 };
 
 export const loadProjectData = (projectId: string, dataType: string, defaultValue: any = null) => {
-  if (typeof window === 'undefined') return defaultValue;
-  try {
-    const key = getProjectKey(projectId, dataType);
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
-  } catch (err) {
-    console.error('Failed to load project data:', err);
-    return defaultValue;
-  }
+  return desktopStorageAdapter.loadProjectData(projectId, dataType, defaultValue);
 };
 
 export const removeProjectData = (projectId: string, dataType: string) => {
-  if (typeof window === 'undefined') return;
-  try {
-    const key = getProjectKey(projectId, dataType);
-    localStorage.removeItem(key);
-  } catch (err) {
-    console.error('Failed to remove project data:', err);
-  }
+  desktopStorageAdapter.removeProjectData(projectId, dataType);
 };
 
 export const updateItemInProject = (projectId: string, updatedItem: any) => {
@@ -345,46 +323,50 @@ export const getDefaultCalendarSettings = (
   const todayStr = new Date().toISOString().split('T')[0];
 
   if (context) {
-    const funnelStrategy = buildFunnelStrategyFromContext(context, { totalPosts: 14 });
-    const dist = funnelStrategy.distribution;
+    try {
+      const funnelStrategy = buildFunnelStrategyFromContext(context, { totalPosts: 14 });
+      const dist = funnelStrategy.distribution;
 
-    const hook1 = funnelStrategy.tofu.hook_direction.split(',')[0] || 'Problem Call-Out';
-    const hook2 = funnelStrategy.mofu.hook_direction.split(',')[0] || 'Framework Breakdown';
-    const hook3 = funnelStrategy.bofu.hook_direction.split(',')[0] || 'Outcome Demonstration';
+      const hook1 = funnelStrategy.tofu.hook_direction.split(',')[0] || 'Problem Call-Out';
+      const hook2 = funnelStrategy.mofu.hook_direction.split(',')[0] || 'Framework Breakdown';
+      const hook3 = funnelStrategy.bofu.hook_direction.split(',')[0] || 'Outcome Demonstration';
 
-    return {
-      coreTopic,
-      startDate: todayStr,
-      skipDays: [],
-      gender: context.audience_context?.primary_audience?.toLowerCase().includes('wanita')
-        ? 'Wanita'
-        : context.audience_context?.primary_audience?.toLowerCase().includes('pria')
-        ? 'Pria'
-        : 'Both',
-      ageRange: [20, 45],
-      formats: ['Single', 'Carousel', 'Reels'],
-      carouselSlides: 5,
-      reelsDuration: '30s',
-      ratio: { tofu: dist.tofu, mofu: dist.mofu, bofu: dist.bofu },
-      hasUserFunnelOverride: false,
-      hasUserCtaOverride: false,
-      hasUserHookOverride: false,
-      hasUserFormulaOverride: false,
-      hasUserCoreTopicOverride: false,
-      formatRatio: { Single: 30, Carousel: 40, Reels: 30 },
-      selectedVoices: ['The Efficiency Expert'],
-      hookMix: [
-        { type: hook1.slice(0, 30), percentage: 40 },
-        { type: hook2.slice(0, 30), percentage: 35 },
-        { type: hook3.slice(0, 30), percentage: 25 },
-      ],
-      selectedFormula: context.strategy_context?.positioning
-        ? `Framework: ${context.strategy_context.positioning.slice(0, 40)}`
-        : 'Problem-Solution Architecture',
-      referenceType: 'Logika AI',
-      selectedCTAs: context.strategy_context?.main_offer ? ['Amankan Penawaran', 'Pelajari Framework'] : ['Simpan Postingan', 'Pelajari Detail'],
-      isFastMode: false,
-    };
+      return {
+        coreTopic,
+        startDate: todayStr,
+        skipDays: [],
+        gender: context.audience_context?.primary_audience?.toLowerCase().includes('wanita')
+          ? 'Wanita'
+          : context.audience_context?.primary_audience?.toLowerCase().includes('pria')
+          ? 'Pria'
+          : 'Both',
+        ageRange: [20, 45],
+        formats: ['Single', 'Carousel', 'Reels'],
+        carouselSlides: 5,
+        reelsDuration: '30s',
+        ratio: { tofu: dist.tofu, mofu: dist.mofu, bofu: dist.bofu },
+        hasUserFunnelOverride: false,
+        hasUserCtaOverride: false,
+        hasUserHookOverride: false,
+        hasUserFormulaOverride: false,
+        hasUserCoreTopicOverride: false,
+        formatRatio: { Single: 30, Carousel: 40, Reels: 30 },
+        selectedVoices: ['The Efficiency Expert'],
+        hookMix: [
+          { type: hook1.slice(0, 30), percentage: 40 },
+          { type: hook2.slice(0, 30), percentage: 35 },
+          { type: hook3.slice(0, 30), percentage: 25 },
+        ],
+        selectedFormula: context.strategy_context?.positioning
+          ? `Framework: ${context.strategy_context.positioning.slice(0, 40)}`
+          : 'Problem-Solution Architecture',
+        referenceType: 'Logika AI',
+        selectedCTAs: context.strategy_context?.main_offer ? ['Amankan Penawaran', 'Pelajari Framework'] : ['Simpan Postingan', 'Pelajari Detail'],
+        isFastMode: false,
+      };
+    } catch (_) {
+      // Incomplete context falls back to default distribution while preserving derived coreTopic & brandName
+    }
   }
 
   return {

@@ -48,7 +48,10 @@ import {
   validateProductionCandidate,
 } from '../lib/production-candidate';
 import { prepareProductionPackage } from '../lib/production-package-workflow';
-import { translateCarouselProductionPrompts } from '../lib/prompt-translation';
+import {
+  translateCarouselProductionPrompts,
+  CarouselVisualFormat,
+} from '../lib/prompt-translation';
 import {
   buildExecutionPromptAuthority,
   ExecutionPromptAuthority,
@@ -263,20 +266,20 @@ function getHelperCarouselAuthority(
   candidate: CarouselProductionCandidate,
   characterDNA: CharacterDNA | null = null
 ): ExecutionPromptAuthority {
-  const slides = candidate.production_details?.slides?.map((s) => ({
+  const slides = (candidate.production_details?.slides || []).map((s) => ({
     slide_number: s.slide_number,
-    visual_format: s.visual_format || 'photography',
+    visual_format: ((s as unknown as Record<string, unknown>).visual_format as CarouselVisualFormat) || 'photography',
   }));
   const translationRes = translateCarouselProductionPrompts({
     candidate,
     slides,
     characterDNA,
   });
-  if (!translationRes.ok || !translationRes.bundle) {
+  if (!translationRes.ok) {
     throw new Error('Helper translateCarouselProductionPrompts failed: ' + translationRes.error);
   }
   const authorityRes = buildExecutionPromptAuthority(translationRes.bundle);
-  if (!authorityRes.ok || !authorityRes.authority) {
+  if (!authorityRes.ok) {
     throw new Error('Helper buildExecutionPromptAuthority failed: ' + authorityRes.error);
   }
   return authorityRes.authority;
@@ -1465,7 +1468,7 @@ async function runCarouselProductionPathTests(): Promise<void> {
   const mergeBlock = extractSourceBlock(
     pageFile,
     'const mergeCarouselPlanStages =',
-    'function buildFunnelAlignedVideoCaption('
+    'function isValidVideoCaption('
   );
   assert(
     mergeBlock.includes('captionForPost: validStage1.captionForPost'),

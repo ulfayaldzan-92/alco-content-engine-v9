@@ -3,6 +3,7 @@ import './globals.css';
 import { ThemeProvider } from '@/lib/theme-provider';
 import { LicenseProvider } from '@/lib/license/license-context';
 import { LicenseGate } from '@/components/license/LicenseGate';
+import { StorageHydrationBarrier } from '@/components/StorageHydrationBarrier';
 
 export const metadata: Metadata = {
   title: 'ALCO Content Engine v2',
@@ -20,7 +21,9 @@ export default function RootLayout({
         <ThemeProvider>
           <LicenseProvider>
             <LicenseGate>
-              {children}
+              <StorageHydrationBarrier>
+                {children}
+              </StorageHydrationBarrier>
             </LicenseGate>
           </LicenseProvider>
         </ThemeProvider>

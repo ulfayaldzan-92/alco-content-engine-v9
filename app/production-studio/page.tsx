@@ -64,7 +64,8 @@ import {
   getProjectSavedCharacters,
   saveProjectSavedCharacters,
   getProjectActiveCharacterId,
-  saveProjectActiveCharacterId
+  saveProjectActiveCharacterId,
+  isStorageHydrated
 } from '@/lib/storage';
 import {
   ProductionOutputSource,
@@ -2707,8 +2708,13 @@ export default function ProductionStudioPage() {
     if (!angleId || !!imageGeneratingKey || !canonicalProjectId) return;
 
     // Strict authority check (NO fallback item)
+    if (!sourceItem) {
+      setImageGenerateError('Authoritative ContentItem tidak ditemukan. Production package diblokir.');
+      showToast('Gagal: ContentItem tidak valid untuk produksi.');
+      return;
+    }
     if (!sourceItem || !sourceItem.content_item_id) {
-      setImageGenerateError('Authoritative ContentItem tidak ditemukan atau tidak memiliki content_item_id. Production package diblokir.');
+      setImageGenerateError('Authoritative ContentItem tidak memiliki content_item_id. Production package diblokir.');
       showToast('Gagal: ContentItem tidak valid untuk produksi.');
       return;
     }
@@ -2940,6 +2946,9 @@ export default function ProductionStudioPage() {
 
   // Load from local storage on mount
   useEffect(() => {
+    if (!isStorageHydrated()) {
+      return;
+    }
     // Check URL params for active tab first
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
@@ -4179,6 +4188,7 @@ ${formatDirection}${revisionDirective}`;
 
   useEffect(() => {
     if (
+      !isStorageHydrated() ||
       !canonicalProjectId ||
       !sourceItem?.content_item_id ||
       !selectedVideoProductionMode ||
@@ -4458,6 +4468,7 @@ ${formatDirection}${revisionDirective}`;
 
   useEffect(() => {
     if (
+      !isStorageHydrated() ||
       !canonicalProjectId ||
       !sourceItem?.content_item_id ||
       !effectiveCarouselCandidate ||

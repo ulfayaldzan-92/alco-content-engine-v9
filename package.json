@@ -18,7 +18,8 @@
     "verify:image-authority": "tsx scripts/test-image-authority-regression.ts",
     "verify:desktop-storage": "tsx scripts/test-desktop-storage-stage1.ts",
     "verify:electron-dev-startup": "tsx scripts/test-electron-dev-startup.ts",
-    "verify:full": "npm run verify:stability && npm run verify:funnel && npm run verify:video-authority && npm run verify:image-authority && npm run verify:desktop-storage && npm run verify:electron-dev-startup && npm run typecheck && npm run lint && cross-env NODE_ENV=production next build",
+    "verify:license-persistence": "tsx scripts/test-license-persistence.ts",
+    "verify:full": "npm run verify:stability && npm run verify:funnel && npm run verify:video-authority && npm run verify:image-authority && npm run verify:desktop-storage && npm run verify:electron-dev-startup && npm run verify:license-persistence && npm run typecheck && npm run lint && cross-env NODE_ENV=production next build",
     "desktop:build": "cross-env NODE_ENV=production next build && electron-builder --config electron-builder.json --win nsis"
   },
   "dependencies": {

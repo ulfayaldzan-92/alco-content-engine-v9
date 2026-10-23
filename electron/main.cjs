@@ -6,6 +6,7 @@ const { spawn, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const { initStorageEngine } = require('./storage-engine.cjs');
+const { initLicenseStorage } = require('./license-storage.cjs');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -561,6 +562,10 @@ if (typeof app !== 'undefined' && app && typeof app.requestSingleInstanceLock ==
         // Initialize persistent local storage engine
         initStorageEngine(app.getPath('userData'), ipcMain);
         log(`[STORAGE] Persistent storage engine initialized at: ${path.join(app.getPath('userData'), 'storage')}`);
+
+        // Initialize persistent license storage engine
+        initLicenseStorage(app.getPath('userData'), ipcMain);
+        log(`[LICENSE] Persistent license storage initialized at: ${path.join(app.getPath('userData'), 'license')}`);
 
         const isDev = !app.isPackaged;
         let port = 3102;

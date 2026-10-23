@@ -66,20 +66,28 @@ export async function getAlcoDeviceId(): Promise<string> {
   // 1. Primary Production Source: Electron IPC (Windows MachineGuid)
   if (typeof window !== 'undefined') {
     const bridge = window.alcoBridge || window.electronAPI;
-    if (bridge && typeof bridge.getDeviceId === 'function') {
-      try {
-        const electronDeviceId = await bridge.getDeviceId();
-        if (isValidAlcoDeviceId(electronDeviceId)) {
-          // Synchronize to localStorage for fast synchronous cached reads on startup
-          try {
-            window.localStorage?.setItem(DEVICE_ID_STORAGE_KEY, electronDeviceId);
-          } catch {
-            // Ignore localStorage write error
+    const isElectronEnv = !!(bridge && (bridge.isElectron || typeof bridge.getDeviceId === 'function'));
+    if (isElectronEnv) {
+      if (bridge && typeof bridge.getDeviceId === 'function') {
+        try {
+          const electronDeviceId = await bridge.getDeviceId();
+          if (isValidAlcoDeviceId(electronDeviceId)) {
+            // Synchronize to localStorage for fast synchronous cached reads on startup
+            try {
+              window.localStorage?.setItem(DEVICE_ID_STORAGE_KEY, electronDeviceId);
+            } catch {
+              // Ignore localStorage write error
+            }
+            return electronDeviceId;
+          } else {
+            throw new Error(`Invalid device ID received from Electron IPC: ${electronDeviceId}`);
           }
-          return electronDeviceId;
+        } catch (err: any) {
+          console.error('[ALCO License] Failed to retrieve Device ID via Electron IPC:', err);
+          throw new Error(`Desktop Device ID retrieval failed: ${err.message || err}. Never falling back to browser cached Device ID in desktop environment.`);
         }
-      } catch (err) {
-        console.warn('[ALCO License] Failed to retrieve Device ID via Electron IPC:', err);
+      } else {
+        throw new Error('Electron environment detected but getDeviceId bridge method is missing.');
       }
     }
   }

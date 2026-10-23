@@ -22,6 +22,19 @@ const bridgeApi = {
       ipcRenderer.invoke('alco:storage:save-manifest', manifest),
     flush: () => ipcRenderer.invoke('alco:storage:flush'),
   },
+
+  // ALCO License Persistence Bridge
+  readLicense: () => ipcRenderer.invoke('alco:license:read'),
+  saveLicense: (code) => ipcRenderer.invoke('alco:license:save', { code }),
+  removeLicense: () => ipcRenderer.invoke('alco:license:remove'),
+  license: {
+    readLicense: () => ipcRenderer.invoke('alco:license:read'),
+    saveLicense: (code) => ipcRenderer.invoke('alco:license:save', { code }),
+    removeLicense: () => ipcRenderer.invoke('alco:license:remove'),
+    read: () => ipcRenderer.invoke('alco:license:read'),
+    save: (code) => ipcRenderer.invoke('alco:license:save', { code }),
+    remove: () => ipcRenderer.invoke('alco:license:remove'),
+  },
 };
 
 contextBridge.exposeInMainWorld('alcoBridge', bridgeApi);

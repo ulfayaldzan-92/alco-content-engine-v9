@@ -14,7 +14,7 @@ interface LicenseContextValue {
   deviceId: string;
   isLoading: boolean;
   activateLicense: (rawCode: string) => Promise<AlcoVerificationResult>;
-  deactivateLicense: () => void;
+  deactivateLicense: () => Promise<void>;
   reverifyLicense: () => Promise<AlcoVerificationResult>;
   generateRequestCode: (params: { name: string; email: string; notes?: string }) => string;
 }
@@ -32,6 +32,101 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     lastVerifiedAt: null,
   });
 
+  const isElectronEnv = useCallback((): boolean => {
+    if (typeof window === 'undefined') return false;
+    const bridge = window.alcoBridge || window.electronAPI;
+    return !!(bridge && (bridge.isElectron || typeof bridge.readLicense === 'function' || typeof bridge.license?.readLicense === 'function'));
+  }, []);
+
+  const readStoredLicenseCode = async (): Promise<{ ok: boolean; code?: string | null; error?: string }> => {
+    if (isElectronEnv()) {
+      try {
+        const bridge = window.alcoBridge || window.electronAPI;
+        const reader = bridge?.license?.readLicense || bridge?.readLicense || bridge?.license?.read;
+        if (typeof reader === 'function') {
+          const res = await reader();
+          if (res && res.ok) {
+            return { ok: true, code: res.code };
+          }
+          return { ok: false, error: res?.error || 'Failed to read license from desktop disk' };
+        }
+      } catch (err: any) {
+        return { ok: false, error: err.message || 'Desktop license read exception' };
+      }
+    }
+
+    // Browser preview fallback: localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const code = window.localStorage.getItem(LICENSE_STORAGE_KEY);
+        return { ok: true, code: code ? code.trim() : null };
+      } catch (err: any) {
+        return { ok: false, error: err.message };
+      }
+    }
+    return { ok: true, code: null };
+  };
+
+  const saveStoredLicenseCode = async (rawCode: string): Promise<{ ok: boolean; error?: string }> => {
+    const trimmed = rawCode.trim();
+    if (isElectronEnv()) {
+      try {
+        const bridge = window.alcoBridge || window.electronAPI;
+        const saver = bridge?.license?.saveLicense || bridge?.saveLicense || bridge?.license?.save;
+        if (typeof saver === 'function') {
+          const res = await saver(trimmed);
+          if (res && res.ok) {
+            return { ok: true };
+          }
+          return { ok: false, error: res?.error || 'Desktop disk write failed' };
+        }
+      } catch (err: any) {
+        return { ok: false, error: err.message || 'Desktop license save exception' };
+      }
+    }
+
+    // Browser preview fallback: localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(LICENSE_STORAGE_KEY, trimmed);
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, error: err.message };
+      }
+    }
+    return { ok: false, error: 'Environment does not support storage' };
+  };
+
+  const removeStoredLicenseCode = async (): Promise<{ ok: boolean; error?: string }> => {
+    if (isElectronEnv()) {
+      try {
+        const bridge = window.alcoBridge || window.electronAPI;
+        const remover = bridge?.license?.removeLicense || bridge?.removeLicense || bridge?.license?.remove;
+        if (typeof remover === 'function') {
+          const res = await remover();
+          if (res && res.ok) {
+            return { ok: true };
+          }
+          return { ok: false, error: res?.error || 'Desktop disk removal failed' };
+        }
+      } catch (err: any) {
+        return { ok: false, error: err.message || 'Desktop license removal exception' };
+      }
+    }
+
+    // Browser preview fallback: localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.removeItem(LICENSE_STORAGE_KEY);
+        window.localStorage.removeItem(LAST_STATE_KEY);
+        return { ok: true };
+      } catch (err: any) {
+        return { ok: false, error: err.message };
+      }
+    }
+    return { ok: true };
+  };
+
   // Load and verify license on startup
   const initLicense = useCallback(async () => {
     setIsLoading(true);
@@ -39,11 +134,21 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const devId = await getAlcoDeviceId();
       setDeviceId(devId);
 
-      let savedCode: string | null = null;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        savedCode = window.localStorage.getItem(LICENSE_STORAGE_KEY);
+      const readRes = await readStoredLicenseCode();
+      if (!readRes.ok) {
+        setState({
+          status: 'invalid',
+          license: null,
+          rawCode: null,
+          deviceId: devId,
+          lastVerifiedAt: new Date().toISOString(),
+          error: `Disk storage read error: ${readRes.error}`,
+        });
+        setIsLoading(false);
+        return;
       }
 
+      const savedCode = readRes.code;
       if (!savedCode) {
         setState({
           status: 'unlicensed',
@@ -77,17 +182,17 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
           error: result.error,
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to initialize license:', err);
       setState((prev) => ({
         ...prev,
         status: 'unlicensed',
-        error: 'Gagal menginisialisasi verifikasi lisensi',
+        error: err.message || 'Gagal menginisialisasi verifikasi lisensi',
       }));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isElectronEnv]);
 
   useEffect(() => {
     // Read cached device ID safely after client mount to prevent SSR hydration mismatch
@@ -106,9 +211,22 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const result = await verifyLicenseCode(rawCode, currentDevId);
 
         if (result.valid && result.license) {
-          if (typeof window !== 'undefined' && window.localStorage) {
-            window.localStorage.setItem(LICENSE_STORAGE_KEY, rawCode.trim());
+          // Wait for durable save before reporting successful activation!
+          const saveRes = await saveStoredLicenseCode(rawCode);
+          if (!saveRes.ok) {
+            const diskError = `Disk write failure: ${saveRes.error || 'Gagal menyimpan lisensi ke disk'}`;
+            setState((prev) => ({
+              ...prev,
+              status: 'invalid',
+              error: diskError,
+            }));
+            return {
+              valid: false,
+              status: 'invalid_signature',
+              error: diskError,
+            };
           }
+
           setState({
             status: 'active',
             license: result.license,
@@ -136,14 +254,11 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsLoading(false);
       }
     },
-    [deviceId]
+    [deviceId, isElectronEnv]
   );
 
-  const deactivateLicense = useCallback(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(LICENSE_STORAGE_KEY);
-      window.localStorage.removeItem(LAST_STATE_KEY);
-    }
+  const deactivateLicense = useCallback(async () => {
+    await removeStoredLicenseCode();
     setState({
       status: 'unlicensed',
       license: null,
@@ -151,7 +266,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       deviceId,
       lastVerifiedAt: new Date().toISOString(),
     });
-  }, [deviceId]);
+  }, [deviceId, isElectronEnv]);
 
   const reverifyLicense = useCallback(async (): Promise<AlcoVerificationResult> => {
     if (!state.rawCode) {

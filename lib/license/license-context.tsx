@@ -44,21 +44,24 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return false;
   }, []);
 
-  const readStoredLicenseCode = async (): Promise<{ ok: boolean; code?: string | null; error?: string }> => {
+  const readStoredLicenseCode = async (): Promise<{ status: 'missing' | 'valid' | 'corrupt' | 'error'; ok: boolean; code?: string | null; error?: string }> => {
     if (isElectronDesktopRuntime()) {
       try {
         const bridge = window.alcoBridge || window.electronAPI;
         const reader = bridge?.license?.readLicense || bridge?.readLicense || bridge?.license?.read;
         if (typeof reader !== 'function') {
-          return { ok: false, error: 'Electron environment detected but license read IPC method is missing.' };
+          return { status: 'error', ok: false, error: 'Electron environment detected but license read IPC method is missing.' };
         }
         const res = await reader();
-        if (res && res.ok) {
-          return { ok: true, code: res.code };
+        if (res && res.status) {
+          return res;
         }
-        return { ok: false, error: res?.error || 'Desktop license read failed' };
+        if (res && res.ok) {
+          return { status: res.code ? 'valid' : 'missing', ok: true, code: res.code };
+        }
+        return { status: 'error', ok: false, error: res?.error || 'Desktop license read failed' };
       } catch (err: any) {
-        return { ok: false, error: err.message || 'Desktop license read exception' };
+        return { status: 'error', ok: false, error: err.message || 'Desktop license read exception' };
       }
     }
 
@@ -66,12 +69,12 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const code = window.localStorage.getItem(LICENSE_STORAGE_KEY);
-        return { ok: true, code: code ? code.trim() : null };
+        return { status: code ? 'valid' : 'missing', ok: true, code: code ? code.trim() : null };
       } catch (err: any) {
-        return { ok: false, error: err.message };
+        return { status: 'error', ok: false, error: err.message };
       }
     }
-    return { ok: true, code: null };
+    return { status: 'missing', ok: true, code: null };
   };
 
   const saveStoredLicenseCode = async (rawCode: string): Promise<{ ok: boolean; error?: string }> => {
@@ -136,33 +139,34 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { ok: true };
   };
 
-  // Load, verify, and perform safe legacy migration on startup
+  // Load, verify, and perform safe legacy migration on startup with enforced native Device ID
   const initLicense = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Always retrieve current native Device ID through native Electron IPC (or browser fallback) before verification/migration
       const devId = await getAlcoDeviceId();
       setDeviceId(devId);
 
-      // A. Read desktop license storage first
+      // A. Read desktop license storage with strict outcome classification
       const readRes = await readStoredLicenseCode();
 
-      // If desktop read storage returned an explicit error (e.g. corrupt JSON storage record), fail closed!
-      if (!readRes.ok) {
+      // If native storage is corrupt or error, fail closed immediately. Never migrate or fall back to localStorage.
+      if (readRes.status === 'corrupt' || readRes.status === 'error' || !readRes.ok) {
         setState({
           status: 'invalid',
           license: null,
           rawCode: null,
           deviceId: devId,
           lastVerifiedAt: new Date().toISOString(),
-          error: `Corrupt or unreadable desktop license storage: ${readRes.error}`,
+          error: `Native license storage unreadable or corrupt (${readRes.status}): ${readRes.error || 'Unknown storage error'}`,
         });
         setIsLoading(false);
         return;
       }
 
-      // B. If desktop license exists: verify using existing verification logic
+      // If native license exists and is valid
       const desktopCode = readRes.code;
-      if (desktopCode) {
+      if (readRes.status === 'valid' && desktopCode) {
         const result = await verifyLicenseCode(desktopCode, devId);
         if (result.valid && result.license) {
           setState({
@@ -173,7 +177,6 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
             lastVerifiedAt: new Date().toISOString(),
           });
         } else {
-          // Do not fall back to legacy localStorage when desktop license is invalid/expired/mismatched/corrupted
           setState({
             status: result.status === 'expired' ? 'expired' : 'invalid',
             license: result.license || null,
@@ -187,58 +190,63 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
 
-      // C. If desktop license file is genuinely missing: look for legacy license in localStorage
-      let legacyCode: string | null = null;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        legacyCode = window.localStorage.getItem(LICENSE_STORAGE_KEY);
-      }
+      // Only perform legacy migration when native license file is genuinely MISSING
+      if (readRes.status === 'missing') {
+        let legacyCode: string | null = null;
+        if (typeof window !== 'undefined' && window.localStorage) {
+          legacyCode = window.localStorage.getItem(LICENSE_STORAGE_KEY);
+        }
 
-      if (!legacyCode) {
+        if (!legacyCode) {
+          setState({
+            status: 'unlicensed',
+            license: null,
+            rawCode: null,
+            deviceId: devId,
+            lastVerifiedAt: new Date().toISOString(),
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        const legacyResult = await verifyLicenseCode(legacyCode, devId);
+        if (legacyResult.valid && legacyResult.license) {
+          const saveRes = await saveStoredLicenseCode(legacyCode);
+          if (!saveRes.ok) {
+            setState({
+              status: 'invalid',
+              license: legacyResult.license,
+              rawCode: legacyCode,
+              deviceId: devId,
+              lastVerifiedAt: new Date().toISOString(),
+              error: `Disk migration write failed: ${saveRes.error}. Please retry activation.`,
+            });
+          } else {
+            setState({
+              status: 'active',
+              license: legacyResult.license,
+              rawCode: legacyCode,
+              deviceId: devId,
+              lastVerifiedAt: new Date().toISOString(),
+            });
+          }
+        } else {
+          setState({
+            status: legacyResult.status === 'expired' ? 'expired' : 'invalid',
+            license: legacyResult.license || null,
+            rawCode: legacyCode,
+            deviceId: devId,
+            lastVerifiedAt: new Date().toISOString(),
+            error: legacyResult.error,
+          });
+        }
+      } else {
         setState({
           status: 'unlicensed',
           license: null,
           rawCode: null,
           deviceId: devId,
           lastVerifiedAt: new Date().toISOString(),
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // Verify legacy code
-      const legacyResult = await verifyLicenseCode(legacyCode, devId);
-      if (legacyResult.valid && legacyResult.license) {
-        // Attempt migration write to desktop storage
-        const saveRes = await saveStoredLicenseCode(legacyCode);
-        if (!saveRes.ok) {
-          // D. If migration write fails: do not report successful migration, preserve legacy, expose recoverable error
-          setState({
-            status: 'invalid',
-            license: legacyResult.license,
-            rawCode: legacyCode,
-            deviceId: devId,
-            lastVerifiedAt: new Date().toISOString(),
-            error: `Disk migration write failed: ${saveRes.error}. Please retry activation.`,
-          });
-        } else {
-          // Successful idempotent migration
-          setState({
-            status: 'active',
-            license: legacyResult.license,
-            rawCode: legacyCode,
-            deviceId: devId,
-            lastVerifiedAt: new Date().toISOString(),
-          });
-        }
-      } else {
-        // Invalid legacy code
-        setState({
-          status: legacyResult.status === 'expired' ? 'expired' : 'invalid',
-          license: legacyResult.license || null,
-          rawCode: legacyCode,
-          deviceId: devId,
-          lastVerifiedAt: new Date().toISOString(),
-          error: legacyResult.error,
         });
       }
     } catch (err: any) {
@@ -265,11 +273,13 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     async (rawCode: string): Promise<AlcoVerificationResult> => {
       setIsLoading(true);
       try {
-        const currentDevId = deviceId || (await getAlcoDeviceId());
+        // Enforce native Device ID retrieval before activation
+        const currentDevId = await getAlcoDeviceId();
+        setDeviceId(currentDevId);
+
         const result = await verifyLicenseCode(rawCode, currentDevId);
 
         if (result.valid && result.license) {
-          // Wait for durable save before reporting successful activation
           const saveRes = await saveStoredLicenseCode(rawCode);
           if (!saveRes.ok) {
             const diskError = `Disk write failure: ${saveRes.error || 'Gagal menyimpan lisensi ke disk'}`;
@@ -312,7 +322,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsLoading(false);
       }
     },
-    [deviceId, isElectronDesktopRuntime]
+    [isElectronDesktopRuntime]
   );
 
   const deactivateLicense = useCallback(async () => {
@@ -344,8 +354,11 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!state.rawCode) {
       return { valid: false, status: 'unlicensed', error: 'Belum ada lisensi terpasang' };
     }
-    return activateLicense(state.rawCode);
-  }, [state.rawCode, activateLicense]);
+    // Enforce native Device ID retrieval before reverification
+    const currentDevId = await getAlcoDeviceId();
+    setDeviceId(currentDevId);
+    return verifyLicenseCode(state.rawCode, currentDevId);
+  }, [state.rawCode, isElectronDesktopRuntime]);
 
   const generateRequestCode = useCallback(
     (params: { name: string; email: string; notes?: string }): string => {

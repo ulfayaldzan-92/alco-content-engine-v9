@@ -1,7 +1,7 @@
 /**
- * ALCO Content Engine v9 — Stage 3B: Hardened License Persistence Storage Engine
+ * ALCO Content Engine v9 — Stage 3C: Final Hardened License Persistence Storage Engine
  * Manages atomic JSON license persistence in app.getPath('userData')/license/license.json
- * with robust error handling and hardened IPC security validation.
+ * with precise status classification (missing, valid, corrupt, error) and strict IPC authorization.
  */
 
 const fs = require('fs');
@@ -84,26 +84,33 @@ class LicenseStorageEngine {
     }
   }
 
+  /**
+   * Reads and classifies storage outcomes with explicit distinction:
+   * - missing: file does not exist
+   * - valid: valid JSON structure containing a nonempty license code
+   * - corrupt: empty file, invalid JSON, missing code, or invalid structure
+   * - error: file permission or filesystem failure
+   */
   read() {
     try {
       if (!fs.existsSync(this.licensePath)) {
-        return { ok: true, code: null };
+        return { status: 'missing', ok: true, code: null };
       }
       const raw = fs.readFileSync(this.licensePath, 'utf8');
       if (!raw || !raw.trim()) {
-        return { ok: true, code: null };
+        return { status: 'corrupt', ok: false, error: 'License file is empty.' };
       }
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object' && typeof parsed.code === 'string' && parsed.code.trim()) {
-          return { ok: true, code: parsed.code.trim() };
+          return { status: 'valid', ok: true, code: parsed.code.trim() };
         }
-        return { ok: false, error: 'Malformed license storage record: missing or invalid code field.' };
+        return { status: 'corrupt', ok: false, error: 'Malformed license storage record: missing or invalid code field.' };
       } catch (parseErr) {
-        return { ok: false, error: `Corrupt license storage file (JSON parse error): ${parseErr.message}` };
+        return { status: 'corrupt', ok: false, error: `Corrupt license storage file (JSON parse error): ${parseErr.message}` };
       }
     } catch (err) {
-      return { ok: false, error: err.message };
+      return { status: 'error', ok: false, error: err.message };
     }
   }
 
@@ -129,35 +136,56 @@ class LicenseStorageEngine {
 }
 
 /**
- * Hardened IPC sender validation for license storage.
- * Authorizes only legitimate application renderer expected origins.
+ * Validates IPC sender identity against the trusted main application window and strict origin whitelist.
  */
-function validateLicenseIpcSender(event) {
-  if (!event || !event.senderFrame) return false;
+function validateLicenseIpcSender(event, mainWindow) {
+  if (!event || !event.senderFrame || !event.sender) return false;
+
+  // Compare sender with trusted main application window webContents if available
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (event.sender !== mainWindow.webContents) {
+      return false;
+    }
+  }
+
   const url = event.senderFrame.url;
   if (!url) return false;
+
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === 'file:' || parsed.protocol === 'app:' || parsed.protocol === 'devtools:') {
+    const origin = parsed.origin;
+
+    const isPackaged = typeof app !== 'undefined' && app.isPackaged;
+    if (isPackaged || parsed.protocol === 'file:' || parsed.protocol === 'app:') {
+      if (parsed.protocol === 'devtools:' || parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return false;
+      }
       return true;
     }
-    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
-      const port = parsed.port ? parseInt(parsed.port, 10) : 80;
-      if (port === 3000 || port === 3102 || (port >= 3000 && port <= 3150)) {
-        return true;
-      }
+
+    // Strict development mode whitelist (only exact application ports)
+    const allowedDevOrigins = [
+      'http://127.0.0.1:3102',
+      'http://localhost:3102',
+      'http://127.0.0.1:3000',
+      'http://localhost:3000',
+    ];
+
+    if (allowedDevOrigins.includes(origin)) {
+      return true;
     }
   } catch (_) {}
+
   return false;
 }
 
 let activeLicenseStorage = null;
 
-function initLicenseStorage(userDataPath, ipcMain) {
+function initLicenseStorage(userDataPath, ipcMain, getMainWindow) {
   if (!activeLicenseStorage) {
     activeLicenseStorage = new LicenseStorageEngine(userDataPath);
     if (ipcMain) {
-      registerLicenseIpcHandlers(activeLicenseStorage, ipcMain);
+      registerLicenseIpcHandlers(activeLicenseStorage, ipcMain, getMainWindow);
     }
   }
   return activeLicenseStorage;
@@ -167,16 +195,18 @@ function getActiveLicenseStorage() {
   return activeLicenseStorage;
 }
 
-function registerLicenseIpcHandlers(engine, ipcMain) {
+function registerLicenseIpcHandlers(engine, ipcMain, getMainWindow) {
   ipcMain.handle('alco:license:read', async (event) => {
-    if (!validateLicenseIpcSender(event)) {
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!validateLicenseIpcSender(event, mainWindow)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.read();
   });
 
   ipcMain.handle('alco:license:save', async (event, args) => {
-    if (!validateLicenseIpcSender(event)) {
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!validateLicenseIpcSender(event, mainWindow)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     const { code } = args || {};
@@ -184,7 +214,8 @@ function registerLicenseIpcHandlers(engine, ipcMain) {
   });
 
   ipcMain.handle('alco:license:remove', async (event) => {
-    if (!validateLicenseIpcSender(event)) {
+    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
+    if (!validateLicenseIpcSender(event, mainWindow)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.remove();

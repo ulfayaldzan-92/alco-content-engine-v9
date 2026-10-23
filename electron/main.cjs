@@ -81,9 +81,11 @@ function getAlcoProductionDeviceId() {
 }
 
 // Register IPC handler for renderer asking for Device ID
-ipcMain.handle('alco:get-device-id', async () => {
-  return getAlcoProductionDeviceId();
-});
+if (typeof ipcMain !== 'undefined' && ipcMain && typeof ipcMain.handle === 'function') {
+  ipcMain.handle('alco:get-device-id', async () => {
+    return getAlcoProductionDeviceId();
+  });
+}
 
 /* ==========================================================================
    2. PRODUCTION RUNTIME & SERVER LIFECYCLE (ALCO APP STANDARD v2.9)
@@ -222,6 +224,76 @@ function checkServerHealth(port, timeoutMs = 2000) {
       resolve(false);
     });
   });
+}
+
+/**
+ * Performs detailed HTTP GET health check against /api/health with error capture and identity verification.
+ */
+function checkDevServerDetailed(port, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: '127.0.0.1',
+        port: port,
+        path: '/api/health',
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let rawData = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          rawData += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 400) {
+            try {
+              const data = JSON.parse(rawData);
+              if (data && data.status === 'ok' && data.app === 'alco-content-engine') {
+                resolve({ success: true });
+              } else {
+                resolve({ success: false, error: `Invalid app identity: "${data?.app}" (expected "alco-content-engine")` });
+              }
+            } catch {
+              resolve({ success: false, error: `Non-JSON response (status ${res.statusCode}): ${rawData.slice(0, 100)}` });
+            }
+          } else {
+            resolve({ success: false, error: `HTTP status ${res.statusCode}` });
+          }
+        });
+      }
+    );
+
+    req.on('error', (err) => {
+      resolve({ success: false, error: err.code || err.message });
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ success: false, error: 'ETIMEDOUT' });
+    });
+  });
+}
+
+/**
+ * Polls development server with controlled retry, deadline, and detailed diagnostics.
+ */
+async function waitForDevServer(port, totalTimeoutMs = 15000, intervalMs = 1000) {
+  log(`Waiting for development server at port ${port} (timeout: ${totalTimeoutMs}ms)...`);
+  const startTime = Date.now();
+  let lastError = 'Unknown error';
+
+  while (Date.now() - startTime < totalTimeoutMs) {
+    if (isShuttingDown) throw new Error('Application is shutting down');
+    const result = await checkDevServerDetailed(port, 2000);
+    if (result.success) {
+      log(`Connected to development server on port ${port}.`);
+      return port;
+    }
+    lastError = result.error || 'Connection failed';
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  throw new Error(`Development server unreachable on port ${port} after ${totalTimeoutMs}ms. Last network/HTTP error: ${lastError}`);
 }
 
 /**
@@ -470,74 +542,100 @@ function createWindow(port) {
    4. APP INITIALIZATION & SINGLE INSTANCE LOCK
    ========================================================================== */
 
-const gotTheLock = app.requestSingleInstanceLock();
+if (typeof app !== 'undefined' && app && typeof app.requestSingleInstanceLock === 'function') {
+  const gotTheLock = app.requestSingleInstanceLock();
 
-if (!gotTheLock) {
-  log('Another instance is already running. Quitting duplicate instance.');
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-
-  app.whenReady().then(async () => {
-    try {
-      // Initialize persistent local storage engine
-      initStorageEngine(app.getPath('userData'), ipcMain);
-      log(`[STORAGE] Persistent storage engine initialized at: ${path.join(app.getPath('userData'), 'storage')}`);
-
-      const isDev = !app.isPackaged;
-      let port = 3102;
-
-      if (isDev) {
-        let isDevHealthy = await checkServerHealth(3102, 800);
-        if (isDevHealthy) {
-          log('Connected to existing development server on port 3102.');
-          port = 3102;
-        } else {
-          isDevHealthy = await checkServerHealth(3000, 800);
-          if (isDevHealthy) {
-            log('Connected to existing development server on port 3000.');
-            port = 3000;
-          } else {
-            log('Dev server not detected on port 3102 or 3000, starting production server runtime...');
-            port = await startProductionServer();
-          }
-        }
-      } else {
-        port = await startProductionServer();
-      }
-
-      activePort = port;
-      createWindow(port);
-    } catch (err) {
-      errorLog('Fatal error during application startup:', err);
-      app.quit();
-    }
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0 && activePort) {
-        createWindow(activePort);
+  if (!gotTheLock) {
+    log('Another instance is already running. Quitting duplicate instance.');
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
       }
     });
-  });
 
-  app.on('before-quit', async (event) => {
-    if (serverProcess) {
-      event.preventDefault();
-      await stopProductionServer();
-      app.quit();
-    }
-  });
+    app.whenReady().then(async () => {
+      try {
+        // Initialize persistent local storage engine
+        initStorageEngine(app.getPath('userData'), ipcMain);
+        log(`[STORAGE] Persistent storage engine initialized at: ${path.join(app.getPath('userData'), 'storage')}`);
 
-  app.on('window-all-closed', async () => {
-    if (process.platform !== 'darwin') {
-      await stopProductionServer();
-      app.quit();
-    }
-  });
+        const isDev = !app.isPackaged;
+        let port = 3102;
+
+        if (isDev) {
+          let connectedPort = null;
+          let err3102 = null;
+          let err3000 = null;
+
+          try {
+            log('Attempting to connect to Next.js development server on port 3102...');
+            connectedPort = await waitForDevServer(3102, 15000, 1000);
+          } catch (e1) {
+            err3102 = e1;
+            log(`Port 3102 connection failed: ${e1.message}. Trying port 3000...`);
+            try {
+              connectedPort = await waitForDevServer(3000, 10000, 1000);
+            } catch (e2) {
+              err3000 = e2;
+            }
+          }
+
+          if (!connectedPort) {
+            const diagnosticMessage = `[DEVELOPMENT STARTUP ERROR] Failed to connect to Next.js development server in development mode.
+- Target ports attempted: 3102, 3000
+- Timeout/retry failure: Exceeded startup deadlines (15000ms on 3102, 10000ms on 3000)
+- Network/HTTP errors:
+  * Port 3102: ${err3102 ? err3102.message : 'Unknown'}
+  * Port 3000: ${err3000 ? err3000.message : 'Unknown'}
+- Diagnostic action required: Please run 'npm run desktop:dev' or 'npm run dev' to start the Next.js development server before launching Electron.
+- Policy notice: In development mode, automatic fallback to the production server is disabled to prevent silent production runtime failures.`;
+            errorLog(diagnosticMessage);
+            throw new Error(diagnosticMessage);
+          }
+
+          port = connectedPort;
+        } else {
+          port = await startProductionServer();
+        }
+
+        activePort = port;
+        createWindow(port);
+      } catch (err) {
+        errorLog('Fatal error during application startup:', err);
+        app.quit();
+      }
+
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0 && activePort) {
+          createWindow(activePort);
+        }
+      });
+    });
+
+    app.on('before-quit', async (event) => {
+      if (serverProcess) {
+        event.preventDefault();
+        await stopProductionServer();
+        app.quit();
+      }
+    });
+
+    app.on('window-all-closed', async () => {
+      if (process.platform !== 'darwin') {
+        await stopProductionServer();
+        app.quit();
+      }
+    });
+  }
 }
+
+module.exports = {
+  checkServerHealth,
+  checkDevServerDetailed,
+  waitForDevServer,
+  getAlcoProductionDeviceId,
+};
 

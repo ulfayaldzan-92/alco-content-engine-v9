@@ -1,6 +1,7 @@
 /**
- * ALCO Content Engine v9 — Stage 3: License Persistence Storage Engine
+ * ALCO Content Engine v9 — Stage 3B: Hardened License Persistence Storage Engine
  * Manages atomic JSON license persistence in app.getPath('userData')/license/license.json
+ * with robust error handling and hardened IPC security validation.
  */
 
 const fs = require('fs');
@@ -47,8 +48,12 @@ class LicenseStorageEngine {
 
   atomicWrite(data) {
     const dir = path.dirname(this.licensePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
 
     const tempPath = `${this.licensePath}.tmp.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
@@ -85,23 +90,25 @@ class LicenseStorageEngine {
         return { ok: true, code: null };
       }
       const raw = fs.readFileSync(this.licensePath, 'utf8');
-      let code = raw;
+      if (!raw || !raw.trim()) {
+        return { ok: true, code: null };
+      }
       try {
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.code === 'string') {
-          code = parsed.code;
+        if (parsed && typeof parsed === 'object' && typeof parsed.code === 'string' && parsed.code.trim()) {
+          return { ok: true, code: parsed.code.trim() };
         }
-      } catch {
-        // If file contains raw code or malformed JSON, return raw or handle fail closed
+        return { ok: false, error: 'Malformed license storage record: missing or invalid code field.' };
+      } catch (parseErr) {
+        return { ok: false, error: `Corrupt license storage file (JSON parse error): ${parseErr.message}` };
       }
-      return { ok: true, code: code ? code.trim() : null };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   }
 
   save(code) {
-    if (!code || typeof code !== 'string') {
+    if (!code || typeof code !== 'string' || !code.trim()) {
       return { ok: false, error: 'Invalid license code for saving.' };
     }
     const trimmed = code.trim();
@@ -121,6 +128,29 @@ class LicenseStorageEngine {
   }
 }
 
+/**
+ * Hardened IPC sender validation for license storage.
+ * Authorizes only legitimate application renderer expected origins.
+ */
+function validateLicenseIpcSender(event) {
+  if (!event || !event.senderFrame) return false;
+  const url = event.senderFrame.url;
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'file:' || parsed.protocol === 'app:' || parsed.protocol === 'devtools:') {
+      return true;
+    }
+    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+      const port = parsed.port ? parseInt(parsed.port, 10) : 80;
+      if (port === 3000 || port === 3102 || (port >= 3000 && port <= 3150)) {
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
 let activeLicenseStorage = null;
 
 function initLicenseStorage(userDataPath, ipcMain) {
@@ -138,17 +168,15 @@ function getActiveLicenseStorage() {
 }
 
 function registerLicenseIpcHandlers(engine, ipcMain) {
-  const { validateIpcSender } = require('./storage-engine.cjs');
-
   ipcMain.handle('alco:license:read', async (event) => {
-    if (!validateIpcSender(event)) {
+    if (!validateLicenseIpcSender(event)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.read();
   });
 
   ipcMain.handle('alco:license:save', async (event, args) => {
-    if (!validateIpcSender(event)) {
+    if (!validateLicenseIpcSender(event)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     const { code } = args || {};
@@ -156,7 +184,7 @@ function registerLicenseIpcHandlers(engine, ipcMain) {
   });
 
   ipcMain.handle('alco:license:remove', async (event) => {
-    if (!validateIpcSender(event)) {
+    if (!validateLicenseIpcSender(event)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.remove();
@@ -167,4 +195,5 @@ module.exports = {
   LicenseStorageEngine,
   initLicenseStorage,
   getActiveLicenseStorage,
+  validateLicenseIpcSender,
 };

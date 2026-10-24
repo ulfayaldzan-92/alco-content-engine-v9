@@ -350,7 +350,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setState((prev) => ({
           ...prev,
           status: 'active',
-          license: result.license,
+          license: result.license || null,
           deviceId: currentDevId,
           lastVerifiedAt: new Date().toISOString(),
           error: undefined,

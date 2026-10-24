@@ -69,6 +69,37 @@
 }
 
 /* ==========================================================================
+   ALCO Electron Window Controls Overlay (WCO) Utilities
+   ========================================================================== */
+.app-drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Electron layout adjustments to seamlessly accommodate 32px native titlebar */
+html.is-electron,
+html.is-electron body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+html.is-electron .min-h-screen {
+  min-height: calc(100vh - 2rem) !important;
+}
+
+html.is-electron .h-screen {
+  height: calc(100vh - 2rem) !important;
+}
+
+html.is-electron aside.fixed {
+  top: 2rem;
+}
+
+/* ==========================================================================
    ALCO UI/UX STANDARD v1.0 Normalization (Section 3.1 & Section 28)
    Map legacy hardcoded color tokens to canonical ALCO semantic tokens
    ========================================================================== */

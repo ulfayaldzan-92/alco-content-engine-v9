@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer } = require('electron');
  */
 const bridgeApi = {
   getDeviceId: () => ipcRenderer.invoke('alco:get-device-id'),
+  setTheme: (theme) => ipcRenderer.invoke('alco:set-theme', { theme }),
   isElectron: true,
   platform: process.platform,
 

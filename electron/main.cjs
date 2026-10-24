@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const http = require('http');
 const net = require('net');
@@ -85,6 +85,69 @@ function getAlcoProductionDeviceId() {
 if (typeof ipcMain !== 'undefined' && ipcMain && typeof ipcMain.handle === 'function') {
   ipcMain.handle('alco:get-device-id', async () => {
     return getAlcoProductionDeviceId();
+  });
+
+  // ALCO Window Controls Overlay (WCO) theme synchronization handler
+  ipcMain.handle('alco:set-theme', async (event, args) => {
+    // Validate that sender is the trusted main application window
+    if (mainWindow && event.sender !== mainWindow.webContents) {
+      return { ok: false, error: 'Unauthorized IPC sender' };
+    }
+
+    const requestedTheme = (args && args.theme) || 'system';
+    if (typeof nativeTheme !== 'undefined' && nativeTheme) {
+      if (requestedTheme === 'dark' || requestedTheme === 'light') {
+        nativeTheme.themeSource = requestedTheme;
+      } else {
+        nativeTheme.themeSource = 'system';
+      }
+    }
+
+    const isDark =
+      requestedTheme === 'dark' ||
+      (requestedTheme === 'system' &&
+        typeof nativeTheme !== 'undefined' &&
+        nativeTheme &&
+        nativeTheme.shouldUseDarkColors);
+
+    if (mainWindow && typeof mainWindow.setTitleBarOverlay === 'function') {
+      try {
+        mainWindow.setTitleBarOverlay(getTitleBarOverlayOptions(isDark));
+      } catch (err) {
+        log(`[WCO] Could not update titleBarOverlay: ${err.message}`);
+      }
+    }
+
+    return { ok: true, isDark };
+  });
+}
+
+/**
+ * Returns Window Controls Overlay (WCO) styling matching current theme.
+ * Standard 32px height provides seamless titlebar integration on Windows.
+ */
+function getTitleBarOverlayOptions(isDark) {
+  return {
+    color: isDark ? '#0b0f17' : '#f8fafc',
+    symbolColor: isDark ? '#f8fafc' : '#0f172a',
+    height: 32,
+  };
+}
+
+// System theme change listener for Window Controls Overlay
+if (typeof nativeTheme !== 'undefined' && nativeTheme && typeof nativeTheme.on === 'function') {
+  nativeTheme.on('updated', () => {
+    if (
+      nativeTheme.themeSource === 'system' &&
+      mainWindow &&
+      typeof mainWindow.setTitleBarOverlay === 'function'
+    ) {
+      try {
+        mainWindow.setTitleBarOverlay(getTitleBarOverlayOptions(nativeTheme.shouldUseDarkColors));
+      } catch (err) {
+        // ignore overlay update errors on shutdown
+      }
+    }
   });
 }
 
@@ -506,6 +569,8 @@ function resolveWindowIcon() {
 
 function createWindow(port) {
   const windowIcon = resolveWindowIcon();
+  const isDark =
+    (typeof nativeTheme !== 'undefined' && nativeTheme && nativeTheme.shouldUseDarkColors) || false;
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -513,6 +578,8 @@ function createWindow(port) {
     minWidth: 1024,
     minHeight: 700,
     title: 'ALCO Content Engine',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: getTitleBarOverlayOptions(isDark),
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

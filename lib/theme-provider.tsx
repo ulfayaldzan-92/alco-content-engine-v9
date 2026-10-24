@@ -56,6 +56,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         root.classList.remove('dark');
         root.setAttribute('data-theme', 'light');
       }
+
+      // Synchronize theme with Electron Window Controls Overlay if running in desktop environment
+      if (typeof window !== 'undefined') {
+        const bridge = window.alcoBridge || window.electronAPI;
+        if (bridge && typeof bridge.setTheme === 'function') {
+          bridge.setTheme(currentTheme).catch(() => {});
+        }
+      }
     };
 
     applyTheme(theme);

@@ -7,11 +7,15 @@ declare global {
       getDeviceId: () => Promise<string>;
       isElectron?: boolean;
       platform?: string;
+      setTheme?: (theme: string) => Promise<{ ok: boolean; isDark?: boolean; error?: string }>;
+      [key: string]: any;
     };
     electronAPI?: {
       getDeviceId: () => Promise<string>;
       isElectron?: boolean;
       platform?: string;
+      setTheme?: (theme: string) => Promise<{ ok: boolean; isDark?: boolean; error?: string }>;
+      [key: string]: any;
     };
   }
 }

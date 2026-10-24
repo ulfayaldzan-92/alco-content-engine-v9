@@ -300,71 +300,85 @@ function checkServerHealth(port, timeoutMs = 2000) {
 /**
  * Performs detailed HTTP GET health check against /api/health with error capture and identity verification.
  */
-function checkDevServerDetailed(port, timeoutMs = 2000) {
+const DEV_STARTUP_TIMEOUT_MS = 180000;
+const DEV_REQUEST_TIMEOUT_MS = 120000;
+
+function checkDevServerDetailed(port, timeoutMs = DEV_REQUEST_TIMEOUT_MS) {
   return new Promise((resolve) => {
-    const req = http.get(
-      {
-        hostname: '127.0.0.1',
-        port: port,
-        path: '/api/health',
-        timeout: timeoutMs,
-      },
-      (res) => {
-        let rawData = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-          rawData += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 400) {
-            try {
-              const data = JSON.parse(rawData);
-              if (data && data.status === 'ok' && data.app === 'alco-content-engine') {
-                resolve({ success: true });
-              } else {
-                resolve({ success: false, error: `Invalid app identity: "${data?.app}" (expected "alco-content-engine")` });
-              }
-            } catch {
-              resolve({ success: false, error: `Non-JSON response (status ${res.statusCode}): ${rawData.slice(0, 100)}` });
-            }
-          } else {
-            resolve({ success: false, error: `HTTP status ${res.statusCode}` });
-          }
-        });
-      }
-    );
-
-    req.on('error', (err) => {
-      resolve({ success: false, error: err.code || err.message });
+    let settled = false;
+    let deadline;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      resolve(result);
+    };
+    const req = http.get({
+      hostname: '127.0.0.1', port, path: '/api/health', agent: false,
+    }, (res) => {
+      let rawData = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { rawData += chunk; });
+      res.on('error', () => finish({ success: false, error: 'Response stream failed' }));
+      res.on('aborted', () => finish({ success: false, error: 'Response aborted' }));
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          finish({ success: false, error: 'HTTP status ' + res.statusCode });
+          return;
+        }
+        try {
+          const data = JSON.parse(rawData);
+          finish(data?.status === 'ok' && data.app === 'alco-content-engine'
+            ? { success: true }
+            : { success: false, error: 'Invalid app identity (expected alco-content-engine)' });
+        } catch {
+          finish({ success: false, error: 'Non-JSON health response' });
+        }
+      });
     });
-
-    req.on('timeout', () => {
+    req.on('error', (err) => finish({ success: false, error: err.code || err.message }));
+    // Absolute deadline also bounds slow trickle responses, unlike socket inactivity timeouts.
+    deadline = setTimeout(() => {
+      finish({ success: false, error: 'ETIMEDOUT' });
       req.destroy();
-      resolve({ success: false, error: 'ETIMEDOUT' });
-    });
+    }, timeoutMs);
   });
 }
 
-/**
- * Polls development server with controlled retry, deadline, and detailed diagnostics.
- */
-async function waitForDevServer(port, totalTimeoutMs = 15000, intervalMs = 1000) {
-  log(`Waiting for development server at port ${port} (timeout: ${totalTimeoutMs}ms)...`);
-  const startTime = Date.now();
+/** One readiness owner; sequential requests and capped backoff within one deadline. */
+async function waitForDevServer(port, totalTimeoutMs = DEV_STARTUP_TIMEOUT_MS, intervalMs = 1000, requestTimeoutMs = DEV_REQUEST_TIMEOUT_MS) {
+  for (const value of [totalTimeoutMs, intervalMs, requestTimeoutMs]) {
+    if (!Number.isFinite(value) || value <= 0) throw new Error('Development readiness timeouts must be finite and positive');
+  }
+  log('Waiting for development server at port ' + port + ' (timeout: ' + totalTimeoutMs + 'ms)...');
+  const deadline = Date.now() + totalTimeoutMs;
   let lastError = 'Unknown error';
-
-  while (Date.now() - startTime < totalTimeoutMs) {
+  let attempts = 0;
+  while (Date.now() < deadline) {
     if (isShuttingDown) throw new Error('Application is shutting down');
-    const result = await checkDevServerDetailed(port, 2000);
-    if (result.success) {
-      log(`Connected to development server on port ${port}.`);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const result = await checkDevServerDetailed(port, Math.min(requestTimeoutMs, remaining));
+    attempts++;
+    if (result.success && Date.now() <= deadline) {
+      log('Connected to development server on port ' + port + ' after ' + attempts + ' health request(s).');
       return port;
     }
     lastError = result.error || 'Connection failed';
-    await new Promise((r) => setTimeout(r, intervalMs));
+    const delay = Math.min(intervalMs * 2 ** Math.min(attempts - 1, 3), 5000, Math.max(0, deadline - Date.now()));
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   }
+  throw new Error('Development server unreachable on port ' + port + ' after ' + totalTimeoutMs + 'ms (' + attempts + ' health requests). Last network/HTTP error: ' + lastError);
+}
 
-  throw new Error(`Development server unreachable on port ${port} after ${totalTimeoutMs}ms. Last network/HTTP error: ${lastError}`);
+async function connectDevelopmentServer() {
+  const rawPort = process.env.ALCO_DEV_PORT || '3102';
+  const port = Number(rawPort);
+  if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('ALCO_DEV_PORT must be an integer between 1 and 65535.');
+  }
+  // Never launch production or silently switch to another development app.
+  return waitForDevServer(port);
 }
 
 /**
@@ -656,37 +670,11 @@ if (typeof app !== 'undefined' && app && typeof app.requestSingleInstanceLock ==
         let port = 3102;
 
         if (isDev) {
-          let connectedPort = null;
-          let err3102 = null;
-          let err3000 = null;
-
           try {
-            log('Attempting to connect to Next.js development server on port 3102...');
-            connectedPort = await waitForDevServer(3102, 15000, 1000);
-          } catch (e1) {
-            err3102 = e1;
-            log(`Port 3102 connection failed: ${e1.message}. Trying port 3000...`);
-            try {
-              connectedPort = await waitForDevServer(3000, 10000, 1000);
-            } catch (e2) {
-              err3000 = e2;
-            }
+            port = await connectDevelopmentServer();
+          } catch (err) {
+            throw new Error('[DEVELOPMENT STARTUP ERROR] ' + err.message + '. Run npm run desktop:dev, or select the running development server with ALCO_DEV_PORT. Production fallback is disabled.');
           }
-
-          if (!connectedPort) {
-            const diagnosticMessage = `[DEVELOPMENT STARTUP ERROR] Failed to connect to Next.js development server in development mode.
-- Target ports attempted: 3102, 3000
-- Timeout/retry failure: Exceeded startup deadlines (15000ms on 3102, 10000ms on 3000)
-- Network/HTTP errors:
-  * Port 3102: ${err3102 ? err3102.message : 'Unknown'}
-  * Port 3000: ${err3000 ? err3000.message : 'Unknown'}
-- Diagnostic action required: Please run 'npm run desktop:dev' or 'npm run dev' to start the Next.js development server before launching Electron.
-- Policy notice: In development mode, automatic fallback to the production server is disabled to prevent silent production runtime failures.`;
-            errorLog(diagnosticMessage);
-            throw new Error(diagnosticMessage);
-          }
-
-          port = connectedPort;
         } else {
           port = await startProductionServer();
         }
@@ -725,6 +713,7 @@ if (typeof app !== 'undefined' && app && typeof app.requestSingleInstanceLock ==
 module.exports = {
   checkServerHealth,
   checkDevServerDetailed,
+  connectDevelopmentServer,
   waitForDevServer,
   getAlcoProductionDeviceId,
 };

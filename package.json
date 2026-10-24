@@ -5,7 +5,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev -p 3000",
-    "desktop:dev": "concurrently \"next dev -p 3102\" \"wait-on http://127.0.0.1:3102 && electron .\"",
+    "desktop:dev": "concurrently --kill-others \"next dev -p 3102\" \"cross-env ALCO_DEV_PORT=3102 electron .\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

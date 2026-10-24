@@ -29,7 +29,7 @@ export interface AlcoLicensePayload {
 
 export interface AlcoVerificationResult {
   valid: boolean;
-  status: 'active' | 'expired' | 'device_mismatch' | 'app_mismatch' | 'invalid_signature' | 'malformed' | 'unlicensed';
+  status: 'active' | 'expired' | 'device_mismatch' | 'app_mismatch' | 'invalid_signature' | 'malformed' | 'unlicensed' | 'verification_error' | 'storage_error';
   error?: string;
   license?: AlcoLicensePayload;
   deviceId?: string;

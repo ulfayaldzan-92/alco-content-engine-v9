@@ -149,12 +149,11 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: unknown) {
-    console.error('License verification route error:', err);
     return NextResponse.json(
       {
         valid: false,
-        status: 'invalid_signature',
-        error: `Terjadi kesalahan saat memverifikasi lisensi: ${err instanceof Error ? err.message : String(err)}`,
+        status: 'verification_error',
+        error: 'Layanan verifikasi lisensi gagal. Silakan coba lagi.',
       } satisfies AlcoVerificationResult,
       { status: 500 }
     );

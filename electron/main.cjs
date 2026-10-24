@@ -6,7 +6,7 @@ const { spawn, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const { initStorageEngine } = require('./storage-engine.cjs');
-const { initLicenseStorage } = require('./license-storage.cjs');
+const { initLicenseStorage, validateLicenseIpcSender } = require('./license-storage.cjs');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -41,7 +41,8 @@ function getWindowsMachineGuid() {
       );
       const match = stdout.match(/MachineGuid\s+REG_\w+\s+([a-zA-Z0-9{}-]+)/i);
       if (match && match[1]) {
-        return match[1].replace(/[{}]/g, '').trim().toLowerCase();
+        const guid = match[1].replace(/[{}]/g, '').trim().toLowerCase();
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(guid)) return guid;
       }
     } catch (err) {
       console.warn('[ALCO Device] Could not query Windows MachineGuid:', err.message);
@@ -58,6 +59,9 @@ function getAlcoProductionDeviceId() {
   if (cachedDeviceId) return cachedDeviceId;
 
   const machineGuid = getWindowsMachineGuid();
+  if (process.platform === 'win32' && !machineGuid) {
+    throw new Error('Windows MachineGuid unavailable. Retry after restoring registry access.');
+  }
   let hardwareSeed = '';
 
   if (machineGuid) {
@@ -83,7 +87,10 @@ function getAlcoProductionDeviceId() {
 
 // Register IPC handler for renderer asking for Device ID
 if (typeof ipcMain !== 'undefined' && ipcMain && typeof ipcMain.handle === 'function') {
-  ipcMain.handle('alco:get-device-id', async () => {
+  ipcMain.handle('alco:get-device-id', async (event) => {
+    if (!validateLicenseIpcSender(event, {
+      getMainWindow: () => mainWindow, getActivePort: () => activePort,
+    })) throw new Error('Unauthorized Device ID IPC sender.');
     return getAlcoProductionDeviceId();
   });
 
@@ -590,6 +597,14 @@ function createWindow(port) {
   });
 
   const targetUrl = `http://127.0.0.1:${port}`;
+  const restrictNavigation = (event, url) => {
+    try {
+      if (new URL(url).origin === targetUrl) return;
+    } catch {}
+    event.preventDefault();
+  };
+  mainWindow.webContents.on('will-navigate', restrictNavigation);
+  mainWindow.webContents.on('will-redirect', restrictNavigation);
   log(`Loading application main window at: ${targetUrl}`);
 
   mainWindow.loadURL(targetUrl).catch((err) => {

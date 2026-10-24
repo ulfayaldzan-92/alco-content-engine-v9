@@ -95,6 +95,9 @@ class LicenseStorageEngine {
       }
       try {
         const parsed = JSON.parse(raw);
+        if (parsed && parsed.deactivated === true) {
+          return { status: 'deactivated', ok: true, code: null };
+        }
         if (parsed && typeof parsed === 'object' && typeof parsed.code === 'string' && parsed.code.trim()) {
           return { status: 'valid', ok: true, code: parsed.code.trim() };
         }
@@ -117,14 +120,8 @@ class LicenseStorageEngine {
   }
 
   remove() {
-    try {
-      if (fs.existsSync(this.licensePath)) {
-        fs.unlinkSync(this.licensePath);
-      }
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
+    // A durable tombstone prevents retained legacy browser data from migrating again.
+    return this.atomicWrite({ deactivated: true, updatedAt: new Date().toISOString() });
   }
 }
 
@@ -132,72 +129,20 @@ class LicenseStorageEngine {
  * Validates IPC sender identity with dynamic port and active mainWindow / server origin matching.
  */
 function validateLicenseIpcSender(event, contextProvider) {
-  if (!event || !event.senderFrame || !event.sender) return false;
-
-  const mainWindow = contextProvider && typeof contextProvider.getMainWindow === 'function' ? contextProvider.getMainWindow() : null;
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return false;
-  }
-
-  // Sender must be the trusted mainWindow webContents
-  if (event.sender !== mainWindow.webContents) {
-    return false;
-  }
-
-  // Sender frame must be the expected main frame (if webContents has mainFrame)
-  if (event.sender.mainFrame && event.senderFrame !== event.sender.mainFrame) {
-    return false;
-  }
-
-  const url = event.senderFrame.url;
-  if (!url) return false;
-
   try {
-    const parsed = new URL(url);
-    const origin = parsed.origin;
+    if (!event || !event.senderFrame || !event.sender) return false;
 
-    if (parsed.protocol === 'devtools:') {
-      return false;
-    }
+    const mainWindow = contextProvider?.getMainWindow?.();
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
 
-    const isPackaged = typeof app !== 'undefined' && app.isPackaged;
-    if (isPackaged || parsed.protocol === 'file:' || parsed.protocol === 'app:') {
-      const windowUrl = mainWindow.webContents.getURL();
-      if (windowUrl) {
-        try {
-          const windowParsed = new URL(windowUrl);
-          if (windowParsed.origin === origin) {
-            return true;
-          }
-        } catch {}
-      }
-      return parsed.protocol === 'file:' || parsed.protocol === 'app:';
-    }
+    if (event.sender !== mainWindow.webContents) return false;
 
-    // Dynamic port authorization: derive from activePort or mainWindow URL or standard dev ports (3102, 3000)
-    const activePort = contextProvider && typeof contextProvider.getActivePort === 'function' ? contextProvider.getActivePort() : null;
-    const allowedPorts = [3102, 3000, 3001, 3103];
-    if (activePort) {
-      allowedPorts.push(Number(activePort));
-    }
+    if (!event.sender.mainFrame || event.senderFrame !== event.sender.mainFrame) return false;
 
-    // Also check window URL origin if available
-    const windowUrl = mainWindow.webContents.getURL();
-    if (windowUrl) {
-      try {
-        const windowParsed = new URL(windowUrl);
-        if (windowParsed.origin === origin) {
-          return true;
-        }
-      } catch {}
-    }
-
-    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
-      const port = parsed.port ? parseInt(parsed.port, 10) : 80;
-      if (allowedPorts.includes(port)) {
-        return true;
-      }
-    }
+    const port = contextProvider?.getActivePort?.();
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    const parsed = new URL(event.senderFrame.url);
+    return parsed.origin === `http://127.0.0.1:${port}` && !parsed.username && !parsed.password;
   } catch (_) {}
 
   return false;

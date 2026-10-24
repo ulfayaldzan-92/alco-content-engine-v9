@@ -1,3 +1,5 @@
+import { isElectronDesktopRuntime } from './runtime';
+
 const DEVICE_ID_STORAGE_KEY = 'alco_device_id_v2';
 const APP_NAMESPACE = 'alco:contentengine:device';
 
@@ -70,7 +72,7 @@ export async function getAlcoDeviceId(): Promise<string> {
   // 1. Primary Production Source: Electron IPC (Windows MachineGuid)
   if (typeof window !== 'undefined') {
     const bridge = window.alcoBridge || window.electronAPI;
-    const isElectronEnv = !!(bridge && (bridge.isElectron || typeof bridge.getDeviceId === 'function'));
+    const isElectronEnv = isElectronDesktopRuntime();
     if (isElectronEnv) {
       if (bridge && typeof bridge.getDeviceId === 'function') {
         try {
@@ -134,6 +136,7 @@ export async function getAlcoDeviceId(): Promise<string> {
  * Synchronous version for initial rendering when localStorage cache is available.
  */
 export function getCachedAlcoDeviceId(): string {
+  if (isElectronDesktopRuntime()) return '';
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
       const cached = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);

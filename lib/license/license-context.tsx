@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { AlcoLicensePayload, AlcoLicenseStoreState, AlcoVerificationResult } from './types';
 import { getAlcoDeviceId, getCachedAlcoDeviceId } from './device-fingerprint';
+import { isElectronDesktopRuntime } from './runtime';
 import { verifyLicenseCode } from './verification';
 import { generateRequestCodeV2 } from './request-code';
 
@@ -22,6 +23,7 @@ interface LicenseContextValue {
 const LicenseContext = createContext<LicenseContextValue | null>(null);
 
 export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const operationPending = useRef(false);
   const [deviceId, setDeviceId] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [state, setState] = useState<AlcoLicenseStoreState>({
@@ -32,13 +34,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     lastVerifiedAt: null,
   });
 
-  const isElectronDesktopRuntime = useCallback((): boolean => {
-    if (typeof window === 'undefined') return false;
-    const bridge = window.alcoBridge || window.electronAPI;
-    return !!(bridge && (bridge.isElectron === true || typeof bridge.readLicense === 'function' || typeof bridge.license?.readLicense === 'function' || typeof bridge.getDeviceId === 'function'));
-  }, []);
-
-  const readStoredLicenseCode = async (): Promise<{ status: 'missing' | 'valid' | 'corrupt' | 'error'; ok: boolean; code?: string | null; error?: string }> => {
+  const readStoredLicenseCode = async (): Promise<{ status: 'missing' | 'valid' | 'corrupt' | 'error' | 'deactivated'; ok: boolean; code?: string | null; error?: string }> => {
     if (isElectronDesktopRuntime()) {
       try {
         const bridge = window.alcoBridge || window.electronAPI;
@@ -135,6 +131,8 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Load, verify, and perform safe legacy migration on startup with enforced native Device ID
   const initLicense = useCallback(async () => {
+    if (operationPending.current) return;
+    operationPending.current = true;
     setIsLoading(true);
     try {
       const devId = await getAlcoDeviceId();
@@ -242,10 +240,11 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.error('Failed to initialize license:', err);
       setState((prev) => ({
         ...prev,
-        status: 'unlicensed',
+        status: 'invalid',
         error: err.message || 'Gagal menginisialisasi verifikasi lisensi',
       }));
     } finally {
+      operationPending.current = false;
       setIsLoading(false);
     }
   }, [isElectronDesktopRuntime]);
@@ -260,6 +259,8 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const activateLicense = useCallback(
     async (rawCode: string): Promise<AlcoVerificationResult> => {
+      if (operationPending.current) return { valid: false, status: 'verification_error', error: 'License operation already pending.' };
+      operationPending.current = true;
       setIsLoading(true);
       try {
         const currentDevId = await getAlcoDeviceId();
@@ -278,7 +279,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }));
             return {
               valid: false,
-              status: 'invalid_signature',
+              status: 'storage_error',
               error: diskError,
             };
           }
@@ -301,12 +302,10 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return result;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        return {
-          valid: false,
-          status: 'invalid_signature',
-          error: `Gagal mengaktifkan lisensi: ${msg}`,
-        };
+        setState(prev => ({ ...prev, status: 'invalid', error: `Gagal mengaktifkan lisensi: ${msg}` }));
+        return { valid: false, status: 'verification_error', error: `Gagal mengaktifkan lisensi: ${msg}` };
       } finally {
+        operationPending.current = false;
         setIsLoading(false);
       }
     },
@@ -314,6 +313,11 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const deactivateLicense = useCallback(async () => {
+    if (operationPending.current) {
+      setState(prev => ({ ...prev, error: 'License operation already pending. Retry deactivation.' }));
+      return;
+    }
+    operationPending.current = true;
     try {
       const res = await removeStoredLicenseCode();
       if (!res.ok) {
@@ -336,13 +340,21 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         error: `Deactivation exception: ${err.message || err}`,
       }));
     }
-  }, [deviceId, isElectronDesktopRuntime]);
+    finally { operationPending.current = false; }
+  }, [deviceId]);
 
   const reverifyLicense = useCallback(async (): Promise<AlcoVerificationResult> => {
     if (!state.rawCode) {
       return { valid: false, status: 'unlicensed', error: 'Belum ada lisensi terpasang' };
     }
+    if (operationPending.current) return { valid: false, status: 'verification_error', error: 'License operation already pending.' };
+    operationPending.current = true;
     try {
+      const stored = await readStoredLicenseCode();
+      if (!stored.ok || stored.status !== 'valid' || stored.code !== state.rawCode) {
+        setState(prev => ({ ...prev, status: 'invalid', error: 'Stored license unavailable or changed. Retry activation.' }));
+        return { valid: false, status: 'storage_error', error: 'Stored license unavailable or changed. Retry activation.' };
+      }
       const currentDevId = await getAlcoDeviceId();
       setDeviceId(currentDevId);
       const result = await verifyLicenseCode(state.rawCode, currentDevId);
@@ -366,7 +378,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err: any) {
       const errResult: AlcoVerificationResult = {
         valid: false,
-        status: 'invalid_signature',
+        status: 'verification_error',
         error: `Reverification error: ${err.message || err}`,
       };
       setState((prev) => ({
@@ -375,8 +387,8 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         error: errResult.error,
       }));
       return errResult;
-    }
-  }, [state.rawCode, isElectronDesktopRuntime]);
+    } finally { operationPending.current = false; }
+  }, [state.rawCode]);
 
   const generateRequestCode = useCallback(
     (params: { name: string; email: string; notes?: string }): string => {

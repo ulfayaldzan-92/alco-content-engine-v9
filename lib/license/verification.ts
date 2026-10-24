@@ -180,11 +180,17 @@ export async function verifyLicenseCode(
 
       if (response.ok) {
         const result = (await response.json()) as AlcoVerificationResult;
-        return result;
+        if (result && result.valid === true && result.status === 'active' &&
+            result.license && canonicalize(result.license) === canonicalData) return result;
+        if (result && result.valid === false && [
+          'expired', 'device_mismatch', 'app_mismatch', 'invalid_signature', 'malformed',
+          'unlicensed', 'verification_error',
+        ].includes(result.status)) return result;
       }
     } catch {
-      // Fallback to local crypto if API fails or offline
+      // Browser renderers cannot safely fall back to Node crypto.
     }
+    return { valid: false, status: 'verification_error', error: 'Layanan verifikasi lisensi tidak tersedia atau respons tidak valid. Silakan coba lagi.' };
   }
 
   // Server-side / Node.js Ed25519 verification
@@ -218,8 +224,8 @@ export async function verifyLicenseCode(
   } catch (err: unknown) {
     return {
       valid: false,
-      status: 'invalid_signature',
-      error: `Gagal memverifikasi signature: ${err instanceof Error ? err.message : String(err)}`,
+      status: 'verification_error',
+      error: 'Layanan kriptografi lisensi tidak tersedia. Silakan coba lagi.',
       license,
     };
   }

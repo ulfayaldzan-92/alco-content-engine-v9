@@ -564,7 +564,10 @@ if (typeof app !== 'undefined' && app && typeof app.requestSingleInstanceLock ==
         log(`[STORAGE] Persistent storage engine initialized at: ${path.join(app.getPath('userData'), 'storage')}`);
 
         // Initialize persistent license storage engine
-        initLicenseStorage(app.getPath('userData'), ipcMain, () => mainWindow);
+        initLicenseStorage(app.getPath('userData'), ipcMain, {
+          getMainWindow: () => mainWindow,
+          getActivePort: () => activePort,
+        });
         log(`[LICENSE] Persistent license storage initialized at: ${path.join(app.getPath('userData'), 'license')}`);
 
         const isDev = !app.isPackaged;

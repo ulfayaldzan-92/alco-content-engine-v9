@@ -1,7 +1,7 @@
 /**
- * ALCO Content Engine v9 — Stage 3C: Final Hardened License Persistence Storage Engine
+ * ALCO Content Engine v9 — Stage 3D: Final Dynamic Port IPC Hardened Storage Engine
  * Manages atomic JSON license persistence in app.getPath('userData')/license/license.json
- * with precise status classification (missing, valid, corrupt, error) and strict IPC authorization.
+ * with dynamic port origin validation and mainWindow webContents identity matching.
  */
 
 const fs = require('fs');
@@ -84,13 +84,6 @@ class LicenseStorageEngine {
     }
   }
 
-  /**
-   * Reads and classifies storage outcomes with explicit distinction:
-   * - missing: file does not exist
-   * - valid: valid JSON structure containing a nonempty license code
-   * - corrupt: empty file, invalid JSON, missing code, or invalid structure
-   * - error: file permission or filesystem failure
-   */
   read() {
     try {
       if (!fs.existsSync(this.licensePath)) {
@@ -136,16 +129,24 @@ class LicenseStorageEngine {
 }
 
 /**
- * Validates IPC sender identity against the trusted main application window and strict origin whitelist.
+ * Validates IPC sender identity with dynamic port and active mainWindow / server origin matching.
  */
-function validateLicenseIpcSender(event, mainWindow) {
+function validateLicenseIpcSender(event, contextProvider) {
   if (!event || !event.senderFrame || !event.sender) return false;
 
-  // Compare sender with trusted main application window webContents if available
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (event.sender !== mainWindow.webContents) {
-      return false;
-    }
+  const mainWindow = contextProvider && typeof contextProvider.getMainWindow === 'function' ? contextProvider.getMainWindow() : null;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  // Sender must be the trusted mainWindow webContents
+  if (event.sender !== mainWindow.webContents) {
+    return false;
+  }
+
+  // Sender frame must be the expected main frame (if webContents has mainFrame)
+  if (event.sender.mainFrame && event.senderFrame !== event.sender.mainFrame) {
+    return false;
   }
 
   const url = event.senderFrame.url;
@@ -155,24 +156,47 @@ function validateLicenseIpcSender(event, mainWindow) {
     const parsed = new URL(url);
     const origin = parsed.origin;
 
-    const isPackaged = typeof app !== 'undefined' && app.isPackaged;
-    if (isPackaged || parsed.protocol === 'file:' || parsed.protocol === 'app:') {
-      if (parsed.protocol === 'devtools:' || parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-        return false;
-      }
-      return true;
+    if (parsed.protocol === 'devtools:') {
+      return false;
     }
 
-    // Strict development mode whitelist (only exact application ports)
-    const allowedDevOrigins = [
-      'http://127.0.0.1:3102',
-      'http://localhost:3102',
-      'http://127.0.0.1:3000',
-      'http://localhost:3000',
-    ];
+    const isPackaged = typeof app !== 'undefined' && app.isPackaged;
+    if (isPackaged || parsed.protocol === 'file:' || parsed.protocol === 'app:') {
+      const windowUrl = mainWindow.webContents.getURL();
+      if (windowUrl) {
+        try {
+          const windowParsed = new URL(windowUrl);
+          if (windowParsed.origin === origin) {
+            return true;
+          }
+        } catch {}
+      }
+      return parsed.protocol === 'file:' || parsed.protocol === 'app:';
+    }
 
-    if (allowedDevOrigins.includes(origin)) {
-      return true;
+    // Dynamic port authorization: derive from activePort or mainWindow URL or standard dev ports (3102, 3000)
+    const activePort = contextProvider && typeof contextProvider.getActivePort === 'function' ? contextProvider.getActivePort() : null;
+    const allowedPorts = [3102, 3000, 3001, 3103];
+    if (activePort) {
+      allowedPorts.push(Number(activePort));
+    }
+
+    // Also check window URL origin if available
+    const windowUrl = mainWindow.webContents.getURL();
+    if (windowUrl) {
+      try {
+        const windowParsed = new URL(windowUrl);
+        if (windowParsed.origin === origin) {
+          return true;
+        }
+      } catch {}
+    }
+
+    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+      const port = parsed.port ? parseInt(parsed.port, 10) : 80;
+      if (allowedPorts.includes(port)) {
+        return true;
+      }
     }
   } catch (_) {}
 
@@ -181,11 +205,11 @@ function validateLicenseIpcSender(event, mainWindow) {
 
 let activeLicenseStorage = null;
 
-function initLicenseStorage(userDataPath, ipcMain, getMainWindow) {
+function initLicenseStorage(userDataPath, ipcMain, contextProvider) {
   if (!activeLicenseStorage) {
     activeLicenseStorage = new LicenseStorageEngine(userDataPath);
     if (ipcMain) {
-      registerLicenseIpcHandlers(activeLicenseStorage, ipcMain, getMainWindow);
+      registerLicenseIpcHandlers(activeLicenseStorage, ipcMain, contextProvider);
     }
   }
   return activeLicenseStorage;
@@ -195,18 +219,16 @@ function getActiveLicenseStorage() {
   return activeLicenseStorage;
 }
 
-function registerLicenseIpcHandlers(engine, ipcMain, getMainWindow) {
+function registerLicenseIpcHandlers(engine, ipcMain, contextProvider) {
   ipcMain.handle('alco:license:read', async (event) => {
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!validateLicenseIpcSender(event, mainWindow)) {
+    if (!validateLicenseIpcSender(event, contextProvider)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.read();
   });
 
   ipcMain.handle('alco:license:save', async (event, args) => {
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!validateLicenseIpcSender(event, mainWindow)) {
+    if (!validateLicenseIpcSender(event, contextProvider)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     const { code } = args || {};
@@ -214,8 +236,7 @@ function registerLicenseIpcHandlers(engine, ipcMain, getMainWindow) {
   });
 
   ipcMain.handle('alco:license:remove', async (event) => {
-    const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : null;
-    if (!validateLicenseIpcSender(event, mainWindow)) {
+    if (!validateLicenseIpcSender(event, contextProvider)) {
       return { ok: false, error: 'Unauthorized IPC sender origin.' };
     }
     return engine.remove();

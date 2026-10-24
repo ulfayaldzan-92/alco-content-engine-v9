@@ -35,13 +35,7 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isElectronDesktopRuntime = useCallback((): boolean => {
     if (typeof window === 'undefined') return false;
     const bridge = window.alcoBridge || window.electronAPI;
-    if (bridge && (bridge.isElectron === true || typeof bridge.readLicense === 'function' || typeof bridge.license?.readLicense === 'function')) {
-      return true;
-    }
-    if (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.includes('Electron')) {
-      return true;
-    }
-    return false;
+    return !!(bridge && (bridge.isElectron === true || typeof bridge.readLicense === 'function' || typeof bridge.license?.readLicense === 'function' || typeof bridge.getDeviceId === 'function'));
   }, []);
 
   const readStoredLicenseCode = async (): Promise<{ status: 'missing' | 'valid' | 'corrupt' | 'error'; ok: boolean; code?: string | null; error?: string }> => {
@@ -143,14 +137,11 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const initLicense = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Always retrieve current native Device ID through native Electron IPC (or browser fallback) before verification/migration
       const devId = await getAlcoDeviceId();
       setDeviceId(devId);
 
-      // A. Read desktop license storage with strict outcome classification
       const readRes = await readStoredLicenseCode();
 
-      // If native storage is corrupt or error, fail closed immediately. Never migrate or fall back to localStorage.
       if (readRes.status === 'corrupt' || readRes.status === 'error' || !readRes.ok) {
         setState({
           status: 'invalid',
@@ -164,7 +155,6 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
 
-      // If native license exists and is valid
       const desktopCode = readRes.code;
       if (readRes.status === 'valid' && desktopCode) {
         const result = await verifyLicenseCode(desktopCode, devId);
@@ -190,7 +180,6 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
 
-      // Only perform legacy migration when native license file is genuinely MISSING
       if (readRes.status === 'missing') {
         let legacyCode: string | null = null;
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -273,7 +262,6 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     async (rawCode: string): Promise<AlcoVerificationResult> => {
       setIsLoading(true);
       try {
-        // Enforce native Device ID retrieval before activation
         const currentDevId = await getAlcoDeviceId();
         setDeviceId(currentDevId);
 
@@ -354,10 +342,40 @@ export const LicenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!state.rawCode) {
       return { valid: false, status: 'unlicensed', error: 'Belum ada lisensi terpasang' };
     }
-    // Enforce native Device ID retrieval before reverification
-    const currentDevId = await getAlcoDeviceId();
-    setDeviceId(currentDevId);
-    return verifyLicenseCode(state.rawCode, currentDevId);
+    try {
+      const currentDevId = await getAlcoDeviceId();
+      setDeviceId(currentDevId);
+      const result = await verifyLicenseCode(state.rawCode, currentDevId);
+      if (result.valid && result.license) {
+        setState((prev) => ({
+          ...prev,
+          status: 'active',
+          license: result.license,
+          deviceId: currentDevId,
+          lastVerifiedAt: new Date().toISOString(),
+          error: undefined,
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          status: result.status === 'expired' ? 'expired' : 'invalid',
+          error: result.error || 'Reverification failed',
+        }));
+      }
+      return result;
+    } catch (err: any) {
+      const errResult: AlcoVerificationResult = {
+        valid: false,
+        status: 'invalid_signature',
+        error: `Reverification error: ${err.message || err}`,
+      };
+      setState((prev) => ({
+        ...prev,
+        status: 'invalid',
+        error: errResult.error,
+      }));
+      return errResult;
+    }
   }, [state.rawCode, isElectronDesktopRuntime]);
 
   const generateRequestCode = useCallback(

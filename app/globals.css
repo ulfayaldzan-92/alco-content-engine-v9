@@ -80,23 +80,25 @@
   -webkit-app-region: no-drag;
 }
 
-/* Electron layout adjustments to seamlessly accommodate 32px native titlebar */
-html.is-electron,
-html.is-electron body {
-  height: 100vh;
-  overflow: hidden;
+/* Only the desktop shell owns viewport sizing and fixed overlays. */
+html.is-electron {
+  --desktop-titlebar-height: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 32px));
 }
 
-html.is-electron .min-h-screen {
-  min-height: calc(100vh - 2rem) !important;
+html.is-electron #alco-desktop-titlebar {
+  height: var(--desktop-titlebar-height);
 }
 
-html.is-electron .h-screen {
-  height: calc(100vh - 2rem) !important;
+html.is-electron .desktop-shell {
+  height: calc(100dvh - var(--desktop-titlebar-height));
+  min-height: 0;
+  /* Contain fixed sidebars, backdrops, dialogs and notifications below the title bar. */
+  transform: translateZ(0);
+  isolation: isolate;
 }
 
-html.is-electron aside.fixed {
-  top: 2rem;
+html.is-electron .desktop-shell-sidebar {
+  overflow-y: auto;
 }
 
 /* ==========================================================================

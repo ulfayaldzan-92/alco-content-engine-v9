@@ -114,6 +114,41 @@ async function run() {
     assert.match(source, /if \(isDev\) \{[\s\S]*?port = await connectDevelopmentServer\(\);[\s\S]*?\} else \{\s*port = await startProductionServer\(\);/);
     assert.ok(!source.includes('Trying port 3000'));
   });
+  await test('theme IPC rejects invalid senders/payloads before mutating native theme', async () => {
+    const vm = require('node:vm');
+    const handlers = new Map<string, Function>();
+    let changes = 0;
+    const nativeTheme = { shouldUseDarkColors: false, on() {}, set themeSource(_value: string) { changes++; } };
+    const sandboxModule = { exports: {} as any };
+    const source = fs.readFileSync('electron/main.cjs', 'utf8');
+    vm.runInNewContext(source + '\nmodule.exports.setTestContext = (win, port) => { mainWindow = win; activePort = port; };', {
+      module: sandboxModule, require: (name: string) => name === 'electron' ? { nativeTheme, ipcMain: { handle: (key: string, fn: Function) => handlers.set(key, fn) } }
+        : name.startsWith('./') ? require('../electron/' + name.slice(2)) : require(name),
+      __dirname: require('node:path').resolve('electron'), process, console, URL, setTimeout, clearTimeout,
+    });
+    const handler = handlers.get('alco:set-theme')!;
+    const frame = { url: 'http://127.0.0.1:3102/' };
+    const contents = { mainFrame: frame };
+    const win = { isDestroyed: () => false, webContents: contents, setTitleBarOverlay() {} };
+    const event = { sender: contents, senderFrame: frame };
+    for (const context of [null, { ...win, isDestroyed: () => true }]) {
+      sandboxModule.exports.setTestContext(context, 3102);
+      assert.equal((await handler(event, { theme: 'dark' })).ok, false);
+    }
+    sandboxModule.exports.setTestContext(win, 3102);
+    for (const sender of [{}, { ...event, sender: {} }, { ...event, senderFrame: { ...frame } }]) {
+      assert.equal((await handler(sender, { theme: 'dark' })).ok, false);
+    }
+    frame.url = 'https://untrusted.example/';
+    assert.equal((await handler(event, { theme: 'dark' })).ok, false);
+    frame.url = 'http://127.0.0.1:3102/';
+    for (const args of [undefined, null, 'dark', [], {}, { theme: 'invalid' }, { theme: null }, { theme: 'dark', extra: true }]) {
+      assert.equal((await handler(event, args)).ok, false);
+    }
+    assert.equal(changes, 0);
+    for (const theme of ['light', 'dark', 'system']) assert.equal((await handler(event, { theme })).ok, true);
+    assert.equal(changes, 3);
+  });
   console.log(`${passed} startup checks passed (loopback HTTP fixtures and explicit source checks; no installed Electron launch).`);
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

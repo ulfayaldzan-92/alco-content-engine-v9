@@ -58,7 +58,7 @@ export default function ContentEngineShell({
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex font-sans overflow-hidden">
+    <main className="desktop-shell min-h-screen bg-background text-foreground flex font-sans overflow-hidden">
       {sidebarOpen && (
         <button
           aria-label="Tutup navigasi"
@@ -69,7 +69,7 @@ export default function ContentEngineShell({
 
       {/* Sidebar: Standard 256px expanded / 64px collapsed */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:static lg:translate-x-0 ${
+        className={`desktop-shell-sidebar fixed inset-y-0 left-0 z-50 border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:static lg:translate-x-0 ${
           sidebarOpen ? 'w-64 translate-x-0 p-4' : '-translate-x-full lg:w-16 lg:p-3'
         } flex shrink-0 flex-col`}
       >
@@ -208,7 +208,7 @@ export default function ContentEngineShell({
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Header: Standard Contextual Header */}
         <header className="sticky top-0 z-30 shrink-0 border-b border-border bg-card/85 px-4 py-3 backdrop-blur-md md:px-6">
           <div className="flex items-center justify-between gap-3">
@@ -251,7 +251,7 @@ export default function ContentEngineShell({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {children}
         </div>
 

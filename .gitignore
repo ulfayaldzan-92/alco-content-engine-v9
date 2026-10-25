@@ -10,3 +10,6 @@ coverage/
 !.env.example
 bun.lock
 bun.lockb
+/dist-electron/
+/dist/
+/.electron-build/

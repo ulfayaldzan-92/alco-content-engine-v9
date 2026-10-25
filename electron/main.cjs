@@ -97,11 +97,18 @@ if (typeof ipcMain !== 'undefined' && ipcMain && typeof ipcMain.handle === 'func
   // ALCO Window Controls Overlay (WCO) theme synchronization handler
   ipcMain.handle('alco:set-theme', async (event, args) => {
     // Validate that sender is the trusted main application window
-    if (mainWindow && event.sender !== mainWindow.webContents) {
+    if (!validateLicenseIpcSender(event, {
+      getMainWindow: () => mainWindow, getActivePort: () => activePort,
+    })) {
       return { ok: false, error: 'Unauthorized IPC sender' };
     }
 
-    const requestedTheme = (args && args.theme) || 'system';
+    if (!args || typeof args !== 'object' || Array.isArray(args) ||
+        Object.keys(args).length !== 1 || !Object.hasOwn(args, 'theme') ||
+        !['light', 'dark', 'system'].includes(args.theme)) {
+      return { ok: false, error: 'Invalid theme payload' };
+    }
+    const requestedTheme = args.theme;
     if (typeof nativeTheme !== 'undefined' && nativeTheme) {
       if (requestedTheme === 'dark' || requestedTheme === 'light') {
         nativeTheme.themeSource = requestedTheme;

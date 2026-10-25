@@ -25,6 +25,7 @@ export function DesktopTitleBar() {
       if (isEl) {
         setIsElectron(true);
         document.documentElement.classList.add('is-electron');
+        return () => document.documentElement.classList.remove('is-electron');
       }
     }
   }, []);
@@ -37,12 +38,18 @@ export function DesktopTitleBar() {
   return (
     <header
       id="alco-desktop-titlebar"
-      className="w-full h-8 shrink-0 flex items-center justify-between px-3 bg-background border-b border-border/60 text-foreground text-xs select-none app-drag-region z-50 relative"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      className="w-full shrink-0 bg-background border-b border-border/60 text-foreground text-xs select-none z-50 relative"
       aria-label="Desktop Window Title Bar"
     >
-      {/* Left: ALCO Branding & App Name */}
-      <div className="flex items-center gap-2 min-w-0">
+      {/* Native geometry excludes window controls on either side of the window. */}
+      <div className="absolute flex items-center gap-2 min-w-0 px-3 app-drag-region overflow-hidden"
+        style={{
+          left: 'env(titlebar-area-x, 0px)',
+          top: 'env(titlebar-area-y, 0px)',
+          width: 'env(titlebar-area-width, 100%)',
+          height: 'env(titlebar-area-height, 32px)',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties}>
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground shadow-2xs">
           <Zap size={12} className="fill-current" />
         </div>
@@ -52,21 +59,8 @@ export function DesktopTitleBar() {
         <span className="text-[9px] font-bold px-1.5 py-0.2 rounded uppercase tracking-wider bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20">
           Desktop
         </span>
+        <div className="flex-1 h-full" />
       </div>
-
-      {/* Middle: Draggable window space */}
-      <div className="flex-1 h-full app-drag-region" />
-
-      {/* Right: Reserved space for native Windows Window Controls Overlay (min, max, close) */}
-      <div
-        className="shrink-0 h-full pointer-events-none app-no-drag"
-        style={{
-          width: 'calc(100vw - env(titlebar-area-width, calc(100vw - 140px)))',
-          minWidth: '138px',
-          WebkitAppRegion: 'no-drag',
-        } as React.CSSProperties}
-        aria-hidden="true"
-      />
     </header>
   );
 }

@@ -536,7 +536,7 @@ export function buildCanonicalVideoScenePlan(
 
   const stage = funnelStage;
   const hookText = script?.hook || '';
-  const valueText = script?.solusi || script?.masalah || '';
+  const valueText = [script?.masalah, script?.solusi].filter(value => value?.trim()).join(' ');
   const actionText = script?.cta || '';
   const proofText = typeof script?.proof === 'string' ? script.proof.trim() : '';
   const hasProof = !!proofText;

@@ -1,5 +1,6 @@
 'use client';
 
+import { buildVideoNarrativeBrief, matchesVideoNarrativeBrief, fitVideoVoiceoverDuration } from '@/lib/video-narrative-brief';
 import React, { useState, useEffect, useMemo } from 'react';
 import ImagePanel from '@/components/production-studio/ImagePanel';
 import CarouselPanel from '@/components/production-studio/CarouselPanel';
@@ -1965,6 +1966,8 @@ function validateAndNormalizeVideoStyles(
     const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
 
     const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
+    if (!activeItem) return null;
+    const narrativeBrief = buildVideoNarrativeBrief(activeItem);
     const normalizedStyles: VideoStyle[] = [];
     const seenModes = new Set<VideoProductionMode>();
 
@@ -2034,6 +2037,8 @@ function validateAndNormalizeVideoStyles(
             : '',
       };
 
+      // Check raw narrative before fallbacks can hide missing or foreign fields.
+      if (!matchesVideoNarrativeBrief(narrativeBrief, rawScript, v.captionForPost ?? v.caption_for_post)) return null;
       const videoPrompt = String(v.videoPrompt || v.video_prompt || '').trim();
       const videoNegativeConstraints = String(
         v.negative_constraints ??
@@ -2050,7 +2055,9 @@ function validateAndNormalizeVideoStyles(
         ? (v.captionForPost ?? v.caption_for_post).trim()
         : '';
       let captionForPost = '';
-      if (isValidVideoCaption(rawAiCaption)) {
+      if (!narrativeBrief.caption) {
+        captionForPost = '';
+      } else if (isValidVideoCaption(rawAiCaption)) {
         captionForPost = rawAiCaption;
       } else if (isValidVideoCaption(activeItem?.caption)) {
         captionForPost = String(activeItem?.caption).trim();
@@ -2060,7 +2067,7 @@ function validateAndNormalizeVideoStyles(
 
       const captionInstruction = String(v.captionInstruction || v.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;
 
-      const scenes = buildCanonicalVideoScenePlan(funnelStage, productionMode, script);
+      const scenes = fitVideoVoiceoverDuration(buildCanonicalVideoScenePlan(funnelStage, productionMode, narrativeBrief.script));
       const candidateId = getVideoCandidateId(productionMode);
       const productionCandidate =
         attachProductionCandidate
@@ -2462,32 +2469,9 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
     }
 
     case 'video': {
-      const videoHook = (typeof activeItem?.headline === 'string' ? activeItem.headline : '').trim();
-      const videoProblem = (typeof activeItem?.body === 'string' ? activeItem.body : '').trim();
-      const videoSolution = (
-        typeof (activeItem as any)?.solusi === 'string'
-          ? (activeItem as any).solusi
-          : typeof (activeItem as any)?.solution === 'string'
-          ? (activeItem as any).solution
-          : ''
-      ).trim();
-      const videoProof = (
-        typeof (activeItem as any)?.proof === 'string'
-          ? (activeItem as any).proof
-          : typeof (activeItem as any)?.proof_data === 'string'
-          ? (activeItem as any).proof_data
-          : ''
-      ).trim();
-      const videoCta = (typeof activeItem?.cta === 'string' ? activeItem.cta : '').trim();
-      const videoCaption = (typeof activeItem?.caption === 'string' ? activeItem.caption : '').trim();
-
-      const sharedScript: VideoScript = {
-        hook: videoHook,
-        masalah: videoProblem,
-        solusi: videoSolution,
-        proof: videoProof,
-        cta: videoCta,
-      };
+      const narrativeBrief = buildVideoNarrativeBrief(activeItem!);
+      const sharedScript: VideoScript = narrativeBrief.script;
+      const videoCaption = narrativeBrief.caption;
 
       const defaultVoiceoverOutline = "Hook → Masalah → Solusi jika tersedia → Proof jika tersedia → CTA jika tersedia";
       const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
@@ -3453,6 +3437,11 @@ Kembalikan HANYA JSON murni tanpa markdown pembungkus tambahan di luar JSON.`;
       } else if (activeTab === 'video') {
         promptTitle = `3 VIDEO PRODUCTION STYLES - FUNNEL ${funnelStage} (JSON ARRAY)`;
         formatDirection = `### VIDEO AUTHORITY CONTRACT — STRICT:
+AUTHORITATIVE NARRATIVE BRIEF (same copy for all 3 modes):
+${JSON.stringify(buildVideoNarrativeBrief(activeItem!), null, 2)}
+Copy script and caption exactly from this brief. Do not paraphrase or change narrative through revision notes. Only visual treatment, camera, pacing, and audio direction may vary.
+Scene 1 = hook; Scene 2 = masalah followed by explicit solusi; Scene 3 = CTA.
+Duration is estimated at 150 words/minute plus a pause.
 1. SEMUA isi semantik dan klaim video HANYA boleh berasal dari:
    - ProductionContext (Project Facts, Brand, Positioning, Offering)
    - Selected ContentItem (Headline, Body, Solusi, Proof, CTA, Caption)
@@ -3480,7 +3469,7 @@ Kembalikan HANYA JSON murni tanpa markdown pembungkus tambahan di luar JSON.`;
 
 4. CAPTION AUTHORITY:
 Existing ContentItem Caption: ${JSON.stringify((activeItem?.caption || '').trim())}
-   - Jika Existing ContentItem Caption tersedia (bukan kosong): jadikan sebagai otoritas utama caption Instagram. Boleh dirapikan/diparafrase tanpa menambah klaim baru.
+   - Jika Existing ContentItem Caption tersedia (bukan kosong): jadikan sebagai otoritas utama caption Instagram. Salin persis dari narrative brief.
    - Jika tidak tersedia: captionForPost boleh dirangkum HANYA dari ProductionContext dan script video ini.
    - DILARANG menambah fakta, benefit, proof, hasil, metrik, fitur, atau urgensi baru ke dalam caption.
 
@@ -4038,10 +4027,10 @@ ${formatDirection}${revisionDirective}`;
   }, [carouselOutput, carouselOutputSource, activeItem, activeContext]);
 
   const normalizedVideoOutput = useMemo(() => {
-    if (!activeItem || !activeContext) return videoOutput || '';
+    if (!activeItem || !activeContext) return videoOutput ? 'Konteks kalender aktif belum tersedia. Output tersimpan perlu ditinjau ulang.' : '';
     const attachCandidate = isAuthoritativeProductionOutputSource(videoOutputSource);
     const textToParse = videoOutput || getInitialDraft('video', activeItem, activeContext);
-    return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate) || videoOutput;
+    return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate) || 'Output video perlu ditinjau ulang karena tidak sesuai dengan narrative brief kalender aktif. Data tersimpan tetap dipertahankan. Buat ulang rencana video.';
   }, [videoOutput, videoOutputSource, activeItem, activeContext]);
 
   // Phase 3D-C1C-D: Candidate parsing & scene plan signature derivation for completion state binding

@@ -210,6 +210,10 @@ export interface ContentItem {
   keterangan: string; // Strategic reason for funnel placement
   channel?: string;
   cta?: string;
+  solusi?: string;
+  solution?: string;
+  proof?: string;
+  proof_data?: string;
   isManualEdited?: boolean;
   carousel_plan?: CarouselPlan;
   productionProgress?: ProductionProgress;

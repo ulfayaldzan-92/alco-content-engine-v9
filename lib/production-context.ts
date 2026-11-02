@@ -99,6 +99,8 @@ export interface ProductionContext {
     headline: string;
     body: string;
     caption: string;
+    solution?: string;
+    proof?: string;
     format: string;
     referensi: string;
     visual_direction: string;
@@ -213,6 +215,8 @@ export function adaptEngineContextToProductionContext(
       headline: content_item.headline || '',
       body: content_item.body || '',
       caption: content_item.caption || '',
+      solution: content_item.solusi || content_item.solution || '',
+      proof: content_item.proof || content_item.proof_data || '',
       format: content_item.format || '',
       referensi: content_item.referensi || '',
       visual_direction: content_item.visual || '',
@@ -376,6 +380,9 @@ export function formatProductionContextForPrompt(
 - Hook Type: ${ctx.content.hook_type || '-'}
 - Headline: ${ctx.content.headline || '-'}
 - Core Body / Idea: ${ctx.content.body || '-'}
+- Explicit Solution: ${ctx.content.solution || '-'}
+- Explicit Proof: ${ctx.content.proof || '-'}
+- Calendar Caption: ${ctx.content.caption || '-'}
 - Visual Direction: ${ctx.content.visual_direction || '-'}
 - Reference: ${ctx.content.referensi || '-'}
 - Call to Action (CTA): ${ctx.content.cta || '-'}

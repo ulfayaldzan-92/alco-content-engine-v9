@@ -1,3 +1,4 @@
+import { VIDEO_TOTAL_SECONDS, validateVideoSceneSpeech } from './video-scene-contract';
 import {
   ImageProductionDetails,
   CarouselProductionDetails,
@@ -315,6 +316,9 @@ export function validateProductionCandidate(
       return { isValid: false, error: 'duration_seconds must be a positive finite number' };
     }
 
+    if (duration !== VIDEO_TOTAL_SECONDS || typeof details.format !== 'string' || !details.format.includes('9:16')) {
+      return { isValid: false, error: 'Video must be 24 seconds total in 9:16 format.' };
+    }
     const scenes = details.scenes;
     if (!Array.isArray(scenes) || scenes.length !== 3) {
       return { isValid: false, error: `scenes count (${Array.isArray(scenes) ? scenes.length : 0}) must be exactly 3` };
@@ -335,6 +339,8 @@ export function validateProductionCandidate(
         return { isValid: false, error: `Scene ${i + 1} has invalid duration_seconds` };
       }
 
+      const speechIssue = validateVideoSceneSpeech(scene);
+      if (speechIssue) return { isValid: false, error: speechIssue };
       const validSceneTypes = ['talking_head', 'product_screen', 'graphic_motion', 'b_roll', 'end_card'];
       if (!validSceneTypes.includes(scene.scene_type)) {
         return {
@@ -527,6 +533,7 @@ export function buildCanonicalVideoScenePlan(
     solusi?: string;
     proof?: string;
     cta?: string;
+    insight?: string;
   }
 ): VideoSceneProductionPlan[] {
   const validModes: VideoProductionMode[] = ['human_led', 'product_demo', 'motion_explainer'];
@@ -536,7 +543,8 @@ export function buildCanonicalVideoScenePlan(
 
   const stage = funnelStage;
   const hookText = script?.hook || '';
-  const valueText = [script?.masalah, script?.solusi].filter(value => value?.trim()).join(' ');
+  // Spoken insight is authored as one sentence, never a raw problem/solution join.
+  const valueText = script?.insight ?? (script?.solusi || script?.masalah || '');
   const actionText = script?.cta || '';
   const proofText = typeof script?.proof === 'string' ? script.proof.trim() : '';
   const hasProof = !!proofText;
@@ -546,7 +554,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: hasProof ? 'Proof Hook' : 'Primary Message Hook',
           visual_direction: hasProof
             ? `Visual antarmuka produk menampilkan elemen bukti: ${proofText}`
@@ -560,7 +568,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Product Feature Focus',
           visual_direction: 'Demonstrasi antarmuka produk yang relevan dengan pesan konten.',
           action: 'Visual menyorot bagian produk yang relevan dengan ContentItem.',
@@ -572,7 +580,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Decision CTA',
           visual_direction: 'Tampilan produk atau antarmuka yang mendukung CTA dari ContentItem.',
           action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -588,7 +596,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: 'Specific Problem Hook',
           visual_direction: 'Menampilkan antarmuka produk yang relevan dengan konteks pembahasan script.',
           action: 'Sorotan visual pada elemen antarmuka yang relevan dengan pesan scene.',
@@ -600,7 +608,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Workflow Walkthrough',
           visual_direction: 'Demonstrasi alur antarmuka yang relevan dengan pembahasan script.',
           action: 'Visual menyorot bagian produk yang relevan dengan ContentItem.',
@@ -612,7 +620,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Medium CTA',
           visual_direction: 'Tampilan interface produk yang mendukung arahan penutup script.',
           action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -628,7 +636,7 @@ export function buildCanonicalVideoScenePlan(
     return [
       {
         scene_number: 1,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Curiosity Hook',
         visual_direction: 'Cuplikan tampilan produk yang relevan dengan pesan hook pembuka.',
         action: 'Menampilkan interaksi visual produk yang mendukung pesan hook.',
@@ -640,7 +648,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 2,
-        duration_seconds: 7,
+        duration_seconds: 8,
         purpose: 'Product Awareness',
         visual_direction: 'Tampilan antarmuka produk yang relevan dengan pesan script.',
         action: 'Visual menyorot bagian produk yang relevan dengan ContentItem.',
@@ -652,7 +660,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 3,
-        duration_seconds: 6,
+        duration_seconds: 8,
         purpose: 'Soft CTA',
         visual_direction: 'Kartu penutup minimalis dengan identitas visual produk.',
         action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -670,7 +678,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: hasProof ? 'Proof Hook' : 'Primary Message Hook',
           visual_direction: hasProof
             ? `Motion graphic menampilkan proof authoritative dari script: ${proofText}`
@@ -684,7 +692,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Process Showcase',
           visual_direction: 'Visualisasi alur proses terstruktur yang relevan dengan pesan script.',
           action: 'Animasi diagram atau elemen grafis bergerak menjelaskan pesan utama dari script.',
@@ -696,7 +704,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Decision CTA',
           visual_direction: 'Slide penutup motion yang mendukung arahan penutup script.',
           action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -712,7 +720,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: 'Insight Hook',
           visual_direction: 'Grafik konsep dengan animasi visual terstruktur sesuai topik script.',
           action: 'Animasi grafis menampilkan elemen visual yang relevan dengan pesan scene.',
@@ -724,7 +732,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Framework Breakdown',
           visual_direction: 'Animasi diagram atau poin struktural yang merepresentasikan teks script.',
           action: 'Poin struktural muncul berurutan menjelaskan pesan utama dari script.',
@@ -736,7 +744,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Medium CTA',
           visual_direction: 'Kartu rangkuman dengan visual pendukung arahan penutup.',
           action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -752,7 +760,7 @@ export function buildCanonicalVideoScenePlan(
     return [
       {
         scene_number: 1,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Visual Hook',
         visual_direction: 'Tipografi bergerak (motion text) tebal dan warna kontras.',
         action: 'Teks beranimasi muncul secara ritmis dan dinamis.',
@@ -764,7 +772,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 2,
-        duration_seconds: 7,
+        duration_seconds: 8,
         purpose: 'Concept Awareness',
         visual_direction: 'Ilustrasi konsep visual berupa bentuk geometris dan relasi grafis.',
         action: 'Animasi elemen grafis bergerak menjelaskan pesan utama dari script.',
@@ -776,7 +784,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 3,
-        duration_seconds: 6,
+        duration_seconds: 8,
         purpose: 'Soft CTA',
         visual_direction: 'Animasi teks ajakan bertindak minimalis.',
         action: 'End card menampilkan visual pendukung untuk pesan authoritative dan mengikuti CTA dari script jika tersedia.',
@@ -795,7 +803,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: hasProof ? 'Proof Hook' : 'Primary Message Hook',
           visual_direction: hasProof
             ? `Talent menyampaikan poin bukti: ${proofText}`
@@ -809,7 +817,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Core Message',
           visual_direction: 'Talent menyampaikan pesan script dengan gestur yang jelas.',
           action: 'Talent mengarahkan gestur menjelaskan pesan utama dari script.',
@@ -821,7 +829,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Decision CTA',
           visual_direction: 'Talent menyampaikan arahan penutup sesuai pesan script.',
           action: 'Talent memberikan isyarat visual penutup mengikuti CTA dari script jika tersedia.',
@@ -838,7 +846,7 @@ export function buildCanonicalVideoScenePlan(
       return [
         {
           scene_number: 1,
-          duration_seconds: 5,
+          duration_seconds: 8,
           purpose: 'Specific Problem Hook',
           visual_direction: 'Talent berekspresi fokus membahas topik masalah dari script.',
           action: 'Talent menatap kamera menyampaikan pesan hook.',
@@ -850,7 +858,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 2,
-          duration_seconds: 7,
+          duration_seconds: 8,
           purpose: 'Structured Content',
           visual_direction: 'Talent menjelaskan poin pembahasan script secara terstruktur.',
           action: 'Talent menghitung poin menggunakan gestur tangan menjelaskan pesan utama dari script.',
@@ -862,7 +870,7 @@ export function buildCanonicalVideoScenePlan(
         },
         {
           scene_number: 3,
-          duration_seconds: 6,
+          duration_seconds: 8,
           purpose: 'Medium CTA',
           visual_direction: 'Talent menyampaikan pesan penutup sesuai script.',
           action: 'Talent memberikan isyarat visual penutup mengikuti CTA dari script jika tersedia.',
@@ -879,7 +887,7 @@ export function buildCanonicalVideoScenePlan(
     return [
       {
         scene_number: 1,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Curiosity Hook',
         visual_direction: 'Talent berbicara santai ke kamera dengan latar belakang rapi.',
         action: 'Talent melakukan gerakan pembuka menarik perhatian menyampaikan pesan hook.',
@@ -891,7 +899,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 2,
-        duration_seconds: 7,
+        duration_seconds: 8,
         purpose: 'Light Insight',
         visual_direction: 'Talent tersenyum ramah memberikan penjelasan ringkas sesuai script.',
         action: 'Talent mengangguk menjelaskan pesan utama dari script.',
@@ -903,7 +911,7 @@ export function buildCanonicalVideoScenePlan(
       },
       {
         scene_number: 3,
-        duration_seconds: 6,
+        duration_seconds: 8,
         purpose: 'Soft CTA',
         visual_direction: 'Talent memberi isyarat ajakan bertindak sesuai pesan script.',
         action: 'Talent memberikan isyarat visual penutup mengikuti CTA dari script jika tersedia.',

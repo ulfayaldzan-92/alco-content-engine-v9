@@ -1,6 +1,6 @@
 'use client';
 
-import { buildVideoNarrativeBrief, matchesVideoNarrativeBrief, fitVideoVoiceoverDuration } from '@/lib/video-narrative-brief';
+import { buildVideoNarrativeBrief, matchesVideoNarrativeBrief, fitVideoVoiceoverDuration, buildSourceVideoSpokenScript, assessVideoSpokenScript, VideoSpokenScript } from '@/lib/video-narrative-brief';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   buildCarouselSourceBinding, matchesCarouselSourceBinding, carouselNarrativeSignature,
@@ -279,6 +279,8 @@ interface VideoScript {
 }
 
 interface VideoStyle {
+  spokenScript?: VideoSpokenScript;
+  narrativeReview?: { required: boolean; reason?: string };
   productionMode: VideoProductionMode;
   name: string;
   hookStyle: string;
@@ -1352,6 +1354,9 @@ ${formattedContext}
 ${JSON.stringify({ source_binding: buildCarouselSourceBinding(activeItem, activeContext), headline: activeItem?.headline, body: activeItem?.body, objective: activeItem?.tujuan, cta: activeItem?.cta, caption: activeItem?.caption, visual_direction: activeItem?.visual, solution: activeItem?.solusi || activeItem?.solution || '', proof: activeItem?.proof || activeItem?.proof_data || '' }, null, 2)}
 Return source_binding exactly as shown above as a top-level field in Stage 1 JSON.
 Keep one topic: Hook → its Problem → relevant Reframe → supported Value → relevant CTA.
+Slide 1 must develop this ContentItem headline or its main idea, never a broad brand campaign.
+Slide 2 explains the problem behind that hook using the selected body. Slide 3 reframes that same problem.
+Slide 4 answers it with supported value only. Slide 5 continues the selected CTA and objective, not generic marketing advice.
 Project-wide facts may support this topic, never replace it. Funnel changes delivery only.
 Creative paraphrases are allowed, but are NOT automatically certified aligned; user review is mandatory.
 Do not emit review_stamp or claim semantic verification. Do not invent missing solutions or proof.
@@ -1470,7 +1475,7 @@ ATURAN STRUKTUR UNTUK 5 SLIDE (DEFAULT):
 
 WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUAL):
 {
-  "content_goal": "${activeItem?.tujuan || ''}",
+  "content_goal": ${JSON.stringify(activeItem?.tujuan || '')},
   "funnel_stage": "${funnelStage}",
   "current_belief": "[Pemahaman/kondisi awal audiens yang SECARA LANGSUNG didukung pain point, objection, headline, body, atau authority project]",
   "desired_belief": "[Pemahaman baru yang diturunkan dari positioning/core_message/objective authority tanpa menambahkan janji baru]",
@@ -1990,7 +1995,8 @@ function validateAndNormalizeVideoStyles(
   rawText: string,
   activeItem?: ContentItem | null,
   activeContext?: SharedContentContext | null,
-  attachProductionCandidate: boolean = true
+  attachProductionCandidate: boolean = true,
+  issues?: string[]
 ): string | null {
   try {
     let parsed = tryParseJSON(rawText);
@@ -2014,10 +2020,16 @@ function validateAndNormalizeVideoStyles(
     const narrativeBrief = buildVideoNarrativeBrief(activeItem);
     const normalizedStyles: VideoStyle[] = [];
     const seenModes = new Set<VideoProductionMode>();
+    let sharedSpoken: string | null = null;
 
     for (let idx = 0; idx < rawList.length; idx++) {
       const v = rawList[idx];
       if (!v || typeof v !== 'object') return null;
+      if (attachProductionCandidate && (!v.spokenScript
+        || (v.productionCandidate && !validateProductionCandidate(v.productionCandidate).isValid))) {
+        issues?.push('Rencana video lama belum memenuhi dialog terpisah dan 3 × 8 detik. Data tersimpan tetap dipertahankan; buat ulang rencana video.');
+        return null;
+      }
 
       // Strict semantic productionMode validation - fail closed without legacy fallback
       const rawMode = v.productionMode ?? v.production_mode;
@@ -2082,7 +2094,23 @@ function validateAndNormalizeVideoStyles(
       };
 
       // Check raw narrative before fallbacks can hide missing or foreign fields.
-      if (!matchesVideoNarrativeBrief(narrativeBrief, rawScript, v.captionForPost ?? v.caption_for_post)) return null;
+      if (!matchesVideoNarrativeBrief(narrativeBrief, rawScript, v.captionForPost ?? v.caption_for_post)) {
+        issues?.push('Fakta naskah atau caption tidak sesuai kalender aktif. Buat ulang dari sumber aktif dengan fakta kalender tetap dan dialog ringkas yang terpisah.');
+        return null;
+      }
+      const assessment = assessVideoSpokenScript(narrativeBrief, v.spokenScript ?? buildSourceVideoSpokenScript(narrativeBrief));
+      if (!assessment.isValid || !assessment.spoken) {
+        issues?.push(assessment.error || 'Dialog video tidak valid.');
+        return null;
+      }
+      const spokenScript = assessment.spoken;
+      const spokenKey = JSON.stringify(spokenScript);
+      if (sharedSpoken !== null && sharedSpoken !== spokenKey) {
+        issues?.push('Ketiga mode harus menggunakan dialog hook, insight dan CTA yang sama. Buat ulang dengan satu naskah bersama.');
+        return null;
+      }
+      sharedSpoken = spokenKey;
+      if (assessment.requiresReview && assessment.error) issues?.push(assessment.error);
       const videoPrompt = String(v.videoPrompt || v.video_prompt || '').trim();
       const videoNegativeConstraints = String(
         v.negative_constraints ??
@@ -2093,7 +2121,7 @@ function validateAndNormalizeVideoStyles(
       if (!videoNegativeConstraints) {
         return null;
       }
-      const visualPlan = String(v.visualPlan || v.visual_plan || '').trim();
+      const visualPlan = '9:16. Scene 1: 0–8s hook. Scene 2: 8–16s insight. Scene 3: 16–24s CTA. Total 24 detik.';
 
       const rawAiCaption = typeof (v.captionForPost ?? v.caption_for_post) === 'string'
         ? (v.captionForPost ?? v.caption_for_post).trim()
@@ -2111,16 +2139,18 @@ function validateAndNormalizeVideoStyles(
 
       const captionInstruction = String(v.captionInstruction || v.caption_instruction || defaultCaptionInstruction).trim() || defaultCaptionInstruction;
 
-      const scenes = fitVideoVoiceoverDuration(buildCanonicalVideoScenePlan(funnelStage, productionMode, narrativeBrief.script));
+      const scenes = fitVideoVoiceoverDuration(buildCanonicalVideoScenePlan(funnelStage, productionMode, {
+        hook: spokenScript.hook, insight: spokenScript.insight, cta: spokenScript.cta, proof: script.proof,
+      }));
       const candidateId = getVideoCandidateId(productionMode);
       const productionCandidate =
-        attachProductionCandidate
+        attachProductionCandidate && !assessment.requiresReview
           ? buildVideoProductionCandidate({
               candidate_id: candidateId,
               production_mode: productionMode,
               objective: activeItem?.tujuan || funnelRules.goal || '',
               format: '9:16 Vertical Video (Reels/TikTok/Shorts)',
-              hook: script.hook,
+              hook: spokenScript.hook,
               scenes,
               motion_direction: pacingStyle,
               audio_direction: audioDirection,
@@ -2137,6 +2167,8 @@ function validateAndNormalizeVideoStyles(
       }
 
       normalizedStyles.push({
+        spokenScript,
+        narrativeReview: { required: assessment.requiresReview, reason: assessment.error },
         productionMode,
         name,
         hookStyle,
@@ -2520,9 +2552,10 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
     case 'video': {
       const narrativeBrief = buildVideoNarrativeBrief(activeItem!);
       const sharedScript: VideoScript = narrativeBrief.script;
+      const sharedSpokenScript = buildSourceVideoSpokenScript(narrativeBrief);
       const videoCaption = narrativeBrief.caption;
 
-      const defaultVoiceoverOutline = "Hook → Masalah → Solusi jika tersedia → Proof jika tersedia → CTA jika tersedia";
+      const defaultVoiceoverOutline = '0–8s Hook → 8–16s Insight → 16–24s CTA; 9:16, total 24 detik.';
       const defaultCaptionInstruction = "Paste teks ini di caption/keterangan postingan setelah aset dibuat.";
 
       const vStyles: VideoStyle[] = [
@@ -2534,8 +2567,9 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
           audioDirection: "Clear spoken voiceover direct to camera with subtle ambient sound",
           voiceoverOutline: defaultVoiceoverOutline,
           script: sharedScript,
+          spokenScript: sharedSpokenScript,
           videoPrompt: "A creator speaking directly to camera, neutral background, soft natural lighting, vertical 9:16 framing.",
-          visualPlan: "0-5s: Talking head framing menyampaikan hook. 5-15s: Penjelasan masalah dengan gestur terarah. 15-25s: Penyampaian pesan inti dan solusi jika tersedia. 25-30s: Penutup mengarahkan ke CTA jika tersedia.",
+          visualPlan: "9:16. 0–8s: Hook. 8–16s: Insight. 16–24s: CTA. Total 24 detik.",
           negativeConstraints: "No distorted anatomy, no inconsistent face, no unreadable text, no visual artifacts.",
           captionForPost: videoCaption,
           captionInstruction: defaultCaptionInstruction,
@@ -2548,8 +2582,9 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
           audioDirection: "Focused voiceover accompanying interface demonstrations",
           voiceoverOutline: defaultVoiceoverOutline,
           script: sharedScript,
+          spokenScript: sharedSpokenScript,
           videoPrompt: "Clean digital interface screen recording, crisp typography, neutral modern workspace environment, vertical 9:16 layout.",
-          visualPlan: "0-5s: Tampilan antarmuka produk yang relevan dengan topik hook. 5-15s: Sorotan visual pada elemen antarmuka yang relevan dengan masalah. 15-25s: Walkthrough alur antarmuka yang relevan. 25-30s: End card penutup dengan CTA jika tersedia.",
+          visualPlan: "9:16. 0–8s: Hook. 8–16s: Insight. 16–24s: CTA. Total 24 detik.",
           negativeConstraints: "No distorted UI, no unreadable interface text, no fake UI artifacts, no broken screen geometry.",
           captionForPost: videoCaption,
           captionInstruction: defaultCaptionInstruction,
@@ -2562,8 +2597,9 @@ Image/Illustration Direction: Clean minimalist social media closing card.`,
           audioDirection: "Structured background beat with clear voiceover pacing",
           voiceoverOutline: defaultVoiceoverOutline,
           script: sharedScript,
+          spokenScript: sharedSpokenScript,
           videoPrompt: "Minimalist kinetic typography and abstract geometric shapes moving smoothly, high contrast neutral palette, clean 2D motion graphics vertical 9:16.",
-          visualPlan: "0-5s: Tipografi bergerak dinamis menampilkan hook. 5-15s: Transisi elemen grafis geometris memvisualisasikan konteks masalah. 15-25s: Diagram struktural memvisualisasikan poin solusi. 25-30s: Slide penutup motion menampilkan CTA jika tersedia.",
+          visualPlan: "9:16. 0–8s: Hook. 8–16s: Insight. 16–24s: CTA. Total 24 detik.",
           negativeConstraints: "No unreadable typography, no cluttered layout, no broken motion hierarchy, no visual artifacts.",
           captionForPost: videoCaption,
           captionInstruction: defaultCaptionInstruction,
@@ -3487,9 +3523,13 @@ Kembalikan HANYA JSON murni tanpa markdown pembungkus tambahan di luar JSON.`;
         formatDirection = `### VIDEO AUTHORITY CONTRACT — STRICT:
 AUTHORITATIVE NARRATIVE BRIEF (same copy for all 3 modes):
 ${JSON.stringify(buildVideoNarrativeBrief(activeItem!), null, 2)}
-Copy script and caption exactly from this brief. Do not paraphrase or change narrative through revision notes. Only visual treatment, camera, pacing, and audio direction may vary.
-Scene 1 = hook; Scene 2 = masalah followed by explicit solusi; Scene 3 = CTA.
-Duration is estimated at 150 words/minute plus a pause.
+NARRATIVE AUTHORITY: copy script and caption as the calendar source snapshot. This is not the spoken dialogue.
+SPOKEN SCRIPT: provide one shared spokenScript {hook, insight, cta}, repeated identically in all three modes.
+Write natural concise Indonesian dialogue: Scene 1 = relevant hook; Scene 2 = ONE flowing insight/solution answering it; Scene 3 = relevant CTA.
+Each scene is EXACTLY 8 seconds, 9:16, total 24 seconds. Maximum 18 spoken words per scene, never clip a sentence or concatenate masalah and solusi.
+Paraphrase only if meaning and claims remain supported. Unproven paraphrases are preserved for review and blocked from production; do not self-approve them.
+Prefer concise existing headline, explicit solution (or body insight when no solution exists), and calendar CTA when they already fit naturally.
+If safe compression is not possible, do not invent facts to fill time. Keep absent CTA empty. Mode changes presentation, not the shared message.
 1. SEMUA isi semantik dan klaim video HANYA boleh berasal dari:
    - ProductionContext (Project Facts, Brand, Positioning, Offering)
    - Selected ContentItem (Headline, Body, Solusi, Proof, CTA, Caption)
@@ -3555,6 +3595,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "pacingStyle": "Deliberate and engaging",
     "audioDirection": "Clear voiceover with subtle background ambient",
     "voiceoverOutline": "",
+    "spokenScript": { "hook": "", "insight": "", "cta": "" },
     "script": {
       "hook": "",
       "masalah": "",
@@ -3575,6 +3616,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "pacingStyle": "Step-by-step and structured",
     "audioDirection": "Focused voiceover with crisp UI sound cues",
     "voiceoverOutline": "",
+    "spokenScript": { "hook": "", "insight": "", "cta": "" },
     "script": {
       "hook": "",
       "masalah": "",
@@ -3595,6 +3637,7 @@ WAJIB kembalikan HANYA array JSON murni persis 3 item (tanpa markdown):
     "pacingStyle": "Dynamic kinetic motion and structured typography",
     "audioDirection": "Rhythmic background beat with precise vocal clarity",
     "voiceoverOutline": "",
+    "spokenScript": { "hook": "", "insight": "", "cta": "" },
     "script": {
       "hook": "",
       "masalah": "",
@@ -3886,14 +3929,15 @@ ${formatDirection}${revisionDirective}`;
               return;
             }
           } else if (activeTab === 'video') {
-            const normalized = validateAndNormalizeVideoStyles(generatedText, activeItem, activeContext);
+            const videoIssues: string[] = [];
+            const normalized = validateAndNormalizeVideoStyles(generatedText, activeItem, activeContext, true, videoIssues);
             if (normalized) {
-              setGenerationError(null);
+              setGenerationError(videoIssues[0] || null);
               saveVideoOutput(normalized);
               setVideoOutputSource('generated_output');
-              showToast(`Aset VIDEO (3 Style) berhasil dioptimalkan oleh Gemini AI!`);
+              showToast(videoIssues[0] || 'Rencana VIDEO: 3 scene × 8 detik, format 9:16.');
             } else {
-              setGenerationError("Format respon AI tidak valid atau tidak memenuhi skema Video Style canonical. Silakan coba lagi.");
+              setGenerationError(videoIssues[0] || 'Format respon AI tidak memenuhi skema Video Style canonical. Buat ulang dialog ringkas maksimal 18 kata per scene.');
               showToast("Gagal: Format respon AI tidak sesuai skema.");
               return;
             }
@@ -4096,7 +4140,8 @@ ${formatDirection}${revisionDirective}`;
     if (!activeItem || !activeContext) return videoOutput ? 'Konteks kalender aktif belum tersedia. Output tersimpan perlu ditinjau ulang.' : '';
     const attachCandidate = isAuthoritativeProductionOutputSource(videoOutputSource);
     const textToParse = videoOutput || getInitialDraft('video', activeItem, activeContext);
-    return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate) || 'Output video perlu ditinjau ulang karena tidak sesuai dengan narrative brief kalender aktif. Data tersimpan tetap dipertahankan. Buat ulang rencana video.';
+    const issues: string[] = [];
+    return validateAndNormalizeVideoStyles(textToParse, activeItem, activeContext, attachCandidate, issues) || issues[0] || 'Output video perlu ditinjau ulang karena tidak sesuai dengan narrative brief kalender aktif. Data tersimpan tetap dipertahankan. Buat ulang rencana video.';
   }, [videoOutput, videoOutputSource, activeItem, activeContext]);
 
   // Phase 3D-C1C-D: Candidate parsing & scene plan signature derivation for completion state binding
@@ -4886,7 +4931,7 @@ ${formatDirection}${revisionDirective}`;
       <VideoPanel
         {...commonProps}
         videoOutputSource={videoOutputSource}
-        isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)}
+        isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource) && canonicalVideoCandidates.length === 3}
       />
     );
 

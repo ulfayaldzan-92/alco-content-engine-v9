@@ -162,9 +162,9 @@ for (const invalid of [null, {}, { slides: [] }, { slides: [null] }, { slides: [
 }
 assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(Panel, { ...props, carouselPlan: merged })));
 assert.doesNotThrow(() => renderToStaticMarkup(React.createElement(Panel, { ...props, carouselPlan: approved })));
-const BaselinePanel = loadPanel(execFileSync('git', ['show', 'HEAD:components/production-studio/CarouselPanel.tsx'], { encoding: 'utf8' }));
+const BaselinePanel = loadPanel(execFileSync('git', ['show', '0bbf845:components/production-studio/CarouselPanel.tsx'], { encoding: 'utf8' }));
 assert.throws(() => renderToStaticMarkup(React.createElement(BaselinePanel, { ...props, carouselPlan: { slides: [null] } })), /slide/);
-console.log('Reproduced baseline render crash: null legacy slide reaches CarouselPanel; fixed panel renders an error state. Original minified includes stack is not mapped by this fixture.');
+console.log('Historical 0bbf845 render crash reproduced: null legacy slide reaches CarouselPanel; a1af2fa panel renders an error state. Original minified includes stack is not mapped by this fixture.');
 assert.match(helpers.getInitialDraft('carousel', { ...item, headline: null }, context), /tidak valid/);
 assert.equal(helpers.getInitialDraft('carousel', item, context).includes('"isAligned": true'), false);
 assert.match(helpers.getInitialDraft('carousel', { ...item, carousel_plan: { slides: [null] } }, context), /tidak lolos/);

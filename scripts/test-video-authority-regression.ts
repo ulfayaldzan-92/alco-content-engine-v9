@@ -60,8 +60,8 @@ assert(
   'page.tsx must contain "OUTPUT FIELD RULES:" before video schema'
 );
 assert(
-  pageContent.includes('isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)}'),
-  'page.tsx must pass isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource)} to VideoPanel'
+  pageContent.includes('isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource) && canonicalVideoCandidates.length === 3}'),
+  'page.tsx must pass isVideoOutputAuthoritative={isAuthoritativeProductionOutputSource(videoOutputSource) && canonicalVideoCandidates.length === 3} to VideoPanel'
 );
 assert(
   pageContent.includes('videoOutputSource={videoOutputSource}'),
@@ -233,7 +233,7 @@ for (const mode of modes) {
 
     // Valid scene fields
     for (const scene of scenes) {
-      assert(scene.duration_seconds > 0, `[${mode} - ${stage}] Scene ${scene.scene_number} duration_seconds must be > 0`);
+      assert(scene.duration_seconds === 8, `[${mode} - ${stage}] Scene ${scene.scene_number} duration_seconds must equal 8`);
       assert(typeof scene.camera === 'string' && scene.camera.trim().length > 0, `[${mode} - ${stage}] Scene ${scene.scene_number} camera must be non-empty`);
       assert(typeof scene.scene_type === 'string' && scene.scene_type.trim().length > 0, `[${mode} - ${stage}] Scene ${scene.scene_number} scene_type must be non-empty`);
       assert(Array.isArray(scene.required_assets), `[${mode} - ${stage}] Scene ${scene.scene_number} required_assets must be an array`);

@@ -149,13 +149,13 @@ const validCandidateMotion: VideoProductionCandidate = {
   production_details: {
     production_mode: 'motion_explainer',
     objective: 'Demonstrate retention curve',
-    duration_seconds: 15,
+    duration_seconds: 24,
     format: '9:16 Vertical Video',
     hook: 'Grafik retensi Anda turun drastis?',
     scenes: [
       {
         scene_number: 1,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Hook',
         visual_direction: 'Red graph plummeting downward',
         action: 'Graph lines animate down',
@@ -167,7 +167,7 @@ const validCandidateMotion: VideoProductionCandidate = {
       },
       {
         scene_number: 2,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Solution',
         visual_direction: 'Green dashboard showing instant recovery',
         action: 'Lines animate upwards smoothly',
@@ -179,7 +179,7 @@ const validCandidateMotion: VideoProductionCandidate = {
       },
       {
         scene_number: 3,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'CTA',
         visual_direction: 'Pulsing call to action button',
         action: 'Button glows and pulses',

@@ -206,6 +206,14 @@ export default function VideoPanel(props: VideoPanelProps) {
 
   return (
     <div className="space-y-4 font-sans">
+      {activeVideoStyle?.narrativeReview?.required && (
+        <div role="alert" className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-900 space-y-1">
+          <p>{activeVideoStyle.narrativeReview.reason}</p>
+          <p>Scene 1 (8 detik): {activeVideoStyle.spokenScript?.hook}</p>
+          <p>Scene 2 (8 detik): {activeVideoStyle.spokenScript?.insight}</p>
+          <p>Scene 3 (8 detik): {activeVideoStyle.spokenScript?.cta || 'Tanpa dialog CTA'}</p>
+        </div>
+      )}
       {/* 0. OUTPUT AUTHORITY STATUS CARD */}
       {!isAuthoritativeOutput ? (
         <div className="bg-amber-50/80 border border-amber-200/80 p-3.5 sm:p-4 rounded-2xl shadow-xs space-y-1">

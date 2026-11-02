@@ -9,6 +9,7 @@ import {
 import { CharacterDNA } from './content-contract';
 import { ProductAssetContext } from './video-production-input';
 import { injectCharacterToPrompt } from './character-prompt';
+import { validateVideoSceneSpeech } from './video-scene-contract';
 
 // ==========================================
 // TRANSLATION RESULT CONTRACTS
@@ -271,6 +272,9 @@ export function translateSingleVideoScenePrompt(
       error: 'Scene canonical wajib tersedia (FAIL CLOSED).',
     };
   }
+
+  const speechIssue = validateVideoSceneSpeech(scene);
+  if (speechIssue) return { isValid: false, error: speechIssue };
 
   const voiceover = scene.voiceover;
   const onScreenText = scene.on_screen_text;

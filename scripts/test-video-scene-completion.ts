@@ -37,13 +37,13 @@ const mockCandidateA: VideoProductionCandidate = {
   production_details: {
     production_mode: 'motion_explainer',
     objective: 'Explain cashflow management',
-    duration_seconds: 15,
+    duration_seconds: 24,
     format: '9:16 Vertical Video',
     hook: 'Tahukah Anda 80% bisnis gagal karena cashflow?',
     scenes: [
       {
         scene_number: 1,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Hook',
         visual_direction: 'Animated red chart plummeting down',
         action: 'Chart plummets smoothly',
@@ -55,7 +55,7 @@ const mockCandidateA: VideoProductionCandidate = {
       },
       {
         scene_number: 2,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Problem/Solution',
         visual_direction: 'Clean green dashboard metrics',
         action: 'Transition to green metrics',
@@ -67,7 +67,7 @@ const mockCandidateA: VideoProductionCandidate = {
       },
       {
         scene_number: 3,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Call to action',
         visual_direction: 'Animated CTA button click',
         action: 'Button pulses with glow',
@@ -276,7 +276,7 @@ const mockCandidate4Scenes: VideoProductionCandidate = {
       mockCandidateA.production_details.scenes[2],
       {
         scene_number: 4,
-        duration_seconds: 5,
+        duration_seconds: 8,
         purpose: 'Extra',
         visual_direction: 'Extra scene',
         action: 'Extra action',

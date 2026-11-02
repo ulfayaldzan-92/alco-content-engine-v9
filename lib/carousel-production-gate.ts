@@ -1,4 +1,5 @@
 import { ContentItem } from './content-contract';
+import { buildCarouselSourceBinding } from './carousel-authority';
 import { ProductionEngineContext } from './production-engine-context';
 import { validateProductionEngineContext } from './production-engine-context';
 import {
@@ -26,6 +27,7 @@ export interface CarouselProductionGateResult {
 }
 
 export interface EvaluateCarouselProductionGateParams {
+  content_review?: { source_signature: string; candidate_signature: string; reviewed: boolean } | null;
   production_context: ProductionEngineContext | null;
   source_item: ContentItem | null;
   output_source: ProductionOutputSource;
@@ -60,6 +62,12 @@ export function evaluateCarouselProductionGate(
   }
 
   // 1. Authoritative Output Source Check
+  const sourceBinding = buildCarouselSourceBinding(params.source_item, params.production_context?.shared_context);
+  if (!sourceBinding || params.content_review?.reviewed !== true
+    || params.content_review.source_signature !== sourceBinding.source_signature
+    || params.content_review.candidate_signature !== params.current_production_plan_signature) {
+    blockers.push('Narasi dan visual carousel belum ditinjau untuk isi kalender dan candidate aktif.');
+  }
   if (!isAuthoritativeProductionOutputSource(params.output_source)) {
     blockers.push(
       'Output carousel belum otoritatif (harus stored_output, generated_output, atau user_edited_output; bukan none atau initial_draft).'

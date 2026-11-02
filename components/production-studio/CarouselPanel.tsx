@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import { isRenderableCarouselPlan, isCarouselReviewCurrent } from '@/lib/carousel-authority';
 import { 
   Sparkles, Copy, Check, Sliders, CheckCircle2, AlertCircle,
   Layers, ArrowRight, Palette, Compass, Camera, BarChart3,
@@ -25,13 +26,14 @@ export default function CarouselPanel(props: any) {
     carouselOutputSource,
     isCarouselOutputAuthoritative = false,
     handleCopyText,
-    copiedStates,
+    copiedStates = {},
     nextStepVisibleKeys,
     handleDismissNextStep,
     activeSlideNumber,
     setActiveSlideNumber,
     carouselOutput,
     carouselPlan,
+    handleReviewCarousel,
     getInitialDraft,
     tryParseJSON,
     savedCharacters,
@@ -52,11 +54,11 @@ export default function CarouselPanel(props: any) {
 
   const plan = carouselPlan || null;
 
-  if (!plan || !plan.slides || plan.slides.length === 0) {
+  if (!isRenderableCarouselPlan(plan)) {
     return (
       <div className="p-4 bg-[#fffdf8] border border-[#e7e0d4] rounded-2xl">
         <div className="whitespace-pre-wrap font-sans text-stone-800 text-xs leading-relaxed">
-          {carouselOutput || getInitialDraft('carousel', activeItem, activeContext)}
+          {typeof carouselOutput === 'string' && !plan ? carouselOutput : 'Data carousel tidak valid. Periksa sumber dan buat ulang carousel. Data tersimpan tetap dipertahankan.'}
         </div>
       </div>
     );
@@ -191,7 +193,7 @@ ${s.production_prompt || '-'}`;
           )}
           {!isCarouselOutputAuthoritative ? (
             <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-stone-100 text-stone-600 border-stone-200">
-              Draft Awal • Belum Dioptimalkan
+              {carouselOutputSource === 'initial_draft' ? 'Draft Awal • Belum Dioptimalkan' : 'Belum Ditinjau'}
             </span>
           ) : alignmentCheck ? (
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
@@ -199,7 +201,7 @@ ${s.production_prompt || '-'}`;
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 : 'bg-amber-50 text-amber-800 border-amber-200'
             }`}>
-              {alignmentCheck.isAligned ? 'Corong OK' : 'Corong Disesuaikan'}
+              {alignmentCheck.isAligned ? 'Ditinjau Pengguna' : 'Belum Ditinjau'}
             </span>
           ) : null}
         </div>
@@ -233,6 +235,22 @@ ${s.production_prompt || '-'}`;
           </button>
         </div>
       </div>
+
+      {!isCarouselReviewCurrent(plan, characterDNA) && (
+        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-900 space-y-2">
+          <p>Struktur valid; kesesuaian makna belum diverifikasi. Periksa Slide 1–5 terhadap headline, body, tujuan, CTA dan caption kalender, hubungan antar-slide, serta subjek, aktivitas dan klaim setiap prompt visual. Produksi diblokir sampai peninjauan selesai.</p>
+          <p>Topik kalender: {activeItem?.headline || '—'}</p>
+          <p>Pesan kalender: {activeItem?.body || '—'}</p>
+          <p>CTA kalender: {activeItem?.cta || '—'}</p>
+          <details>
+            <summary>Pratinjau prompt visual Slide {activeSlideNum} untuk ditinjau</summary>
+            <pre className="whitespace-pre-wrap mt-2">{activeSlide.slide_image_prompt}</pre>
+          </details>
+          <button type="button" onClick={handleReviewCarousel} className="px-3 py-2 rounded-lg border border-amber-300 font-semibold">
+            Saya sudah meninjau narasi dan visual terhadap kalender
+          </button>
+        </div>
+      )}
 
       {/* TRANSLATION ERROR ALERT */}
       {carouselTranslationError && (

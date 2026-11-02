@@ -14,10 +14,25 @@
  */
 
 import {
-  evaluateCarouselProductionGate,
+  evaluateCarouselProductionGate as evaluateRawCarouselProductionGate,
   CarouselProductionGateResult,
   EvaluateCarouselProductionGateParams,
 } from '../lib/carousel-production-gate';
+import { buildCarouselSourceBinding } from '../lib/carousel-authority';
+
+// These established gate fixtures represent explicitly user-reviewed content.
+// Missing/stale review behavior is covered separately in test-carousel-authority-audit.ts.
+function evaluateCarouselProductionGate(params: EvaluateCarouselProductionGateParams): CarouselProductionGateResult {
+  const binding = buildCarouselSourceBinding(params.source_item, params.production_context?.shared_context);
+  return evaluateRawCarouselProductionGate({
+    ...params,
+    content_review: binding ? {
+      reviewed: true,
+      source_signature: binding.source_signature,
+      candidate_signature: params.current_production_plan_signature,
+    } : null,
+  });
+}
 import {
   buildEffectiveCarouselProductionCandidate,
   buildCarouselProductionPlanSignature,

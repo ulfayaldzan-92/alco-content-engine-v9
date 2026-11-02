@@ -2,6 +2,11 @@
 
 import { buildVideoNarrativeBrief, matchesVideoNarrativeBrief, fitVideoVoiceoverDuration } from '@/lib/video-narrative-brief';
 import React, { useState, useEffect, useMemo } from 'react';
+import {
+  buildCarouselSourceBinding, matchesCarouselSourceBinding, carouselNarrativeSignature,
+  hasCarouselNarrativeShape, hasCarouselVisualShape, isCarouselStage2Bound,
+  createCarouselReviewStamp, isCarouselReviewCurrent,
+} from '@/lib/carousel-authority';
 import ImagePanel from '@/components/production-studio/ImagePanel';
 import CarouselPanel from '@/components/production-studio/CarouselPanel';
 import VideoPanel from '@/components/production-studio/VideoPanel';
@@ -225,6 +230,8 @@ interface CarouselSlide {
   body: string;
   swipe_bridge: string;
   emotional_state: string;
+  core_message?: string;
+  audience_emotion?: string;
   visual_intent: string;
   visual_type?: string;
   text_zone?: string;
@@ -243,6 +250,8 @@ interface CarouselMessageAlignmentCheck {
 }
 
 interface CarouselPlan {
+  source_binding?: ReturnType<typeof buildCarouselSourceBinding>;
+  review_stamp?: ReturnType<typeof createCarouselReviewStamp>;
   content_goal: string;
   funnel_stage: string;
   current_belief: string;
@@ -949,11 +958,18 @@ const validateAndNormalizeCarouselPlan = (
   rawText: string,
   activeItem?: any,
   activeContext?: any,
-  attachProductionCandidate: boolean = true
+  attachProductionCandidate: boolean = true,
+  characterForReview: CharacterDNA | null = null
 ): string | null => {
   if (!rawText) return null;
   const parsed = tryParseJSON(rawText);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  if (!hasCarouselNarrativeShape(parsed) || !hasCarouselVisualShape(parsed)) return null;
+  if (!activeItem || !activeContext || !matchesCarouselSourceBinding(parsed.source_binding, activeItem, activeContext)) return null;
+  if (!isCarouselStage2Bound(parsed, {
+    source_binding: parsed.source_binding, narrative_signature: carouselNarrativeSignature(parsed), slides: parsed.slides,
+  })) return null;
 
   // Strict funnel stage validation - fail closed without permissive fallbacks
   const rawFunnel = String(parsed.funnel_stage || parsed.funnelStage || '').toUpperCase().trim();
@@ -1099,10 +1115,10 @@ const validateAndNormalizeCarouselPlan = (
       funnel_stage: funnelStage,
       slide_role: role,
       visual_objective: String(cs?.visual_objective || cs?.visualObjective || visualIntent).trim(),
-      core_message: String(cs?.core_message || cs?.coreMessage || coreMessage).trim(),
+      core_message: coreMessage,
       audience_emotion: String(cs?.audience_emotion || cs?.audienceEmotion || audienceEmotion).trim(),
       visual_concept: String(cs?.visual_concept || cs?.visualConcept || visualMetaphor).trim(),
-      text_overlay: String(cs?.text_overlay || cs?.textOverlay || headline).trim(),
+      text_overlay: headline,
     };
 
     const slideImagePrompt = sanitizeAndGenerateSlideImagePrompt(
@@ -1129,6 +1145,8 @@ const validateAndNormalizeCarouselPlan = (
       swipe_bridge: swipeBridge,
       emotional_state: emotionalState,
       visual_intent: visualIntent,
+      core_message: coreMessage,
+      audience_emotion: audienceEmotion,
       visual_type: visualType,
       text_zone: textZone,
       negative_space_plan: negativeSpacePlan,
@@ -1201,7 +1219,9 @@ const validateAndNormalizeCarouselPlan = (
     validatedSlides[0]?.visual_production?.composition ||
     '';
 
-  const carouselCandidate = attachProductionCandidate
+  // JSON validity and source freshness do not establish semantic alignment.
+  const reviewCurrent = isCarouselReviewCurrent({ ...parsed, slides: validatedSlides }, characterForReview);
+  const carouselCandidate = attachProductionCandidate && reviewCurrent
     ? buildCarouselProductionCandidate({
         candidate_id: 'carousel_plan',
         objective: contentGoal,
@@ -1228,6 +1248,8 @@ const validateAndNormalizeCarouselPlan = (
   }
 
   const canonicalPlan: CarouselPlan = {
+    source_binding: parsed.source_binding,
+    review_stamp: reviewCurrent ? parsed.review_stamp : undefined,
     content_goal: contentGoal,
     funnel_stage: funnelStage,
     current_belief: currentBelief,
@@ -1241,9 +1263,9 @@ const validateAndNormalizeCarouselPlan = (
     captionForPost,
     captionInstruction,
     messageAlignmentCheck: {
-      isAligned: true,
-      issue: undefined,
-      fixApplied: `Penyelarasan pesan dan alur narasi telah divalidasi sesuai corong ${funnelStage}.`,
+      isAligned: reviewCurrent,
+      issue: reviewCurrent ? undefined : 'Struktur valid. Narasi antar-slide dan visual belum ditinjau terhadap kalender aktif.',
+      fixApplied: reviewCurrent ? 'Narasi dan visual ditinjau pengguna untuk sumber dan output ini.' : undefined,
     },
     visual_system_notes: visualSystemNotes,
     slides: validatedSlides,
@@ -1314,7 +1336,8 @@ function buildCarouselStage1Prompt(
   formattedContext: string,
   funnelRules: any,
   activeItem: any,
-  revisionDirective: string
+  revisionDirective: string,
+  activeContext?: SharedContentContext | null
 ): string {
   return `Buatkan CAROUSEL STAGE 1: CONTENT PLAN - FUNNEL ${funnelStage} (Bahasa Indonesia, profesional).
 
@@ -1324,6 +1347,14 @@ ${ANTI_DRIFT_RULES}
 ${funnelPromptBlock}
 
 ${formattedContext}
+
+### SELECTED CALENDAR NARRATIVE BRIEF (TOPIC AUTHORITY FOR ALL FIVE SLIDES):
+${JSON.stringify({ source_binding: buildCarouselSourceBinding(activeItem, activeContext), headline: activeItem?.headline, body: activeItem?.body, objective: activeItem?.tujuan, cta: activeItem?.cta, caption: activeItem?.caption, visual_direction: activeItem?.visual, solution: activeItem?.solusi || activeItem?.solution || '', proof: activeItem?.proof || activeItem?.proof_data || '' }, null, 2)}
+Return source_binding exactly as shown above as a top-level field in Stage 1 JSON.
+Keep one topic: Hook → its Problem → relevant Reframe → supported Value → relevant CTA.
+Project-wide facts may support this topic, never replace it. Funnel changes delivery only.
+Creative paraphrases are allowed, but are NOT automatically certified aligned; user review is mandatory.
+Do not emit review_stamp or claim semantic verification. Do not invent missing solutions or proof.
 
 Existing ContentItem Caption:
 ${activeItem?.caption?.trim() || '(tidak tersedia)'}
@@ -1439,7 +1470,7 @@ ATURAN STRUKTUR UNTUK 5 SLIDE (DEFAULT):
 
 WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUAL):
 {
-  "content_goal": "${funnelRules.goal}",
+  "content_goal": "${activeItem?.tujuan || ''}",
   "funnel_stage": "${funnelStage}",
   "current_belief": "[Pemahaman/kondisi awal audiens yang SECARA LANGSUNG didukung pain point, objection, headline, body, atau authority project]",
   "desired_belief": "[Pemahaman baru yang diturunkan dari positioning/core_message/objective authority tanpa menambahkan janji baru]",
@@ -1451,9 +1482,9 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 1 (TANPA MARKDOWN, TANPA PETUNJUK VISUA
   "belief_journey_summary": "[Ringkasan transformasi pola pikir audiens dari slide awal hingga akhir]",
   "captionForPost": "[Caption lengkap postingan Instagram yang merangkum narasi slide 1-5, grounded HANYA pada ProductionContext + narasi Stage 1. Jika ContentItem.caption tersedia, jadikan authority utama. Dilarang menambah benefit, proof, result, feature, metric, urgency, atau claim baru]",
   "messageAlignmentCheck": {
-    "isAligned": true,
+    "isAligned": false,
     "issue": "",
-    "fixApplied": "Penyelarasan pesan dan alur narasi telah divalidasi sesuai corong ${funnelStage}."
+    "fixApplied": ""
   },
   "slides": [
     {
@@ -1536,6 +1567,9 @@ ${formattedContext}
 
 ### STAGE 1 CONTENT PLAN INPUT:
 ${stage1JsonString}
+Return these exact top-level linkage fields in Stage 2 JSON:
+${JSON.stringify({ source_binding: tryParseJSON(stage1JsonString)?.source_binding, narrative_signature: carouselNarrativeSignature(tryParseJSON(stage1JsonString)) }, null, 2)}
+Do not return headline, body, core_message or CTA fields, including at the top level.
 ${batchDirective}
 
 ### CAROUSEL STAGE 2 VISUAL GROUNDING CONTRACT — STRICT
@@ -1650,11 +1684,15 @@ WAJIB KEMBALIKAN HANYA JSON OBJECT STAGE 2 (TANPA MARKDOWN):
 // Helper function to validate Carousel Stage 1 Content Plan (strictly narrative, no visual prompts)
 function validateCarouselStage1ContentPlan(
   rawTextOrObj: any,
-  expectedFunnelStage: FunnelStage
+  expectedFunnelStage: FunnelStage,
+  activeItem?: ContentItem | null,
+  activeContext?: SharedContentContext | null
 ): any | null {
   if (!rawTextOrObj) return null;
   const parsed = typeof rawTextOrObj === 'string' ? tryParseJSON(rawTextOrObj) : rawTextOrObj;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (!hasCarouselNarrativeShape(parsed)) return null;
+  if (!activeItem || !activeContext || !matchesCarouselSourceBinding(parsed.source_binding, activeItem, activeContext)) return null;
 
   // Strict funnel stage validation
   const rawFunnel = String(parsed.funnel_stage || parsed.funnelStage || '').toUpperCase().trim();
@@ -1740,6 +1778,8 @@ function validateCarouselStage1ContentPlan(
 
   return {
     ...parsed,
+    review_stamp: undefined,
+    messageAlignmentCheck: { isAligned: false, issue: 'Narasi memerlukan tinjauan pengguna.' },
     content_goal: contentGoal,
     funnel_stage: validFunnel,
     current_belief: currentBelief,
@@ -1754,10 +1794,12 @@ function validateCarouselStage1ContentPlan(
 }
 
 // Helper function to validate Carousel Stage 2 Visual Enrichment (strictly visual layers)
-function validateCarouselStage2VisualPlan(rawTextOrObj: any): any | null {
+function validateCarouselStage2VisualPlan(rawTextOrObj: any, stage1?: any): any | null {
   if (!rawTextOrObj) return null;
   const parsed = typeof rawTextOrObj === 'string' ? tryParseJSON(rawTextOrObj) : rawTextOrObj;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (!hasCarouselVisualShape(parsed)) return null;
+  if (!stage1 || !isCarouselStage2Bound(stage1, parsed)) return null;
 
   const rawSlides = parsed.slides;
   if (!Array.isArray(rawSlides) || rawSlides.length !== 5) {
@@ -1860,11 +1902,12 @@ const mergeCarouselPlanStages = (
   expectedFunnelStage?: FunnelStage
 ): string | null => {
   const currentStage: FunnelStage = expectedFunnelStage || normalizeFunnelStage(activeItem?.jenis);
-  const validStage1 = validateCarouselStage1ContentPlan(stage1Raw, currentStage);
+  const validStage1 = validateCarouselStage1ContentPlan(stage1Raw, currentStage, activeItem, activeContext);
   if (!validStage1) return null;
 
-  const validStage2 = validateCarouselStage2VisualPlan(stage2Raw);
+  const validStage2 = validateCarouselStage2VisualPlan(stage2Raw, validStage1);
   if (!validStage2) return null;
+  if (!isCarouselStage2Bound(validStage1, validStage2)) return null;
 
   const s1Slides: any[] = validStage1.slides;
   const s2Slides: any[] = validStage2.slides;
@@ -1913,6 +1956,7 @@ const mergeCarouselPlanStages = (
 
   const mergedPlan = {
     ...validStage1,
+    review_stamp: undefined,
     visual_system_notes: validStage2.visual_system_notes || 'Tema visual konsisten 4:5 vertical editorial.',
     captionForPost: validStage1.captionForPost,
     captionInstruction: 'Paste teks ini di caption/keterangan postingan setelah aset dibuat.',
@@ -2123,6 +2167,12 @@ const getInitialDraft = (
   currentItem?: ContentItem | null,
   currentContext?: SharedContentContext | null
 ): string => {
+  if (tab === 'carousel' && (!currentItem || !currentContext
+    || !['headline', 'body', 'tujuan', 'jenis', 'caption', 'visual', 'format'].every(key => typeof (currentItem as unknown as Record<string, unknown>)[key] === 'string')
+    || (currentItem.cta !== undefined && typeof currentItem.cta !== 'string')
+    || typeof currentContext.brand_context?.brand_name !== 'string')) {
+    return 'Data kalender carousel belum lengkap atau memiliki tipe field tidak valid. Periksa data sumber; data tersimpan tetap dipertahankan.';
+  }
   if (!currentItem || !currentContext || !currentContext.brand_context?.brand_name?.trim()) return '';
   const activeItem = currentItem;
   const activeContext: SharedContentContext = currentContext;
@@ -2164,10 +2214,9 @@ const getInitialDraft = (
       if (activeItem?.carousel_plan) {
         const normalizedExisting = validateAndNormalizeCarouselPlan(JSON.stringify(activeItem.carousel_plan), activeItem, activeContext, false);
         if (normalizedExisting) return normalizedExisting;
-        return JSON.stringify(activeItem.carousel_plan, null, 2);
+        return 'Rencana carousel lama tidak lolos validasi untuk kalender aktif. Data tersimpan tetap dipertahankan. Buat ulang carousel.';
       }
-      const draftTopic = (activeItem?.headline || (activeItem as any)?.topik || (activeItem as any)?.title || '').trim();
-      const draftAudience = (activeContext?.audience_context?.primary_audience || (activeItem as any)?.target_audience || '').trim();
+      const draftTopic = activeItem.headline.trim();
       const draftProblem = (activeItem?.body ? activeItem.body.slice(0, 80) : '').trim();
       const explicitSolution = (activeItem as any)?.solusi ?? (activeItem as any)?.solution;
       const draftSolution = typeof explicitSolution === 'string' ? explicitSolution.trim() : '';
@@ -2180,7 +2229,7 @@ const getInitialDraft = (
           ? rawProofData
           : ''
       ).trim();
-      const draftHook = (activeItem?.headline || (activeItem as any)?.hook || '').trim();
+      const draftHook = activeItem.headline.trim();
       const carouselCta = (activeItem?.cta || '').trim();
 
       const initialPlan: CarouselPlan = {
@@ -2195,7 +2244,7 @@ const getInitialDraft = (
         slide_count_reason: '5 Slide merupakan panjang optimal untuk alur narasi Hook → Problem → Reframe → How It Works / Value → CTA.',
         belief_journey_summary: (activeItem as any)?.belief_journey_summary || '',
         messageAlignmentCheck: {
-          isAligned: true,
+          isAligned: false,
           issue: '',
           fixApplied: ''
         },
@@ -2544,6 +2593,8 @@ export default function ProductionStudioPage() {
     currentContentItemIdRef.current = sourceItem?.content_item_id ?? null;
   }, [sourceItem?.content_item_id]);
   const [sharedContextSnapshot, setSharedContextSnapshot] = useState<SharedContentContext | null>(null);
+  const currentCarouselSourceRef = React.useRef('');
+  currentCarouselSourceRef.current = JSON.stringify(buildCarouselSourceBinding(sourceItem, sharedContextSnapshot));
   const [funnelStrategySnapshot, setFunnelStrategySnapshot] = useState<FunnelStrategy | null>(null);
   const [characterDNA, setCharacterDNA] = useState<CharacterDNA | null>(null);
   const [savedCharacters, setSavedCharacters] = useState<CharacterDNA[]>([]);
@@ -3090,13 +3141,10 @@ export default function ProductionStudioPage() {
           setImageOutputSource('none');
         }
 
-        if (storedCarousel && !isErrorContent(storedCarousel)) {
-          setCarouselOutput(storedCarousel);
+        if (storedCarousel !== null && storedCarousel !== undefined) {
+          setCarouselOutput(typeof storedCarousel === 'string' ? storedCarousel : 'Output carousel tersimpan memiliki tipe tidak valid. Data asli tetap dipertahankan.');
           setCarouselOutputSource('stored_output');
         } else {
-          if (storedCarousel && isErrorContent(storedCarousel)) {
-            removeProjectData(resolvedCanonicalId, `studio_carousel_${itemKey}`);
-          }
           setCarouselOutput(getInitialDraft('carousel', resolvedItem, parsedContext));
           setCarouselOutputSource('initial_draft');
         }
@@ -3581,6 +3629,11 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
       // SPECIAL 2-STAGE GENERATION FOR CAROUSEL
       // ==========================================
       if (activeTab === 'carousel') {
+        const requestCarouselSource = JSON.stringify(buildCarouselSourceBinding(activeItem, activeContext));
+        if (requestCarouselSource === 'null') {
+          setGenerationError('Identitas sumber kalender carousel tidak valid. Muat ulang project.');
+          return;
+        }
         setGenerationError(null);
         showToast("[1/2] Gemini AI: Menghasilkan Stage 1 (Content Plan)...");
 
@@ -3590,7 +3643,8 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
           formattedContext,
           funnelRules,
           activeItem,
-          revisionDirective
+          revisionDirective,
+          activeContext
         );
 
         const controller1 = new AbortController();
@@ -3636,6 +3690,7 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
 
           // ASYNC GUARD check for Stage 1
           if (
+            currentCarouselSourceRef.current !== requestCarouselSource ||
             getActiveProjectId() !== requestProjectId ||
             canonicalProjectId !== requestProjectId ||
             !sourceItem ||
@@ -3647,7 +3702,7 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
           }
 
           const stage1Text = data1.text || '';
-          const stage1Parsed = validateCarouselStage1ContentPlan(stage1Text, funnelStage);
+          const stage1Parsed = validateCarouselStage1ContentPlan(stage1Text, funnelStage, activeItem, activeContext);
 
           if (!stage1Parsed) {
             setGenerationError("Format respon Stage 1 Content Plan tidak valid atau tidak memenuhi skema. Silakan coba lagi.");
@@ -3707,6 +3762,7 @@ Pastikan evaluasi memeriksa kepatuhan aturan funnel ${funnelStage}:
 
           // ASYNC GUARD check for Stage 2
           if (
+            currentCarouselSourceRef.current !== requestCarouselSource ||
             getActiveProjectId() !== requestProjectId ||
             canonicalProjectId !== requestProjectId ||
             !sourceItem ||
@@ -3986,21 +4042,15 @@ ${formatDirection}${revisionDirective}`;
     if (!activeItem || !activeContext) return null;
     const attachCandidate = isAuthoritativeProductionOutputSource(carouselOutputSource);
     const textToParse = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
-    const normalized = validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate);
+    const normalized = validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate, characterDNA);
     if (normalized) {
       const parsed = tryParseJSON(normalized);
       if (parsed && typeof parsed === 'object') {
         return parsed as CarouselPlan;
       }
     }
-    const parsed = tryParseJSON(carouselOutput);
-    if (parsed && typeof parsed === 'object') {
-      if ('slides' in parsed && Array.isArray((parsed as any).slides)) {
-        return parsed as CarouselPlan;
-      }
-    }
     return null;
-  }, [carouselOutput, carouselOutputSource, activeItem, activeContext]);
+  }, [carouselOutput, carouselOutputSource, activeItem, activeContext, characterDNA]);
 
   // Phase 3D-D: Canonical Carousel Production Candidate & Signature
   const baseCarouselCandidate = carouselPlan?.productionCandidate || null;
@@ -4019,12 +4069,28 @@ ${formatDirection}${revisionDirective}`;
     return buildCarouselProductionPlanSignature(effectiveCarouselCandidate);
   }, [effectiveCarouselCandidate]);
 
+  const carouselContentReview = useMemo(() => carouselPlan && isCarouselReviewCurrent(carouselPlan, characterDNA) ? {
+    source_signature: carouselPlan.source_binding!.source_signature,
+    candidate_signature: currentCarouselProductionPlanSignature,
+    reviewed: true,
+  } : null, [carouselPlan, currentCarouselProductionPlanSignature, characterDNA]);
+
   const normalizedCarouselOutput = useMemo(() => {
-    if (!activeItem || !activeContext) return carouselOutput || '';
+    if (!activeItem || !activeContext) return 'Konteks kalender carousel belum tersedia.';
     const attachCandidate = isAuthoritativeProductionOutputSource(carouselOutputSource);
     const textToParse = carouselOutput || getInitialDraft('carousel', activeItem, activeContext);
-    return validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate) || carouselOutput;
-  }, [carouselOutput, carouselOutputSource, activeItem, activeContext]);
+    return validateAndNormalizeCarouselPlan(textToParse, activeItem, activeContext, attachCandidate, characterDNA)
+      || 'Carousel belum memiliki rencana canonical yang sesuai kalender aktif. Output lama tidak dihapus. Periksa sumber dan buat ulang carousel.';
+  }, [carouselOutput, carouselOutputSource, activeItem, activeContext, characterDNA]);
+
+  const handleReviewCarousel = () => {
+    if (!carouselPlan || !activeItem || !activeContext || !matchesCarouselSourceBinding(carouselPlan.source_binding, activeItem, activeContext)) return;
+    const reviewed = { ...carouselPlan, review_stamp: createCarouselReviewStamp(carouselPlan, characterDNA) };
+    const normalized = validateAndNormalizeCarouselPlan(JSON.stringify(reviewed), activeItem, activeContext, true, characterDNA);
+    if (!normalized) return;
+    saveCarouselOutput(normalized);
+    setCarouselOutputSource('user_edited_output');
+  };
 
   const normalizedVideoOutput = useMemo(() => {
     if (!activeItem || !activeContext) return videoOutput ? 'Konteks kalender aktif belum tersedia. Output tersimpan perlu ditinjau ulang.' : '';
@@ -4598,6 +4664,7 @@ ${formatDirection}${revisionDirective}`;
   // Carousel Production Gate Evaluation
   const carouselProductionGate = useMemo(() => {
     return evaluateCarouselProductionGate({
+      content_review: carouselContentReview,
       production_context: productionEngineContext,
       source_item: sourceItem,
       output_source: carouselOutputSource,
@@ -4607,6 +4674,7 @@ ${formatDirection}${revisionDirective}`;
       current_execution_authority: currentCarouselExecutionAuthority,
     });
   }, [
+    carouselContentReview,
     productionEngineContext,
     sourceItem,
     carouselOutputSource,
@@ -4620,6 +4688,7 @@ ${formatDirection}${revisionDirective}`;
   const handlePrepareCarouselProductionPackage = async () => {
     // 1. Re-evaluate gate directly to guarantee fail-closed security
     const gateCheck = evaluateCarouselProductionGate({
+      content_review: carouselContentReview,
       production_context: productionEngineContext,
       source_item: sourceItem,
       output_source: carouselOutputSource,
@@ -4772,7 +4841,7 @@ ${formatDirection}${revisionDirective}`;
       nextStepVisibleKeys, setNextStepVisibleKeys, handleDismissNextStep,
       imageOutput, getInitialDraft, funnelRules,
       activeSlideNumber, setActiveSlideNumber, 
-      carouselOutput: normalizedCarouselOutput, carouselPlan, videoOutput: normalizedVideoOutput, tryParseJSON, normalizeFunnelStage, getFunnelRules,
+      carouselOutput: normalizedCarouselOutput, carouselPlan, handleReviewCarousel, videoOutput: normalizedVideoOutput, tryParseJSON, normalizeFunnelStage, getFunnelRules,
       selectedVideoProductionMode, handleSelectVideoProductionMode, showToast,
       recommendedVideoProductionMode, videoIntentDecision, handleUseRecommendation,
       sourceItem,
@@ -4810,7 +4879,7 @@ ${formatDirection}${revisionDirective}`;
       <CarouselPanel
         {...commonProps}
         carouselOutputSource={carouselOutputSource}
-        isCarouselOutputAuthoritative={isAuthoritativeProductionOutputSource(carouselOutputSource)}
+        isCarouselOutputAuthoritative={isAuthoritativeProductionOutputSource(carouselOutputSource) && !!carouselPlan && isCarouselReviewCurrent(carouselPlan, characterDNA)}
       />
     );
     if (activeTab === 'video') return (
